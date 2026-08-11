@@ -222,6 +222,13 @@ scanner against manifests people actually publish — none of which, as it happe
 a multi-line string, a dotted key or a quoted table header. The exotic-but-legal input
 above is covered only by 17 hand-written adversarial cases, and remains the honest gap.
 
+`pin` never rewrites a manifest by pattern. The scanner records where each value sits and
+that span is replaced whole, because a regex could not do it safely: an escaped quote
+inside the value stopped the character class early and produced `flix = "2.0.0"x"`, which
+is not TOML at all. Replacing the span also repairs a value that was unquoted or
+mis-quoted, which is what `pin` is for. Table headers fail closed too — trailing text after
+`[package]` used to be dropped.
+
 ## The compiled stage 0 in the cache is executed on trust
 
 The shims run whatever class sits at `<cache>/stage0/<sha256 of flix.java>/flix.class`.
@@ -235,13 +242,19 @@ the owner where the platform allows it. If your cache directory is shared, group
 or on a network filesystem other people can write to, set `FLIX_CACHE_HOME` to somewhere
 private.
 
+The JDK cache is the same boundary with one extra guard. An unpacked JDK is verified
+against Adoptium's digest when it is installed, and reused afterwards only if the note
+flixw writes at that point is still present and still records the same archive — merely
+containing a `bin/java` is not evidence, since any directory can. It is not re-hashed on
+every run; the marker naming it is required to resolve, through symlinks, inside the cache.
+
 Verifying the class in the shim would need a hash of the compiled output in a file the
 shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
 This wrapper has been exercised by a 96-case regression suite — one of those cases being
-347 unit assertions over a corpus of real manifests — against one compiler release, on
+352 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.
