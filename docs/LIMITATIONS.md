@@ -83,17 +83,38 @@ wrapper verb — a fact that changes rarely and is announced in release notes.
 
 A machine-readable command list from upstream would remove this entirely.
 
-## No JDK provisioning
+## JDK provisioning is opt-in, and cannot bootstrap from nothing
 
-`flixw` finds a Java; it does not install one. On a machine with no compatible JDK you
-get `FLIXW003` and an instruction, not a download.
+`flixw` finds a Java. When it finds none it prints what to type on your OS, and — only if
+you say yes — downloads one: Azul Zulu, the JDK matching `MIN_JAVA`, verified against the
+SHA-256 Azul publishes for that exact package, unpacked into `<cache>/jdks/`.
 
-This is a deliberate scope limit, not an oversight: provisioning a JDK means picking a
-vendor, tracking per-platform archives and digests, handling extraction safely, and
-owning a licensing story. Coursier (`cs java`) and JBang already do all of it. Delegating
-to one of them is a separate experiment, and until it runs the promise here is narrow —
-*a contributor who already has Java can skip installing Flix*, not zero-install
-bootstrapping.
+Zulu is chosen for one reason: its metadata API carries a per-package SHA-256, so the JDK
+can be verified the way the compiler is. An unverified JDK download inside a tool built
+around digest verification would be absurd. That is not a recommendation over Eclipse
+Temurin, Amazon Corretto, Microsoft Build or Red Hat's build — the printed instructions
+point at Temurin, which is the vendor-neutral default — and all of them are TCK-verified
+under GPLv2 with the Classpath Exception, so all are fine commercially.
+
+Three limits are worth knowing.
+
+**It cannot bootstrap from no Java at all.** Stage 0 is a Java program, so something must
+already be able to run it. With no `java` anywhere the shim exits before stage 0 starts,
+and all you get is the message and a link. The offer therefore only reaches you when a
+*too old* Java exists, not when none does.
+
+**It never prompts where nobody can answer.** In CI, in a pipe, or in a git hook a prompt
+is not a question, it is a hang; so a non-terminal stdin, or `CI` in the environment, gets
+the instructions and a failure instead. `FLIXW_INSTALL_JDK=1` opts in ahead of time for
+scripted setup.
+
+**The digest is Azul's, over Azul's TLS.** Same shape as the compiler pin: it defends
+against a corrupted or truncated download and against a mirror substituting bytes, not
+against Azul itself. It is trust-on-first-use, and it is one more supply chain than this
+tool had yesterday — which is why it happens only when asked.
+
+Delegating instead to Coursier (`cs java`) or JBang remains the alternative, and both do
+more than this does.
 
 It looks in the directories JDKs are normally unpacked into, including the version
 managers that hold them when the OS does not know about them at all — SDKMAN, asdf, mise,
@@ -169,7 +190,7 @@ shim also has to trust, which moves the problem rather than solving it.
 ## No field evidence
 
 This wrapper has been exercised by a 79-case regression suite — one of those cases being
-334 unit assertions over a corpus of real manifests — against one compiler release, on
+341 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.

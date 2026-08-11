@@ -316,6 +316,45 @@ public final class UnitCheck {
         System.out.println("  ok   chooser: 7 selections over discovered JDK sets");
     }
 
+    // ---- 6: JDK provisioning, everything that must not touch the network ---
+
+    /**
+     * The install itself is a 200MB download and is verified by hand, not here. What is
+     * asserted is the part that decides *what* to fetch and whether to trust the answer:
+     * every value below arrives as JSON from a third party.
+     */
+    static void provisioning() {
+        String body = "[{\"name\":\"zulu21.52.15-ca-jdk21.0.12-linux_x64.tar.gz\","
+                    + "\"download_url\":\"https://cdn.azul.com/zulu/bin/z.tar.gz\","
+                    + "\"sha256_hash\":\"" + "a".repeat(64) + "\"}]";
+        eq("metadata: name", "zulu21.52.15-ca-jdk21.0.12-linux_x64.tar.gz",
+           flix.jsonField(body, "name"));
+        eq("metadata: url", "https://cdn.azul.com/zulu/bin/z.tar.gz",
+           flix.jsonField(body, "download_url"));
+        eq("metadata: sha256", "a".repeat(64), flix.jsonField(body, "sha256_hash"));
+        eq("metadata: an absent field is absent", null, flix.jsonField(body, "nope"));
+        // The key is quoted into the pattern, so a key containing regex metacharacters
+        // must not become one.
+        eq("metadata: a key is not a pattern", null, flix.jsonField(body, "na.e"));
+
+        // Azul publishes no tar.gz for Windows and a musl build as `latest` for Linux
+        // aarch64, so the coordinates are not interchangeable and are pinned here.
+        String[] c = flix.zuluCoords();
+        if (c == null) {
+            System.out.println("  skip provisioning: no Zulu coordinates for this platform");
+            return;
+        }
+        boolean win = c[0].equals("windows");
+        eq("coords: archive type follows the platform", win ? "zip" : "tar.gz", c[2]);
+        if (c[0].startsWith("linux"))
+            eq("coords: linux asks for glibc, never musl", "linux_glibc", c[0]);
+        if (!"aarch64".equals(c[1]) && !"x64".equals(c[1]))
+            bad("coords: architecture", "unexpected " + c[1]);
+        else ok();
+
+        System.out.println("  ok   provisioning: metadata parsing and platform coordinates");
+    }
+
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         List<Row> rows = rows(dir);
@@ -324,6 +363,7 @@ public final class UnitCheck {
         adversarial();
         crlf();
         chooser();
+        provisioning();
         bounded();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);

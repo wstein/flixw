@@ -20,6 +20,7 @@ else java0=$(command -v java 2>/dev/null || true); fi
 if [ -z "$java0" ]; then
   echo "FLIXW003: no java executable found." >&2
   echo "          Flix needs Java 21+. Set JAVA_HOME or put java on PATH." >&2
+  echo "          https://adoptium.net/temurin/releases/?version=21" >&2
   exit 127
 fi
 if [ ! -x "$java0" ]; then

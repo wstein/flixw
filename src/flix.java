@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.6.0";
+    static final String WRAPPER_VERSION = "0.7.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -654,8 +654,7 @@ public final class flix {
         }
         Jvm pick = chooseInstall(found, strictJava());
         if (pick != null) return pick;
-        throw w003("no Java in [" + MIN_JAVA + ", " + TESTED_CEILING + "] found"
-                 + "\n       this JVM is " + self + "; set FLIX_JAVA_HOME or JAVA_HOME");
+        return noJavaFound(self);
     }
 
     /**
@@ -713,6 +712,230 @@ public final class flix {
             } catch (IOException ignored) { }
         }
         return out;
+    }
+
+    // ---- optional JDK provisioning ----------------------------------------
+    //
+    // This reverses a stated scope limit, deliberately and on request.  Provisioning means
+    // picking a vendor, tracking per-platform archives and digests, unpacking safely, and
+    // owning a licensing story; what follows accepts that for exactly one vendor, only
+    // when asked, and never silently.
+    //
+    // Azul Zulu, because it publishes a metadata API that carries a SHA-256 per package.
+    // That is the whole reason: it lets a JDK be verified the same way the compiler is,
+    // and an unverified JDK download in a tool built around digest verification would be
+    // absurd.  Zulu is GPLv2 with the Classpath Exception and TCK-verified, so it is
+    // usable commercially without further conditions, and it builds for every platform
+    // this wrapper runs on.  None of that makes it better than Temurin or Corretto -- the
+    // printed instructions point at Temurin -- it is the one that fits the verification
+    // story in a single HTTPS call.
+
+    static final String ZULU_API = "https://api.azul.com/metadata/v1/zulu/packages/";
+    static final String ZULU_CDN = "https://cdn.azul.com/";
+
+    record JdkPackage(String name, String url, String sha256) {}
+
+    /** Azul's spelling of this platform, or null where it publishes nothing. */
+    static String[] zuluCoords() {
+        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+        String a = switch (arch) {
+            case "aarch64", "arm64" -> "aarch64";
+            case "x86_64", "amd64" -> "x64";
+            default -> null;
+        };
+        if (a == null) return null;
+        if (isWindows()) return new String[] { "windows", a, "zip" };   // no tar.gz is published
+        if (isMac()) return new String[] { "macos", a, "tar.gz" };
+        // linux_glibc, never linux: `os=linux` also matches the musl builds, and for
+        // aarch64 the API returns a musl package as `latest` -- which does not run on an
+        // ordinary glibc system, and fails in a way that looks like a corrupt download.
+        return new String[] { "linux_glibc", a, "tar.gz" };
+    }
+
+    /** One bounded HTTPS GET returning text.  Metadata only; bytes go through download(). */
+    static String httpGet(String url) {
+        HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(30)).build();
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(60))
+                .header("User-Agent", "flixw/" + WRAPPER_VERSION).build();
+        try {
+            HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() != 200)
+                throw w005("HTTP " + res.statusCode() + " from " + redact(url));
+            return res.body();
+        } catch (IOException e) {
+            throw w005("cannot reach " + redact(url) + "\n       " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw w005("metadata request interrupted");
+        }
+    }
+
+    /** Enough JSON for flat string fields of one small, known response. */
+    static String jsonField(String json, String key) {
+        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]*)\"")
+                           .matcher(json);
+        return m.find() ? m.group(1) : null;
+    }
+
+    static JdkPackage resolveZulu() {
+        String[] c = zuluCoords();
+        if (c == null)
+            throw w003("no Zulu build is published for " + System.getProperty("os.name")
+                     + " " + System.getProperty("os.arch") + "; install a JDK by hand");
+        String body = httpGet(ZULU_API + "?java_version=" + MIN_JAVA + "&os=" + c[0]
+                            + "&arch=" + c[1] + "&archive_type=" + c[2]
+                            + "&java_package_type=jdk&javafx_bundled=false&latest=true"
+                            + "&release_status=ga&page_size=1&include_fields=sha256_hash");
+        String name = jsonField(body, "name");
+        String url = jsonField(body, "download_url");
+        String sha = jsonField(body, "sha256_hash");
+        if (name == null || url == null || sha == null)
+            throw w005("Azul published no " + c[2] + " JDK " + MIN_JAVA
+                     + " for " + c[0] + "/" + c[1]);
+        // Everything above came from a third party's JSON.  None of it is used as a URL, a
+        // filename or a digest until it has been checked to be one.
+        if (!url.startsWith(ZULU_CDN))
+            throw w005("refusing a Zulu download outside " + ZULU_CDN + ": " + redact(url));
+        if (!sha.matches("[0-9a-f]{64}"))
+            throw w005("Zulu metadata carried no usable sha256 for " + name);
+        if (!name.matches("[A-Za-z0-9._+-]{1,120}"))
+            throw w005("refusing an unexpected Zulu package name: " + q(name));
+        return new JdkPackage(name, url, sha);
+    }
+
+    /**
+     * Downloads, verifies and unpacks one JDK into the wrapper cache, and returns its
+     * `java`.  Content is addressed by the archive name, which carries the exact build, so
+     * a second project on the same machine reuses it and a re-run is a no-op.
+     */
+    static Path installZulu(JdkPackage p) {
+        Path dir = cacheHome().resolve("jdks");
+        Path dest = dir.resolve(p.name().replaceAll("\\.(tar\\.gz|zip)$", ""));
+        if (!Files.isDirectory(dest)) {
+            Path tmp = null, staging = null;
+            try {
+                Files.createDirectories(dir);
+                tmp = Files.createTempFile(dir, ".jdk-", ".part");
+                System.err.println("flixw: downloading " + p.name());
+                System.err.println("       from " + p.url());
+                download(p.url(), tmp);
+                String got = sha256(tmp);
+                if (!got.equals(p.sha256()))
+                    throw w006("digest mismatch for " + p.name()
+                             + "\n       expected " + p.sha256()
+                             + "\n       actual   " + got);
+                staging = Files.createTempDirectory(dir, ".unpack-");
+                String log = unpack(tmp, staging);
+                // Unpacking is judged by its result rather than its exit status: the only
+                // thing that matters is whether a runnable java came out of it.
+                if (findJavaUnder(staging) == null)
+                    throw w007("no bin/java after unpacking " + p.name()
+                             + (log.isBlank() ? "" : "\n       " + log.strip()));
+                Files.move(staging, dest, StandardCopyOption.ATOMIC_MOVE);
+                staging = null;
+            } catch (IOException e) {
+                throw w007("cannot install a JDK into " + dir + ": " + why(e));
+            } finally {
+                if (tmp != null) { try { Files.deleteIfExists(tmp); } catch (IOException ignored) { } }
+                if (staging != null) deleteTree(staging);
+            }
+        }
+        Path exe = findJavaUnder(dest);
+        if (exe == null) throw w003("no bin/java inside " + dest);
+        return exe;
+    }
+
+    /** Returns whatever the unpacker said, for a diagnostic; success is judged separately. */
+    static String unpack(Path archive, Path dest) throws IOException {
+        if (isWindows()) { unzip(archive, dest); return ""; }
+        // System tar on POSIX: it already handles modes, symlinks and hostile member
+        // names, all of which a hand-written reader would have to get right to be safe.
+        String out = runCapture(List.of("tar", "-xzf", archive.toString(),
+                                        "-C", dest.toString()),
+                                Duration.ofMinutes(10), 1 << 16);
+        return out == null ? "tar did not finish within 10 minutes" : out;
+    }
+
+    static void unzip(Path archive, Path dest) throws IOException {
+        try (var zin = new java.util.zip.ZipInputStream(Files.newInputStream(archive))) {
+            for (java.util.zip.ZipEntry e; (e = zin.getNextEntry()) != null; ) {
+                // A zip entry names its own destination, so it can name one outside the
+                // directory being unpacked into.  Refuse rather than write there.
+                Path target = dest.resolve(e.getName()).normalize();
+                if (!target.startsWith(dest))
+                    throw new IOException("refusing zip entry outside the target: " + e.getName());
+                if (e.isDirectory()) { Files.createDirectories(target); continue; }
+                Files.createDirectories(target.getParent());
+                Files.copy(zin, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+    }
+
+    /** Layout differs per platform -- macOS nests a .jdk bundle -- so look rather than guess. */
+    static Path findJavaUnder(Path root) {
+        String want = isWindows() ? "java.exe" : "java";
+        try (var s = Files.walk(root, 6)) {
+            return s.filter(x -> x.getFileName().toString().equals(want)
+                              && x.getParent() != null
+                              && x.getParent().getFileName().toString().equals("bin")
+                              && Files.isExecutable(x))
+                    .findFirst().orElse(null);
+        } catch (IOException e) { return null; }
+    }
+
+    /** What to type on this OS.  Points at Temurin: vendor-neutral, and what most people run. */
+    static void jdkInstructions() {
+        System.err.println("       install a JDK " + MIN_JAVA + "+ and re-run, for example:");
+        if (isMac()) {
+            System.err.println("         brew install openjdk@" + MIN_JAVA);
+        } else if (isWindows()) {
+            System.err.println("         winget install EclipseAdoptium.Temurin." + MIN_JAVA + ".JDK");
+            System.err.println("         scoop install temurin" + MIN_JAVA + "-jdk");
+        } else {
+            System.err.println("         apt install openjdk-" + MIN_JAVA + "-jdk        (Debian, Ubuntu)");
+            System.err.println("         dnf install java-" + MIN_JAVA + "-openjdk-devel  (Fedora, RHEL)");
+            System.err.println("         pacman -S jdk" + MIN_JAVA + "-openjdk           (Arch)");
+        }
+        System.err.println("         or https://adoptium.net/temurin/releases/?version=" + MIN_JAVA);
+        System.err.println("       then set JAVA_HOME, or put its bin directory on PATH.");
+    }
+
+    /**
+     * Offers to fetch one only when there is somebody to answer.  A prompt written into a
+     * pipe, a CI log or a hook is not a question, it is a hang, so those get the
+     * instructions and a failure instead -- and an opt-in they can set once.
+     */
+    static boolean offerJdk() {
+        if (env("FLIXW_INSTALL_JDK") != null) return true;
+        if (env("CI") != null || System.console() == null) {
+            System.err.println("       or set FLIXW_INSTALL_JDK=1 to let flixw download a"
+                             + " verified Azul Zulu " + MIN_JAVA + " into its own cache.");
+            return false;
+        }
+        System.err.print("flixw: download Azul Zulu OpenJDK " + MIN_JAVA
+                       + " into the flixw cache instead? [y/N] ");
+        String line = System.console().readLine();
+        return line != null && line.strip().toLowerCase(Locale.ROOT).startsWith("y");
+    }
+
+    /** Nothing usable was found: say how to fix it, then offer to do it. */
+    static Jvm noJavaFound(int self) {
+        System.err.println("FLIXW003: no Java in [" + MIN_JAVA + ", " + TESTED_CEILING
+                         + "] found; this JVM is " + self);
+        jdkInstructions();
+        if (!offerJdk()) throw w003("no usable Java; see the instructions above");
+        JdkPackage p = resolveZulu();
+        Path exe = installZulu(p);
+        int f = probe(exe);
+        if (f < MIN_JAVA)
+            throw w003("the JDK just installed reports Java " + f + ", which is below "
+                     + MIN_JAVA + "; install one by hand");
+        System.err.println("flixw: using " + exe);
+        System.err.println("       flixw owns this JDK; set JAVA_HOME to it to use it elsewhere.");
+        return new Jvm(exe, f, "flixw-installed Zulu");
     }
 
     // ---- FLIX_JVM_OPTS ----------------------------------------------------
@@ -994,6 +1217,7 @@ public final class flix {
         if [ -z "$java0" ]; then
           echo "FLIXW003: no java executable found." >&2
           echo "          Flix needs Java 21+. Set JAVA_HOME or put java on PATH." >&2
+          echo "          https://adoptium.net/temurin/releases/?version=21" >&2
           exit 127
         fi
         if [ ! -x "$java0" ]; then
@@ -1061,6 +1285,7 @@ public final class flix {
         for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
         if not defined JAVA0 (
           echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
+          echo           https://adoptium.net/temurin/releases/?version=21 1>&2
           exit /b 127 )
         if not exist "%JAVA0%" (
           echo FLIXW003: %JAVA0% not found. 1>&2

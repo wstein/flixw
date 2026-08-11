@@ -10,6 +10,7 @@ if defined JAVA_HOME ( set "JAVA0=%JAVA_HOME%\bin\java.exe" ) else (
 for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
 if not defined JAVA0 (
   echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
+  echo           https://adoptium.net/temurin/releases/?version=21 1>&2
   exit /b 127 )
 if not exist "%JAVA0%" (
   echo FLIXW003: %JAVA0% not found. 1>&2
