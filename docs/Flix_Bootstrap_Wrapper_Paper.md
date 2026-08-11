@@ -10,11 +10,15 @@
 > how the design was reached. It is no longer the accurate description of what ships.
 >
 > The experiment's central question — *can stage 0 verify, install, and execute an exact
-> unmodified stock Flix release without a helper JAR or compiler changes?* — has been
+> unmodified stock Flix release without a services JAR or compiler changes?* — has been
 > answered yes, by a working implementation with a 74-case regression suite. Where this
 > paper and the code disagree, **the code is right and [`CONTRACT.md`](CONTRACT.md) describes
 > it**; [`BENCHMARKS.md`](BENCHMARKS.md) has the measured numbers and
 > [`LIMITATIONS.md`](LIMITATIONS.md) the honest limits.
+>
+> Terminology has been aligned with the implementation since publication: the reserved,
+> still-unbuilt wrapper-verb artifact is `flixw-services.jar` throughout, and the module
+> reserving it is `services/`. No claim, measurement or argument was changed.
 >
 > Known divergences: verb capture is advisory rather than fatal, falling back to a built-in
 > table with `FLIXW010`; the Java ceiling warns rather than fails unless
@@ -27,11 +31,11 @@
 
 Flix already integrates compilation, dependency management, testing, packaging, publishing, and language-server support in one JVM application. A project can declare a compiler version in `flix.toml`, although current documentation says that the field is not yet used [2]. Earlier revisions of this paper proposed an official wrapper generator for every Flix project. This revision withdraws that recommendation. Flix is a rapidly changing pre-1.0 language whose Community Build deliberately keeps downstream projects near compiler head. Universal exact pinning could reduce that migration signal, accumulate breaking changes in dormant repositories, and transfer upgrade costs from continuous integration to users.
 
-The revised proposal is an opt-in third-party experiment, `wstein/flixw`. Its load-bearing claim is that a minimal, auditable, dependency-free stage-0 bootstrap can verify, install, and execute an exact unmodified stock compiler JAR published by `github.com/flix/flix`. Every operation uses one entry point, `./flix`. The dispatcher gives compiler verbs precedence, forwards unknown verbs to the compiler, and handles a wrapper verb only when the pinned compiler does not implement it. Initial wrapper verbs may live directly in `.flix-wrapper/flix.java`; a helper JAR is introduced only if later functionality cannot remain small. Thus `./flix check` is always shim → stage 0 → stock `flix.jar`, and scaffolding retires automatically one verb at a time as Flix adopts equivalent commands.
+The revised proposal is an opt-in third-party experiment, `wstein/flixw`. Its load-bearing claim is that a minimal, auditable, dependency-free stage-0 bootstrap can verify, install, and execute an exact unmodified stock compiler JAR published by `github.com/flix/flix`. Every operation uses one entry point, `./flix`. The dispatcher gives compiler verbs precedence, forwards unknown verbs to the compiler, and handles a wrapper verb only when the pinned compiler does not implement it. Initial wrapper verbs may live directly in `.flix-wrapper/flix.java`; a services JAR is introduced only if later functionality cannot remain small. Thus `./flix check` is always shim → stage 0 → stock `flix.jar`, and scaffolding retires automatically one verb at a time as Flix adopts equivalent commands.
 
 The paper separates evidence from proposal, defines falsifiable experiments over several Flix release cycles, and narrows upstream requests to two independently useful changes: publish checksums or signed release attestations, and warn when `[package].flix` differs from the running compiler. Official wrapper adoption is explicitly deferred until the experiment demonstrates demand, maintainability, and compatibility with Flix's upgrade culture.
 
-**Keywords:** Flix, bootstrap wrapper, reproducibility, pre-1.0 languages, Java helper, supply chain, toolchain pinning
+**Keywords:** Flix, bootstrap wrapper, reproducibility, pre-1.0 languages, wrapper services, supply chain, toolchain pinning
 
 ## 1. Revised Position
 
@@ -117,7 +121,7 @@ sha256 = "a2697d875725a0dde6e793b8d54cb220e86167a6d49ec5f0ccb0832966c8c15a"
 
 `flix.toml` remains the human authority for the compiler version. The committed `.flix-wrapper/lock.toml` repeats it so stage 0 can detect drift before downloading anything. A mismatch produces an actionable diagnostic and never enters a download/retry loop.
 
-Wrapper verbs initially fit inside stage 0. A standalone `flixw-helper.jar` may later be attached to a versioned `wstein/flixw` GitHub Release if the integration surface outgrows the auditable bootstrap. Its coordinates would be wrapper-release constants in `.flix-wrapper/flix.java`, with `FLIXW_HELPER_JAR` as a development and recovery override. It is scaffolding, never project lock data and never part of the compiler hot path.
+Wrapper verbs initially fit inside stage 0. A standalone `flixw-services.jar` may later be attached to a versioned `wstein/flixw` GitHub Release if the integration surface outgrows the auditable bootstrap. Its coordinates would be wrapper-release constants in `.flix-wrapper/flix.java`, with `FLIXW_SERVICES_JAR` as a development and recovery override. It is scaffolding, never project lock data and never part of the compiler hot path.
 
 ### 4.2 Wrapper identity and validation
 
@@ -224,17 +228,17 @@ java flix.java install .
 ./flix update-wrapper
 ```
 
-`setup` exercises the same stage-0 compiler acquisition used by `check`, then reports Java, compiler, cache, mirror, proxy, and routing state. `pin` resolves the target once and updates `[package].flix` plus `.flix-wrapper/lock.toml` as a recoverable transaction. `update-wrapper` changes invariant wrapper files and any embedded helper constants, not the project compiler lock. `validate` checks canonical wrapper hashes, lock consistency, `.gitattributes`, executable mode, cache digest, and verb metadata.
+`setup` exercises the same stage-0 compiler acquisition used by `check`, then reports Java, compiler, cache, mirror, proxy, and routing state. `pin` resolves the target once and updates `[package].flix` plus `.flix-wrapper/lock.toml` as a recoverable transaction. `update-wrapper` changes invariant wrapper files and any embedded service coordinates, not the project compiler lock. `validate` checks canonical wrapper hashes, lock consistency, `.gitattributes`, executable mode, cache digest, and verb metadata.
 
-### 4.10 Stock-compiler compatibility and helper retirement
+### 4.10 Stock-compiler compatibility and service retirement
 
-Stage 0 performs project discovery, version extraction, drift detection, Java selection, compiler acquisition, digest verification, verb dispatch, and process launch. It neither injects classes into stock Flix nor relies on private APIs. The load-bearing path is therefore tested even if no helper JAR exists.
+Stage 0 performs project discovery, version extraction, drift detection, Java selection, compiler acquisition, digest verification, verb dispatch, and process launch. It neither injects classes into stock Flix nor relies on private APIs. The load-bearing path is therefore tested even if no services JAR exists.
 
 The current stock compiler need not honor `[package].flix`; stage 0 reads that declaration before startup and chooses the corresponding official release JAR. Proposed upstream checksum publication and compiler-version mismatch warnings are independent enhancements. Their absence may weaken provenance or diagnostics, but it must not make `flixw` unusable.
 
 Compatibility is tested against official release artifacts from `github.com/flix/flix`, not against `wstein/flix-fork` or locally patched compilers. `FLIX_JAR` remains available for explicit development testing, but such runs are reported as overrides and do not count as stock-compatibility evidence.
 
-If a helper JAR becomes necessary, it contains only wrapper-verb services:
+If a services JAR becomes necessary, it contains only wrapper-verb services:
 
 ```text
 ProjectManifest       read and transactionally update [package].flix
@@ -245,7 +249,7 @@ WrapperInstaller      install, validate, and update invariant wrapper files
 
 These services depend only on public files and release metadata. They have transport-neutral results and shared fixtures so each can be ported into Flix's Scala code. No maintainer has agreed to receive that port; this is a handoff design, not an adoption claim.
 
-The retirement condition is per verb: when the pinned compiler's captured verb set contains a formerly wrapper-owned command and conformance fixtures pass, rule 3 routes to Flix. Deleting the last helper removes a branch only; it does not alter `./flix`, stage-0 compiler acquisition, or `.flix-wrapper/lock.toml`.
+The retirement condition is per verb: when the pinned compiler's captured verb set contains a formerly wrapper-owned command and conformance fixtures pass, rule 3 routes to Flix. Deleting the last service removes a branch only; it does not alter `./flix`, stage-0 compiler acquisition, or `.flix-wrapper/lock.toml`.
 
 ## 5. Prototype Contract
 
@@ -257,7 +261,7 @@ The following requirements govern `wstein/flixw`; they are not demands placed on
 
 **P3 — Exact authenticated binding.** Flix version, URL, and digest form one generated lock record; manifest drift fails before network access.
 
-**P4 — One hot-path implementation.** `.flix-wrapper/flix.java` owns lock parsing, drift detection, compiler acquisition, verification, dispatch, I/O, and stock-compiler launch. Shims only find an initial Java. An optional helper may implement wrapper verbs but never compiler launch.
+**P4 — One hot-path implementation.** `.flix-wrapper/flix.java` owns lock parsing, drift detection, compiler acquisition, verification, dispatch, I/O, and stock-compiler launch. Shims only find an initial Java. An optional services JAR may implement wrapper verbs but never compiler launch.
 
 **P5 — Explicit Java precedence.** An incompatible explicit Java setting fails immediately rather than falling through.
 
@@ -282,7 +286,7 @@ The threat model distinguishes three required objects and one optional scaffold:
 - **Wrapper source:** validated against a hash published for the `flixw` release.
 - **Generated lock metadata:** reviewed as project data and checked for internal consistency with `flix.toml`.
 - **Compiler artifact:** verified against the digest recorded during trusted generation.
-- **Optional helper artifact:** verified against wrapper-release constants before any wrapper verb uses it.
+- **Optional services artifact:** verified against wrapper-release constants before any wrapper verb uses it.
 
 GitHub-provided asset hashes are generation-time TOFU, not signed provenance. The preferred upstream change is a release checksum file plus a build-provenance attestation verifiable independently of asset download. Maven Central publication would add repository checksums and publication signatures, while Coursier could delegate resolution and JVM provisioning.
 
@@ -302,7 +306,7 @@ The VS Code extension is deliberately excluded. Executing a workspace-provided w
 
 ### 7.2 Questions that can fail
 
-1. Can stage 0 verify, install, and execute an exact unmodified stock Flix release without a helper JAR or compiler changes?
+1. Can stage 0 verify, install, and execute an exact unmodified stock Flix release without a services JAR or compiler changes?
 2. Does opt-in pinning reduce reproducibility failures without causing unacceptable upgrade lag over at least six Flix releases?
 3. Does the parser accept every public `flix.toml` used in the evaluation corpus and reject ambiguous compiler declarations?
 4. Is warm overhead of the end-state stage 0 → compiler path acceptable on Linux, macOS, Git Bash, PowerShell, `cmd.exe`, and direct Windows Java?
@@ -342,7 +346,7 @@ Measurements include cold time, warm overhead, bytes transferred, hash time, rec
 4. Implement bounded root selection without changing cwd.
 5. Implement stable diagnostics and advisory exit codes with reachable sites.
 
-**Gate:** `./flix check` can verify, install, and execute an unmodified stock Flix JAR without any helper JAR, and the public-manifest corpus matches a TOML oracle.
+**Gate:** `./flix check` can verify, install, and execute an unmodified stock Flix JAR without any services JAR, and the public-manifest corpus matches a TOML oracle.
 
 ### Phase 3 — Implement Java and process behavior
 
@@ -369,7 +373,7 @@ Measurements include cold time, warm overhead, bytes transferred, hash time, rec
 3. Implement `install`, `setup`, `doctor`, `update-wrapper`, `pin`, and `validate` directly in stage 0 while they remain small.
 4. Make `pin` update `flix.toml` and `.flix-wrapper/lock.toml` as one recoverable transaction.
 5. Preserve unrelated `.gitattributes` content and detect later overrides.
-6. Extract an optional helper JAR only if measured complexity requires it.
+6. Extract an optional services JAR only if measured complexity requires it.
 
 **Gate:** injected write failures leave the old or new consistent pair; known compiler verbs always win; unknown verbs always reach Flix; each wrapper verb retires when a fixture compiler claims it.
 
@@ -398,7 +402,7 @@ Measurements include cold time, warm overhead, bytes transferred, hash time, rec
 2. Decide whether managed JDK delegation is worth adding.
 3. Decide whether Flix documentation should list `flixw` as an optional community tool.
 4. Propose official ownership only if maintainers request it after field evidence.
-5. For each useful helper capability, prepare a small upstream-ready Scala port or delegation design with the same fixtures and no dependency on `flixw` internals.
+5. For each useful service capability, prepare a small upstream-ready Scala port or delegation design with the same fixtures and no dependency on `flixw` internals.
 
 **Gate:** every retained component has measured value that is not more cheaply supplied by Flix, Coursier, JBang, or a global launcher.
 
@@ -439,9 +443,9 @@ A stable `flix --commands` or equivalent would remove the need to parse human-or
 
 The largest risk is policy rather than code: exact pins may weaken the feedback loop that helps a small team evolve Flix quickly. The field study must be allowed to conclude that some or all projects should track head instead.
 
-The second risk is maintenance duplication. If Flix reaches Maven Central, Coursier could make custom compiler acquisition unjustifiable. Stage 0 isolates that service so it can be replaced. If a helper JAR is ever introduced, it adds a second release pipeline, digest publication, security-response path, and TOFU anchor. That cost is accepted only after stage-0 wrapper verbs exceed a measured complexity threshold.
+The second risk is maintenance duplication. If Flix reaches Maven Central, Coursier could make custom compiler acquisition unjustifiable. Stage 0 isolates that service so it can be replaced. If a services JAR is ever introduced, it adds a second release pipeline, digest publication, security-response path, and TOFU anchor. That cost is accepted only after stage-0 wrapper verbs exceed a measured complexity threshold.
 
-The helper handoff may never be accepted upstream. Compiler-first dispatch limits that risk: wrapper implementations remain usable without maintainer commitment, while each accepted command retires independently. The explicit retirement condition is a stock compiler verb plus passing conformance fixtures.
+The services handoff may never be accepted upstream. Compiler-first dispatch limits that risk: wrapper implementations remain usable without maintainer commitment, while each accepted command retires independently. The explicit retirement condition is a stock compiler verb plus passing conformance fixtures.
 
 Single-file Java still requires a compatible Java installation. The proposal no longer calls this pure zero-install bootstrapping. Its immediate promise is narrower: a contributor who already has Java can clone a project and avoid separately installing Flix.
 
@@ -453,7 +457,7 @@ Finally, the 297-line prototype proves the central download-and-launch path but 
 
 Repository-local compiler pinning is not an unconditional improvement for a fast-moving pre-1.0 language. It trades reproducibility for reduced upgrade pressure, and that trade must be measured against Flix's Community Build and release cadence. Revision 6 therefore keeps wrapper adoption opt-in.
 
-The remaining experiment is smaller and more testable: one `./flix` entry point, an auditable Java stage 0, an unmodified stock Flix JAR, a committed compiler-only lock, unconditional digest verification, content-addressed caching, compiler-first verb dispatch, faithful process I/O, and wrapper services that retire one at a time. A helper JAR is optional scaffolding, not the architecture and not the hot path.
+The remaining experiment is smaller and more testable: one `./flix` entry point, an auditable Java stage 0, an unmodified stock Flix JAR, a committed compiler-only lock, unconditional digest verification, content-addressed caching, compiler-first verb dispatch, faithful process I/O, and wrapper services that retire one at a time. A services JAR is optional scaffolding, not the architecture and not the hot path.
 
 If several release cycles show that `flixw` reduces real onboarding and reproducibility failures without accumulating migration debt, it may earn documentation or deeper integration. If Coursier or a global Flix launcher makes it redundant, deleting the custom layer is the successful outcome.
 

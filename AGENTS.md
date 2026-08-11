@@ -59,8 +59,7 @@ with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it
 
 `services/` holds a build definition and nothing else — no sources, reserved against the
 possibility that wrapper verbs outgrow stage 0. See `services/README.md` for the entry
-condition. It is **not** on any hot path and is not built by lint or CI. The design paper
-calls the same artifact a *helper JAR*; it kept that name because the paper is historical.
+condition. It is **not** on any hot path and is not built by lint or CI.
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
 space: two JDK stand-ins, a JAR whose `--help` cannot be parsed, a JAR that sleeps, and a

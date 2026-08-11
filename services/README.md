@@ -6,10 +6,9 @@ A *service* here is the implementation of one wrapper verb — the design paper'
 `ProjectManifest`, `ReleaseMetadata`, `ToolchainDoctor` and `WrapperInstaller`. That is the
 whole membership rule, and it is the point of the name: anything that is not a wrapper
 verb's implementation does not belong here and can be argued out. Nothing in this module
-would ever be a resident process. An optional JAR may implement wrapper verbs, but never
-compiler launch, and never any part of the hot path. Paper Revision 6 calls this artifact a
-*helper JAR*; it is the same thing under its earlier name, which suggested a running
-companion and so described the one thing it must not be.
+would ever be a resident process, despite what "services" can suggest elsewhere: this
+ships a JAR, and an optional JAR may implement wrapper verbs but never compiler launch,
+and never any part of the hot path.
 
 Every wrapper verb (`pin`, `doctor`, `setup`, `validate`, `update-wrapper`) is currently
 implemented inside `src/flix.java`, where it costs no second release artifact, no second
