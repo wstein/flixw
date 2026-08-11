@@ -2074,11 +2074,15 @@ public final class flix {
                 System.out.println("merged   ./.gitattributes"); changed++;
             }
         } catch (IOException e) { throw w009("wrapper upgrade failed: " + why(e)); }
+        // One line, and only the one that is true. The two-line note that used to follow
+        // every run explained that this refreshes rather than upgrades -- which is a fact
+        // about what the command is, not about what just happened, so it belongs in
+        // `wrapper --help` where somebody is looking for it. Printing it as output made
+        // every successful run look like it came with a caveat.
         System.out.println(changed == 0
             ? "wrapper files already match flixw " + WRAPPER_VERSION
-            : changed + " file(s) rewritten from flixw " + WRAPPER_VERSION);
-        System.out.println("note: this refreshes the files this wrapper ships; to move to a"
-                         + " newer flixw,\n      run `java flix.java install .` from that release.");
+            : changed + (changed == 1 ? " file" : " files")
+              + " rewritten from flixw " + WRAPPER_VERSION);
     }
 
     static void mergeGitattributes(Path ga) throws IOException {
@@ -2147,6 +2151,8 @@ public final class flix {
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
              + "\n         --upgrade      rewrite this project's wrapper files from this flixw"
+             + "\n                        (a repair, not a version change: to move to a newer"
+             + "\n                        flixw, install it from that release)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache";
     }
 
