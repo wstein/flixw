@@ -128,10 +128,82 @@ public final class flix {
 
     record Lock(String version, String url, String sha256) {}
 
-    static String scalar(String text, String key) {
-        Matcher m = Pattern.compile("(?m)^\\s*\"?" + Pattern.quote(key) + "\"?\\s*=\\s*\"([^\"]*)\"")
-                           .matcher(text);
-        return m.find() ? m.group(1) : null;
+    /**
+     * Reads one key from one TOML table.
+     *
+     * This is not a TOML parser and does not try to be one -- stage 0 has no dependencies
+     * by design. It is deliberately table-aware, comment-aware and multi-line-string-aware,
+     * because the alternative that a plain regex gives you is reading `flix = "..."` out of
+     * some unrelated table, or out of the body of a description string. Anything it cannot
+     * classify inside the table it was asked about is rejected rather than guessed at.
+     *
+     * Accepts the key inside [table] and as a dotted key at the root (`package.flix`).
+     * Duplicate tables and duplicate keys are ambiguous, so they fail rather than resolve.
+     */
+    static String tomlLookup(String text, String table, String key, String where) {
+        String current = "";
+        String value = null;
+        int tables = 0, hits = 0;
+        String mlDelim = null;
+        for (String raw : text.split("\r?\n", -1)) {
+            String line = raw;
+            if (mlDelim != null) {                       // inside """ or ''': find the close
+                int e = line.indexOf(mlDelim);
+                if (e < 0) continue;
+                line = line.substring(e + 3);
+                mlDelim = null;
+            }
+            String t = stripComment(line).trim();
+            if (t.isEmpty()) continue;
+            if (t.startsWith("[[")) { current = "\u0000array"; continue; }
+            if (t.startsWith("[")) {
+                int close = t.indexOf(']');
+                if (close < 0) throw w002(where + ": unterminated table header " + q(t));
+                current = unquote(t.substring(1, close).trim());
+                if (current.equals(table)) tables++;
+                continue;
+            }
+            int eq = t.indexOf('=');
+            if (eq < 0) continue;
+            String k = unquote(t.substring(0, eq).trim());
+            String v = t.substring(eq + 1).trim();
+            String delim = v.startsWith("\"\"\"") ? "\"\"\"" : v.startsWith("'''") ? "'''" : null;
+            boolean wanted = (current.equals(table) && k.equals(key))
+                          || (current.isEmpty() && k.equals(table + "." + key));
+            if (delim != null) {
+                if (!v.substring(3).contains(delim)) mlDelim = delim;
+                if (wanted) throw w002(where + ": " + q(key) + " must be a single-line string");
+                continue;
+            }
+            if (wanted) {
+                hits++;
+                if (v.length() < 2 || v.charAt(0) != v.charAt(v.length() - 1)
+                    || (v.charAt(0) != '"' && v.charAt(0) != '\''))
+                    throw w002(where + ": " + q(key) + " must be a quoted string, got " + q(v));
+                value = v.substring(1, v.length() - 1);
+            }
+        }
+        if (tables > 1) throw w002(where + ": duplicate [" + table + "] table");
+        if (hits > 1) throw w002(where + ": duplicate " + q(key) + " key in [" + table + "]");
+        return value;
+    }
+
+    /** Strips a trailing comment, ignoring '#' inside quotes. */
+    static String stripComment(String line) {
+        boolean s = false, d = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '\'' && !d) s = !s;
+            else if (c == '"' && !s) d = !d;
+            else if (c == '#' && !s && !d) return line.substring(0, i);
+        }
+        return line;
+    }
+
+    static String unquote(String s) {
+        if (s.length() >= 2 && (s.charAt(0) == '"' || s.charAt(0) == '\'')
+            && s.charAt(s.length() - 1) == s.charAt(0)) return s.substring(1, s.length() - 1);
+        return s;
     }
 
     static Path lockPath(Path root) { return root.resolve(WRAPPER_DIR).resolve("lock.toml"); }
@@ -143,22 +215,58 @@ public final class flix {
             throw w002("cannot read " + lockFile + ": " + why(e)
                      + "\n       run: ./flix pin <version>");
         }
-        String v = scalar(text, "version"), u = scalar(text, "url"), s = scalar(text, "sha256");
+        String w = lockFile.toString();
+        String v = tomlLookup(text, "compiler", "version", w);
+        String u = tomlLookup(text, "compiler", "url", w);
+        String s = tomlLookup(text, "compiler", "sha256", w);
         if (v == null || u == null || s == null)
-            throw w002(lockFile + " is missing version, url or sha256");
-        validateVersion(v, lockFile.toString());
-        if (!s.matches("[0-9a-f]{64}")) throw w002(lockFile + ": sha256 is not 64 lowercase hex digits");
-        if (!u.startsWith("https://")) throw w002(lockFile + ": url must be https");
+            throw w002(lockFile + " is missing [compiler] version, url or sha256");
+        validateVersion(v, w);
+        if (!s.matches("[0-9a-f]{64}")) throw w002(w + ": sha256 is not 64 lowercase hex digits");
+        validateUrl(u, w);
         return new Lock(v, u, s);
     }
 
-    /** The manifest is the human authority; disagreement stops us before the network. */
+    /**
+     * The manifest is the human authority; disagreement stops us before the network. A
+     * manifest that exists but cannot be read is an error, not an absent declaration --
+     * swallowing it would silently disable drift detection and let the compiler run.
+     */
     static String manifestVersion(Path manifest) {
         if (!Files.isRegularFile(manifest)) return null;
-        try {
-            String declared = scalar(Files.readString(manifest, StandardCharsets.UTF_8), "flix");
-            return declared == null ? null : validateVersion(declared, manifest.toString());
-        } catch (IOException e) { return null; }
+        String text;
+        try { text = Files.readString(manifest, StandardCharsets.UTF_8); }
+        catch (IOException e) { throw w002("cannot read " + manifest + ": " + why(e)); }
+        String declared = tomlLookup(text, "package", "flix", manifest.toString());
+        return declared == null ? null : validateVersion(declared, manifest.toString());
+    }
+
+    /** Rewrites [package].flix in place, leaving every other table and all formatting alone. */
+    static String rewritePackageFlix(String text, String version, String where) {
+        String[] lines = text.split("\r?\n", -1);
+        String current = "";
+        int target = -1;
+        for (int i = 0; i < lines.length; i++) {
+            String t = stripComment(lines[i]).trim();
+            if (t.isEmpty()) continue;
+            if (t.startsWith("[[")) { current = "\u0000array"; continue; }
+            if (t.startsWith("[")) {
+                int close = t.indexOf(']');
+                if (close > 0) current = unquote(t.substring(1, close).trim());
+                continue;
+            }
+            int eq = t.indexOf('=');
+            if (eq < 0) continue;
+            String k = unquote(t.substring(0, eq).trim());
+            if ((current.equals("package") && k.equals("flix"))
+                || (current.isEmpty() && k.equals("package.flix"))) {
+                if (target >= 0) throw w002(where + ": duplicate 'flix' key in [package]");
+                target = i;
+            }
+        }
+        if (target < 0) return null;
+        lines[target] = lines[target].replaceFirst("(=\\s*[\"'])[^\"']*([\"'])", "$1" + version + "$2");
+        return String.join("\n", lines);
     }
 
     // ---- cache ------------------------------------------------------------
@@ -213,8 +321,25 @@ public final class flix {
      */
     static void validateDistUrl() {
         String base = env("FLIX_DIST_URL");
-        if (base != null && !base.startsWith("https://"))
-            throw w008("FLIX_DIST_URL must be https, got " + q(base));
+        if (base == null) return;
+        if (!base.startsWith("https://")) throw w008("FLIX_DIST_URL must be https, got " + q(base));
+        try { URI.create(base); }
+        catch (IllegalArgumentException e) { throw w008("FLIX_DIST_URL is not a valid URI: " + q(base)); }
+    }
+
+    /**
+     * Structural validation, so a malformed lock produces a FLIXW diagnostic rather than
+     * an uncaught IllegalArgumentException from URI.create deep in the download path.
+     */
+    static void validateUrl(String url, String where) {
+        if (!url.startsWith("https://")) throw w002(where + ": url must be https, got " + q(url));
+        URI u;
+        try { u = URI.create(url); }
+        catch (IllegalArgumentException e) { throw w002(where + ": url is not a valid URI: " + q(url)); }
+        if (u.getHost() == null || u.getHost().isBlank())
+            throw w002(where + ": url has no host: " + q(url));
+        if (u.getPath() == null || u.getPath().isBlank() || u.getPath().contains(".."))
+            throw w002(where + ": url has no usable path: " + q(url));
     }
 
     static String rewriteBase(String url) {
@@ -558,8 +683,20 @@ public final class flix {
             p = new ProcessBuilder(javaExe.toString(), "-jar", jar.toString(), "--help")
                     .redirectErrorStream(true).start();
             p.getOutputStream().close();
-            out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!p.waitFor(30, TimeUnit.SECONDS))
+            // Bounded on both axes. readAllBytes on a pipe blocks until the writer closes
+            // it, so an unbounded read here would outlive the timeout below and a chatty
+            // JAR could exhaust the heap. Real help output is a few kilobytes.
+            byte[] buf = new byte[1 << 16];
+            int total = 0, n;
+            InputStream in = p.getInputStream();
+            StringBuilder sb = new StringBuilder();
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while (total < (1 << 20) && System.nanoTime() < deadline && (n = in.read(buf)) > 0) {
+                sb.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+                total += n;
+            }
+            out = sb.toString();
+            if (!p.waitFor(5, TimeUnit.SECONDS))
                 throw w009("`flix --help` did not finish within 30s");
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -605,7 +742,16 @@ public final class flix {
         if (jc == null) { tr("no javac in this runtime; staying on the source path"); return; }
         Path tmp = null;
         try {
-            tmp = Files.createTempDirectory(Files.createDirectories(dir.getParent()), ".stage0-");
+            Path parent = Files.createDirectories(dir.getParent());
+            // The shims execute whatever class sits at this path, so anyone who can write
+            // here can run code as this user. That is the same trust boundary as the rest
+            // of the user cache, but this entry is executable, so narrow it where the
+            // platform lets us. See docs/LIMITATIONS.md.
+            try { parent.toFile().setReadable(false, false); parent.toFile().setReadable(true, true);
+                  parent.toFile().setWritable(false, false); parent.toFile().setWritable(true, true);
+                  parent.toFile().setExecutable(false, false); parent.toFile().setExecutable(true, true);
+            } catch (SecurityException ignored) { }
+            tmp = Files.createTempDirectory(parent, ".stage0-");
             int rc = jc.run(null, java.io.OutputStream.nullOutputStream(),
                             java.io.OutputStream.nullOutputStream(),
                             "-d", tmp.toString(), "-nowarn", source.toString());
@@ -771,6 +917,54 @@ public final class flix {
         System.out.println("pass-through     ./flix -- <args>");
     }
 
+    /** Compares a committed invariant file against the bytes this wrapper release ships. */
+    static int checkCanonical(Path file, String canonical, String label) {
+        if (!Files.isRegularFile(file)) { System.out.println("FAIL  missing " + label); return 1; }
+        try {
+            if (Files.readString(file, StandardCharsets.UTF_8).equals(canonical)) {
+                System.out.println("ok    " + label + " matches flixw " + WRAPPER_VERSION);
+                return 0;
+            }
+            System.out.println("FAIL  " + label + " differs from flixw " + WRAPPER_VERSION
+                             + " (./flix update-wrapper)");
+        } catch (IOException e) {
+            System.out.println("FAIL  unreadable " + label + ": " + why(e));
+        }
+        return 1;
+    }
+
+    /**
+     * gitattributes resolves by *last* matching pattern, so a rule after the wrapper block
+     * silently overrides it -- and a checked-out shim with the wrong line endings is exactly
+     * the failure the block exists to prevent.
+     */
+    static int checkGitattributes(Path ga) {
+        if (!Files.isRegularFile(ga)) {
+            System.out.println("warn  no .gitattributes; line endings are unpinned");
+            return 0;
+        }
+        String text;
+        try { text = Files.readString(ga, StandardCharsets.UTF_8); }
+        catch (IOException e) { System.out.println("FAIL  unreadable .gitattributes"); return 1; }
+        int end = text.indexOf("# <<< flixw <<<");
+        if (end < 0) {
+            System.out.println("warn  .gitattributes has no flixw block (./flix update-wrapper)");
+            return 0;
+        }
+        for (String line : text.substring(end).split("\r?\n")) {
+            String t = line.trim();
+            if (t.isEmpty() || t.startsWith("#")) continue;
+            String pattern = t.split("\\s+")[0];
+            if (pattern.equals("*") || pattern.startsWith("*.") || pattern.equals("**")) {
+                System.out.println("FAIL  .gitattributes rule " + q(t)
+                                 + " comes after the flixw block and overrides it");
+                return 1;
+            }
+        }
+        System.out.println("ok    .gitattributes block is not overridden");
+        return 0;
+    }
+
     /** Runs `git <args>` in root; null when git is absent or the command fails to start. */
     static Integer git(Path root, String... args) {
         List<String> cmd = new ArrayList<>(List.of("git"));
@@ -785,12 +979,17 @@ public final class flix {
 
     static void validate(Path root, Lock lock, Path jar) {
         int bad = 0;
-        Path shim = root.resolve("flix");
-        if (!Files.isRegularFile(shim)) { System.out.println("FAIL  missing ./flix"); bad++; }
-        else if (!isWindows() && !Files.isExecutable(shim)) {
-            System.out.println("FAIL  ./flix is not executable (chmod +x flix)"); bad++;
-        } else System.out.println("ok    ./flix");
+        // The shims are invariant for a wrapper release, and this stage 0 carries their
+        // canonical bytes, so drift is detectable here rather than merely reportable.
+        bad += checkCanonical(root.resolve("flix"), SHIM, "./flix");
+        bad += checkCanonical(root.resolve("flix.cmd"), CMD.replace("\n", "\r\n"), "./flix.cmd");
+        if (!isWindows() && Files.isRegularFile(root.resolve("flix"))
+            && !Files.isExecutable(root.resolve("flix"))) {
+            System.out.println("FAIL  ./flix is not executable (./flix update-wrapper)"); bad++;
+        }
 
+        // Stage 0 cannot know its own canonical hash -- it would have to contain it -- so
+        // its digest is reported for comparison against the published wrapper release.
         Path src = root.resolve(WRAPPER_DIR).resolve("flix.java");
         if (!Files.isRegularFile(src)) {
             System.out.println("FAIL  missing " + WRAPPER_DIR + "/flix.java"); bad++;
@@ -810,8 +1009,7 @@ public final class flix {
         } else System.out.println("ok    lock agrees with flix.toml");
 
         if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
-        System.out.println((Files.isRegularFile(root.resolve(".gitattributes")) ? "ok    " : "warn  ")
-                         + ".gitattributes");
+        bad += checkGitattributes(root.resolve(".gitattributes"));
 
         // Generated wrapper files are only reproducible for a collaborator if git actually
         // carries them.  A .gitignore rule that swallows the lock is silent otherwise.
@@ -864,9 +1062,9 @@ public final class flix {
             // recoverable transaction: manifest first, lock second, manifest restored on failure
             if (Files.isRegularFile(manifest)) {
                 oldManifest = Files.readString(manifest, StandardCharsets.UTF_8);
-                String updated = oldManifest.replaceFirst(
-                    "(?m)^(\\s*\"?flix\"?\\s*=\\s*\")[^\"]*(\")", "$1" + version + "$2");
-                if (!updated.equals(oldManifest)) Files.writeString(manifest, updated);
+                String updated = rewritePackageFlix(oldManifest, version, manifest.toString());
+                if (updated != null && !updated.equals(oldManifest))
+                    Files.writeString(manifest, updated);
             }
             Files.writeString(lockFile, lock, StandardCharsets.UTF_8);
             Path jar = cacheHome().resolve("compilers")
@@ -990,14 +1188,16 @@ public final class flix {
             throw w008("unknown launcher flag " + q(first)
                      + "\n       known: --wrapper-version --wrapper-help");
 
-        validateDistUrl();
-
         Path anchor = wrapperAnchor();
         if ("install".equals(first) && !Files.isRegularFile(lockPath(anchor))) {
             install(Paths.get(argv.size() > 1 ? argv.get(1) : ".").toAbsolutePath().normalize(),
                     selfSource());
             return;
         }
+
+        // After install, which is entirely offline and has no business failing on a mirror
+        // setting it will never use.
+        validateDistUrl();
 
         Path root = findRoot(anchor);
         tr("root " + root);
@@ -1061,7 +1261,10 @@ public final class flix {
 
         // ---- dispatch ----------------------------------------------------
         boolean toCompiler; List<String> forward = argv;
-        if (forcedWrapper && first != null && WRAPPER_VERBS.contains(first)) {
+        if (forcedCompiler) {
+            toCompiler = true;
+            if ("--".equals(first)) forward = argv.subList(1, argv.size());
+        } else if (forcedWrapper && first != null && WRAPPER_VERBS.contains(first)) {
             toCompiler = false;
         } else if ("--".equals(first)) {
             toCompiler = true; forward = argv.subList(1, argv.size());

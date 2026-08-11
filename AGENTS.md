@@ -132,8 +132,9 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 
 ### Known rough edges
 
-- `lock.toml` and `flix.toml` are read with a regex (`scalar()`), not a TOML parser. That is
-  deliberate (one Java implementation, no dependencies) but is the weakest point in the
+- `lock.toml` and `flix.toml` are read by `tomlLookup()`, a hand-written table-aware
+  scanner, not a conforming TOML parser. It handles tables, comments, multi-line strings and
+  duplicate rejection, and fails closed on anything else. Still the weakest point in the
   manifest corpus test of paper §7.2 question 3.
 - Rule 5 routes unknown verbs to the compiler so future verbs and filenames keep working,
   but Flix has no unknown-command diagnostic: `flix doctro` answers

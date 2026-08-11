@@ -17,7 +17,11 @@ flix.cmd                    cmd.exe shim
 ```
 
 `flix install` also merges a marked block into `.gitattributes`, preserving unrelated
-rules. All four files must be committed; `flix validate` fails if a gitignore rule
+rules. `flix validate` compares the two shims byte for byte against the bytes this
+release ships, reports stage 0's digest for comparison against the published release, and
+fails if a later `.gitattributes` rule overrides the block — gitattributes resolves by
+last matching pattern, so an override silently un-pins the line endings the block exists
+to fix. All four files must be committed; `flix validate` fails if a gitignore rule
 swallows one, because a collaborator would then get a project that cannot bootstrap.
 
 ## The pin
@@ -86,7 +90,7 @@ environment marker, so a stale `release` file cannot loop.
 5. Otherwise the compiler gets it.
 
 `FLIX_BACKEND=wrapper` forces rule 4 during a transition; `FLIX_BACKEND=compiler` forces
-the compiler.
+the compiler for every verb, including the wrapper's own.
 
 The point of rule 3 preceding rule 4 is **automatic retirement**: the day Flix ships its
 own `doctor`, users get the real one and the wrapper's stand-in steps aside, one verb at
@@ -122,8 +126,10 @@ and the terminal inherited. Consequences, all tested:
 
 - The child's exit status is the wrapper's exit status.
 - The REPL keeps raw-mode input, line editing and colour.
-- `./flix run > out.txt` contains only the program's stdout. Every wrapper message goes
-  to stderr.
+- `./flix run > out.txt` contains only the program's stdout. Every wrapper *diagnostic* —
+  routing notices, warnings, `FLIXWnnn` — goes to stderr. Wrapper *command results*
+  (`doctor`, `validate`, `--wrapper-help`) go to stdout, so they can be redirected and
+  piped like any other command output.
 - Ctrl-C reaches the compiler through the foreground process group.
 - A `SIGTERM` to stage 0 destroys the compiler rather than orphaning it.
 

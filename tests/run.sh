@@ -180,6 +180,7 @@ g 0  'wrapper'   "rule 4  wrapper verb routes and says so"      ./flix doctor
 t 1  "rule 5  unknown verb reaches the compiler"                ./flix frobnicate
 t 0  "no arguments reaches the compiler"                        ./flix
 t 0  "FLIX_BACKEND=wrapper forces the wrapper"                  env FLIX_BACKEND=wrapper ./flix validate
+t 1  "FLIX_BACKEND=compiler forces the compiler"                env FLIX_BACKEND=compiler ./flix doctor
 
 # --- version grammar -------------------------------------------------------
 echo "version grammar"
@@ -196,6 +197,52 @@ t 81 "reject empty prerelease suffix"                           ./flix pin '0.75
 t 0  "accept and strip build metadata"                          ./flix pin "$version+build.4"
 g 0  "$version"  "stripped pin still resolves"                  ./flix --wrapper-help
 ./flix pin "$version" > /dev/null 2>&1
+
+# --- manifest reading ------------------------------------------------------
+# A regex over the whole file reads `flix` out of any table, or out of the body of a
+# multi-line string. These cases pin the table-aware behaviour.
+echo "manifest reading"
+cp flix.toml "$work/flix.toml.good"
+t 0  "a decoy flix key in another table is ignored"              sh -c '
+  { cat "$1/flix.toml.good"; printf "\n[other]\nflix = \"9.9.9\"\n"; } > flix.toml
+  ./flix -- --version' sh "$work"
+t 0  "a decoy inside a multi-line string is ignored"             sh -c '
+  { printf "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"; \
+    printf "description = \"\"\"\nflix = \"9.9.9\"\n\"\"\"\n"; \
+    grep "^flix" "$1/flix.toml.good"; printf "authors = [\"n\"]\n"; } > flix.toml
+  ./flix -- --version' sh "$work"
+t 0  "a trailing comment on the version is ignored"              sh -c '
+  sed "s/^flix .*/flix        = \"'"$version"'\"  # pinned/" "$1/flix.toml.good" > flix.toml
+  ./flix -- --version' sh "$work"
+t 81 "a duplicate [package] table is ambiguous"                  sh -c '
+  { cat "$1/flix.toml.good"; printf "\n[package]\nflix = \"9.9.9\"\n"; } > flix.toml
+  ./flix -- --version' sh "$work"
+t 81 "an unquoted version is refused"                            sh -c '
+  sed "s/^flix .*/flix        = '"$version"'/" "$1/flix.toml.good" > flix.toml
+  ./flix -- --version' sh "$work"
+t 81 "an unreadable manifest is not treated as absent"           sh -c '
+  chmod 000 flix.toml
+  ./flix -- --version; rc=$?
+  chmod 644 flix.toml; exit $rc'
+cp "$work/flix.toml.good" flix.toml
+t 0  "pin only rewrites [package].flix"                          sh -c '
+  { cat "$1/flix.toml.good"; printf "\n[other]\nflix = \"9.9.9\"\n"; } > flix.toml
+  ./flix pin '"$version"' >/dev/null 2>&1
+  grep -q "flix = \"9.9.9\"" flix.toml' sh "$work"
+cp "$work/flix.toml.good" flix.toml
+
+# --- lock validation -------------------------------------------------------
+echo "lock validation"
+t 81 "a non-https url in the lock is refused"                    sh -c '
+  cp .flix-wrapper/lock.toml "$1/lock.keep"
+  sed "s|^url .*|url = \"http://example.invalid/flix.jar\"|" "$1/lock.keep" > .flix-wrapper/lock.toml
+  ./flix -- --version; rc=$?
+  cp "$1/lock.keep" .flix-wrapper/lock.toml; exit $rc' sh "$work"
+t 81 "a malformed url in the lock is a diagnostic, not a crash"  sh -c '
+  cp .flix-wrapper/lock.toml "$1/lock.keep"
+  sed "s|^url .*|url = \"https://\"|" "$1/lock.keep" > .flix-wrapper/lock.toml
+  ./flix -- --version; rc=$?
+  cp "$1/lock.keep" .flix-wrapper/lock.toml; exit $rc' sh "$work"
 
 # --- drift -----------------------------------------------------------------
 echo "drift"
@@ -284,6 +331,15 @@ t 0  "stdout carries only compiler output"                      sh -c '
 # --- maintenance verbs -----------------------------------------------------
 echo "maintenance verbs"
 t 0  "validate passes on a healthy project"                     ./flix validate
+g 88 'differs from flixw' "validate detects an edited shim"     sh -c '
+  cp flix "$1/flix.keep"; echo "# tampered" >> flix
+  ./flix validate; rc=$?
+  cp "$1/flix.keep" flix; chmod +x flix; exit $rc' sh "$work"
+g 88 'overrides it' "validate detects a gitattributes override" sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "* text=auto eol=crlf\n" >> .gitattributes
+  ./flix validate; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
 t 0  "update-wrapper is a no-op when files match"               ./flix update-wrapper
 g 0  'rewrote' "update-wrapper repairs a clobbered shim"        sh -c 'echo broken > flix.cmd; ./flix update-wrapper'
 t 0  "the repaired shim matches the source of truth"            cmp flix.cmd "$root/src/flix.cmd"

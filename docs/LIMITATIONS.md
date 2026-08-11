@@ -87,18 +87,40 @@ to one of them is a separate experiment, and until it runs the promise here is n
 *a contributor who already has Java can skip installing Flix*, not zero-install
 bootstrapping.
 
-## The manifest is read with a regex
+## The manifest is not read by a TOML parser
 
-`flix.toml` and the lock are read by matching a quoted scalar, not by a TOML parser. That
-keeps stage 0 dependency-free, which is the point of the design, but it is the weakest
-part of it: an exotic-but-legal manifest — a multi-line string containing a decoy
-assignment, say — could be misread.
+`flix.toml` and the lock are read by a small hand-written scanner, because stage 0 has no
+dependencies by design. It is table-aware, comment-aware and multi-line-string-aware, so
+the obvious failures are covered and tested: a `flix` key in another table is ignored, a
+decoy assignment inside a `"""` block is ignored, a trailing comment is stripped, and a
+duplicate `[package]` table or duplicate key is rejected rather than resolved. `pin`
+rewrites only `[package].flix` and leaves every other table alone.
 
-The mitigations are that both files are small and generated or hand-edited by one line,
-that the version is grammar-validated after extraction, and that a wrong version fails at
-the digest rather than silently running something else. It is still the first place to
-look if a manifest behaves oddly, and the first thing a corpus test over real published
-manifests should attack.
+What it still is not is a conforming parser. Exotic-but-legal TOML — unusual escape
+sequences, inline tables spanning constructs it does not model — may be misread or
+refused. It fails closed where it can: a value it cannot classify inside the table it was
+asked about is an error, not a guess.
+
+The remaining mitigations are that both files are small, that the version is
+grammar-validated after extraction, and that a wrong version fails at the digest rather
+than silently running something else. A corpus test over real published manifests is the
+right next attack on this.
+
+## The compiled stage 0 in the cache is executed on trust
+
+The shims run whatever class sits at `<cache>/stage0/<sha256 of flix.java>/flix.class`.
+The path is keyed by the hash of the *source*, not of the class, so anyone who can write
+that directory can run code as you.
+
+That is the same trust boundary as the rest of the user cache — and as `~/.cache`
+generally — but this entry is executable, which makes it a more attractive target than a
+JAR that gets digest-verified before use. Stage 0 narrows the directory's permissions to
+the owner where the platform allows it. If your cache directory is shared, group-writable,
+or on a network filesystem other people can write to, set `FLIX_CACHE_HOME` to somewhere
+private.
+
+Verifying the class in the shim would need a hash of the compiled output in a file the
+shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
