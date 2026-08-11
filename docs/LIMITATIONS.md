@@ -137,9 +137,28 @@ shim also has to trust, which moves the problem rather than solving it.
 
 This wrapper has been exercised by a 74-case regression suite — one of those cases being
 327 unit assertions over a corpus of real manifests — against one compiler release, on
-Linux, macOS and Windows. It has not been run across the real Flix release
-cadence, by anyone other than its author, or on any project but a scratch fixture and one
-game.
+Linux, macOS and Windows.
+
+Since 2026-08-11 it has also run in one real project.
+[`flix-invaders`](https://github.com/wstein/flix-invaders) replaced its hand-written
+downloader with `./flix` outright: its CI type-checks, tests and formats through the
+wrapper, and its smoke job launches the game in a real window on Linux, macOS and Windows.
+That is the first evidence from something other than a scratch fixture, and it produced
+two findings the test suite could not. The project's `main` read an asset path relative to
+the working directory, which its previous script had silently supplied by `cd`-ing to the
+project root — the wrapper's refusal to move the caller is correct and is documented, but
+it is a real migration cost. And its CI cache key hashed `flix.toml`, which does not name
+the compiler bytes; keying on the lock is what the pin actually requires.
+
+What is still missing is more important than what is there. It has not been run across the
+real Flix release cadence — the adoption above is one compiler release, pinned to the
+version the project already ran, so nothing has yet been *migrated*. It has not been run by
+anyone other than its author, and one author adopting their own tool in their own project
+is the weakest possible form of field evidence. `flix-invaders` keeps
+[`docs/pin-lag.md`](https://github.com/wstein/flix-invaders/blob/main/docs/pin-lag.md), one
+row per Flix release, precisely so the cost shows up as a number rather than an impression;
+its baseline row records that the project adopted 0.75.2 on the day it shipped, *before*
+pinning, which is the bar the experiment now has to clear.
 
 Four of those cases cannot run on Windows and are reported as skipped rather than
 quietly passing. Three drive a fake JDK — a lying `release` file over a `bin/java` that

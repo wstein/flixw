@@ -39,6 +39,18 @@ and track head.
 
 If you do adopt it, keep a head-compiler CI job alongside the pinned one.
 
+## Who uses it
+
+One project, honestly: [`flix-invaders`](https://github.com/wstein/flix-invaders), by the
+same author. It replaced a hand-written download script with `./flix` and now type-checks,
+tests, formats and packages through the wrapper, with a smoke job that launches the game in
+a real window on Linux, macOS and Windows. It keeps a
+[pin-lag log](https://github.com/wstein/flix-invaders/blob/main/docs/pin-lag.md) — one row
+per Flix release — so the cost of pinning is recorded as a number rather than argued about.
+
+That is one project and one compiler release, which is not yet evidence that pinning pays.
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) says exactly what is and is not established.
+
 ## Getting it into a project
 
 ```console
