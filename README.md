@@ -32,6 +32,28 @@ and track head.
 
 If you do adopt it, keep a head-compiler CI job alongside the pinned one.
 
+## Getting it into a project
+
+```console
+curl -fsSLO https://raw.githubusercontent.com/wstein/flixw/main/src/flix.java
+java flix.java install .          # writes flix, flix.cmd, .flix-wrapper/, .gitattributes
+rm flix.java
+./flix pin 0.75.2                 # writes the lock, fetches and verifies the compiler
+git add flix flix.cmd .flix-wrapper .gitattributes
+```
+
+Then `./flix check`, `./flix test`, `./flix run` — the pinned stock compiler, unmodified.
+`./flix --wrapper-help` prints the routing table: which verbs go to the compiler, which
+to the wrapper, and how to force either.
+
+## Documentation
+
+- [`docs/CONTRACT.md`](docs/CONTRACT.md) — what is guaranteed, and the diagnostics table
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — measured overhead, with the method
+- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — what it cannot do, stated plainly
+- [`docs/Flix_Bootstrap_Wrapper_Paper.md`](docs/Flix_Bootstrap_Wrapper_Paper.md) — the
+  design paper this grew from, kept as historical evidence
+
 ## Repository layout
 
 ```text

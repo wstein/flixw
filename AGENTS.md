@@ -44,17 +44,20 @@ cd /tmp/proj && ./flix pin 0.75.2         # writes flix.toml + .flix-wrapper/loc
 ./flix validate                           # wrapper files, lock/manifest agreement, git tracked status
 ```
 
-`helper/` is a vestigial sbt/Scala 2.13 hello-world, kept only against the possibility that
-wrapper verbs outgrow stage 0 (see paper §4.1, §4.10). It is **not** on any hot path.
+The repository's configured checks, both required before a commit:
 
 ```sh
-cd helper && sbt compile
-cd helper && sbt test
-cd helper && sbt 'testOnly MySuite'       # single suite (munit)
+sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
+sh tests/run.sh     # 55-case regression suite; one ~32MB download on a cold cache
 ```
 
-`tests/fixtures/` and `.github/workflows/` exist but are empty; the regression suite and CI
-are not written yet. `tests/.work/` is its gitignored scratch space.
+`helper/` holds a build definition and nothing else — no sources, reserved against the
+possibility that wrapper verbs outgrow stage 0. See `helper/README.md` for the entry
+condition. It is **not** on any hot path and is not built by lint or CI.
+
+`tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
+space: two JDK stand-ins, a JAR whose `--help` cannot be parsed, a JAR that sleeps, and a
+git-initialised scratch project. Nothing binary is committed.
 
 ## Architecture
 
@@ -129,15 +132,17 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 
 ### Known rough edges
 
-- The paper says the wrapper directory is `.flixw/`; the code uses `.flix-wrapper`
-  (`WRAPPER_DIR`). Decide which one wins before touching either — the name appears in the
-  shims, `.gitattributes` block, `install`, and `validate`.
 - `lock.toml` and `flix.toml` are read with a regex (`scalar()`), not a TOML parser. That is
   deliberate (one Java implementation, no dependencies) but is the weakest point in the
   manifest corpus test of paper §7.2 question 3.
-- The repository is mid-restructure: the git index still shows the old sbt project moved to
-  `helper/`, `src/` is untracked, and `README.md` is still the stock sbt template.
-- `update-wrapper` is a stub.
+- Rule 5 routes unknown verbs to the compiler so future verbs and filenames keep working,
+  but Flix has no unknown-command diagnostic: `flix doctro` answers
+  `Unrecognized file extension: 'doctro'.` on **stdout**, exit 1. The routing is right; the
+  resulting message is not good, and improving it is an open UX question.
+- `flix.cmd` has never been executed — there is no Windows machine in the loop. Argument
+  parity with the POSIX shim is not achievable and is not claimed; see `docs/LIMITATIONS.md`.
+- The design paper is Revision 6 and now trails the implementation in places. `docs/CONTRACT.md`
+  is the accurate description of what ships; the paper is kept as historical evidence.
 
 ## Conventions
 
