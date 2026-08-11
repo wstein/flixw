@@ -40,10 +40,12 @@ The two arguments are told apart by the slash, which a version can never contain
 order does not matter. An omitted repository means the one already in the lock, so a bare
 re-pin stays where the project already is; naming one changes it. Upstream is resolved by
 constructing the release URL, which has been stable for every release this wrapper has
-seen and keeps `pin` independent of an API for the common case. Any other repository is
-resolved from its GitHub release, because nothing says a fork's asset is called
-`flix.jar` — and where that release publishes a digest, it must agree with what the
-download hashes to, which is two independent paths for one claim.
+seen and keeps `pin` independent of an API for the common case. Any other repository is probed for
+its asset name, because nothing says a fork's asset is called `flix.jar`: one `HEAD` each
+against `flix-<version>.jar` and `flix.jar`, and then a single download of whichever
+exists. No API is involved — GitHub's is limited to sixty unauthenticated requests an
+hour across the whole machine, which made `pin` fail with `403` on a tag that existed,
+while release downloads carry no such limit.
 
 A fork is verified exactly as the stock compiler is, and is **not** stock-compatibility
 evidence. `doctor` names the source for that reason.
@@ -149,7 +151,7 @@ reached only when no explicit setting exists and the running JVM is unusable.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
 4. Otherwise, if it is `pin`, `doctor`, `setup` or `validate`, the
-   wrapper implements it, and says so on stderr.
+   wrapper implements it.
 5. Otherwise the compiler gets it.
 
 `./flix wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
@@ -168,6 +170,12 @@ exit status is the compiler's.
 
 `FLIX_BACKEND=wrapper` forces rule 4 during a transition; `FLIX_BACKEND=compiler` forces
 the compiler for every verb, including the wrapper's own.
+
+Dispatch is silent. Which side handled a verb is visible under `FLIXW_TRACE`, and
+nowhere else: printing it on every wrapper-handled command told the caller what they had
+just typed, and read as a warning about something that had not happened. The one notice
+that remains is the deprecation warning below, which reports a change rather than a
+routine.
 
 The point of rule 3 preceding rule 4 is **automatic retirement**: the day Flix ships its
 own `doctor`, users get the real one and the wrapper's stand-in steps aside, one verb at

@@ -472,16 +472,6 @@ public final class UnitCheck {
             catch (flix.Fail e) { ok(); }
         }
 
-        // Assets come out of a JSON array, so the object walker has to handle more than one.
-        String body = "{\"assets\":[{\"name\":\"a.txt\",\"browser_download_url\":\"u1\"},"
-                    + "{\"name\":\"flix.jar\",\"browser_download_url\":\"u2\","
-                    + "\"digest\":\"sha256:" + "b".repeat(64) + "\"}]}";
-        java.util.List<String> objs = flix.jsonObjects(body, "assets");
-        eq("assets: every object in the array", "2", "" + objs.size());
-        eq("assets: the second one is the jar", "flix.jar", flix.jsonField(objs.get(1), "name"));
-        eq("assets: an empty array yields nothing", "0",
-           "" + flix.jsonObjects("{\"assets\":[]}", "assets").size());
-
         System.out.println("  ok   pin targets: repository and version parsing");
     }
 

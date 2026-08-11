@@ -217,7 +217,12 @@ t 87 "an unknown wrapper operation"                                  ./flix wrap
 # assert offline is that the flag exists and refuses arguments.
 t 87 "wrapper --install-jdk takes no arguments"                 ./flix wrapper --install-jdk temurin
 t 0  "rule 3  compiler verb"                                    ./flix check
-g 0  'wrapper'   "rule 4  wrapper verb routes and says so"      ./flix doctor
+t 0  "rule 4  wrapper verb"                                     ./flix doctor
+# Routing used to be announced on every wrapper-handled command, which told the caller
+# what they had just typed. It belongs to whoever is debugging dispatch, and nobody else.
+t 0  "routing is silent by default"                             sh -c '
+  ! ./flix doctor 2>&1 >/dev/null | grep -q "wrapper 0"'
+g 0 'does not implement it' "routing is visible under FLIXW_TRACE"  env FLIXW_TRACE=1 ./flix doctor
 t 1  "rule 5  unknown verb reaches the compiler"                ./flix frobnicate
 # No verb starts the REPL, which reads stdin until EOF. The case must supply that EOF
 # itself: inheriting a terminal -- or any stdin that stays open -- hangs the suite forever

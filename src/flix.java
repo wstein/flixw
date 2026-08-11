@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.15.0";
+    static final String WRAPPER_VERSION = "0.16.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -404,7 +404,7 @@ public final class flix {
     static final String UPSTREAM_REPO = "flix/flix";
 
     /** One release asset: what to fetch, and what the publisher says it hashes to. */
-    record Asset(String name, String url, String sha256) {}
+    record Asset(String name, String url) {}
 
     static String checkRepo(String repo, String where) {
         if (!repo.matches("[A-Za-z0-9._-]{1,64}/[A-Za-z0-9._-]{1,100}"))
@@ -416,80 +416,60 @@ public final class flix {
     static String encodeTag(String tag) { return tag.replace("+", "%2B"); }
 
     /**
-     * Resolves the compiler artifact for one repository and version.
+     * Resolves the compiler artifact for one repository and version, without asking an
+     * API anything.
      *
-     * The upstream layout is constructed rather than queried.  It has been stable for
-     * every release this wrapper has seen, and `pin` against it must not start depending
-     * on an API -- or on a rate limit -- for the case that is almost all of them.
+     * The GitHub API answered this in one call and threw in a digest, and it was the
+     * wrong tool: unauthenticated it allows sixty requests an hour across everything on
+     * the machine, so `pin` failed with HTTP 403 for a tag that plainly existed, and the
+     * error blamed the tag. Release *downloads* carry no such limit, so the asset name --
+     * the only thing that was ever unknown -- is found by asking for the file itself.
      *
-     * A fork is a different matter: nothing says its asset is called flix.jar, and the
-     * example this was built for publishes `flix-0.75.2+fork.wstein.260807.1.jar` under a
-     * tag carrying the same build metadata.  Guessing that is worse than asking, so forks
-     * are resolved from the release itself, which also hands back the digest GitHub holds.
+     * Upstream is a single constructed URL, as before. A fork is probed against the two
+     * conventions in the wild, `flix-<version>.jar` and `flix.jar`, with a HEAD each; the
+     * download that follows is still exactly one acquisition attempt for one artifact.
      */
     static Asset resolveRelease(String repo, String version) {
-        if (repo.equals(UPSTREAM_REPO))
-            return new Asset("flix.jar",
-                "https://github.com/" + UPSTREAM_REPO + "/releases/download/v"
-                    + canonical(version) + "/flix.jar", null);
-
-        String tag = "v" + version;
-        String body;
-        try {
-            body = httpGet("https://api.github.com/repos/" + repo + "/releases/tags/"
-                         + encodeTag(tag));
-        } catch (Fail f) {
-            // The overwhelmingly likely cause is a tag that is not there, and the bare
-            // HTTP status says nothing about which of the two arguments was wrong.
-            throw w005(f.getMessage() + "\n       " + repo + " has no release tagged "
-                     + q(tag) + "; the version must match the tag exactly,"
-                     + " build metadata included");
+        if (repo.equals(UPSTREAM_REPO)) {
+            String u = "https://github.com/" + UPSTREAM_REPO + "/releases/download/v"
+                     + canonical(version) + "/flix.jar";
+            return new Asset("flix.jar", u);
         }
-        List<String> jars = new ArrayList<>();
-        String name = null, url = null, sha = null;
-        for (String a : jsonObjects(body, "assets")) {
-            String n = jsonField(a, "name");
-            if (n == null || !n.endsWith(".jar")) continue;
-            jars.add(n);
-            // A repository that ships several jars has to be told apart somehow, and the
-            // stock name is the only convention there is; otherwise a lone jar is it.
-            if (name == null || n.equals("flix.jar")) {
-                name = n;
-                url = jsonField(a, "browser_download_url");
-                String d = jsonField(a, "digest");
-                sha = d != null && d.startsWith("sha256:") ? d.substring(7) : null;
+        String base = "https://github.com/" + repo + "/releases/download/"
+                    + encodeTag("v" + version) + "/";
+        List<String> tried = new ArrayList<>();
+        for (String name : List.of("flix-" + version + ".jar", "flix.jar")) {
+            String u = base + encodeTag(name);
+            tried.add(u);
+            if (assetExists(u)) {
+                validateUrl(u, repo + " release v" + version);
+                return new Asset(name, u);
             }
         }
-        if (name == null)
-            throw w005("no .jar asset on " + repo + " release " + tag
-                     + "\n       check that the tag exists and publishes a compiler jar");
-        if (jars.size() > 1 && !name.equals("flix.jar"))
-            throw w005(repo + " release " + tag + " publishes several jars and none is"
-                     + " flix.jar: " + String.join(", ", jars));
-        if (url == null || !url.startsWith("https://"))
-            throw w005("release asset " + q(name) + " has no https download url");
-        validateUrl(url, repo + " release " + tag);
-        if (sha != null && !sha.matches("[0-9a-f]{64}")) sha = null;
-        return new Asset(name, url, sha);
+        throw w005("no compiler jar found in " + repo + " release " + q("v" + version)
+                 + "\n       tried " + String.join("\n             ", tried)
+                 + "\n       the version must match the tag exactly, build metadata included");
     }
 
-    /** Every brace-balanced object inside the array under `"key":`. */
-    static List<String> jsonObjects(String json, String key) {
-        List<String> out = new ArrayList<>();
-        int i = json.indexOf("\"" + key + "\"");
-        if (i < 0) return out;
-        int open = json.indexOf('[', i);
-        if (open < 0) return out;
-        int depth = 0, start = -1;
-        for (int j = open; j < json.length(); j++) {
-            char c = json.charAt(j);
-            if (c == '{') { if (depth++ == 0) start = j; }
-            else if (c == '}') { if (--depth == 0 && start >= 0) out.add(json.substring(start, j + 1)); }
-            else if (c == ']' && depth == 0) break;
+    /** Does this release asset exist? A HEAD, so the download itself stays a single attempt. */
+    static boolean assetExists(String url) {
+        HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(30)).build();
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                .timeout(Duration.ofSeconds(60))
+                .header("User-Agent", "flixw/" + WRAPPER_VERSION).build();
+        try {
+            HttpResponse<Void> res = client.send(req, HttpResponse.BodyHandlers.discarding());
+            return res.statusCode() == 200 && "https".equals(res.uri().getScheme());
+        } catch (IOException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        return out;
     }
-
     /**
      * `./flix pin [<owner>/<repo>] <version>`.
      *
@@ -1990,13 +1970,6 @@ public final class flix {
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
-            // When the publisher states a digest, agreeing with it is free evidence: the
-            // bytes and the claim then came down two different paths, and a mirror or a
-            // truncation that altered one of them is caught here rather than at first use.
-            if (asset.sha256() != null && !asset.sha256().equals(digest))
-                throw w006("digest mismatch for " + asset.name()
-                         + "\n       " + repo + " publishes " + asset.sha256()
-                         + "\n       the download hashes to " + digest);
             String lock = """
                 # Generated by ./flix pin. Do not edit by hand; commit this file.
                 wrapperVersion = "%s"
@@ -2338,7 +2311,7 @@ public final class flix {
         }
 
         if (!toCompiler) {
-            if (forcedWrapper && compilerVerbs.contains(first))
+            if (forcedWrapper && compilerVerbs.contains(first) && trace())
                 System.err.println("flix: " + q(first) + " \u2192 wrapper " + WRAPPER_VERSION
                                  + " (forced by FLIX_BACKEND=wrapper; compiler " + lock.version()
                                  + " also implements it)");
@@ -2354,7 +2327,17 @@ public final class flix {
         launch(jvm.exe(), opts, jar, forward);
     }
 
+    /**
+     * Which side handled a verb, under FLIXW_TRACE only.
+     *
+     * It used to print on every wrapper-handled command, and it told the caller what they
+     * had already said: typing `./flix doctor` and being told that doctor went to the
+     * wrapper is not news. Worse, it read as a warning -- something had happened worth
+     * mentioning -- when nothing had. The hot path was already silent; now the rest is
+     * too, and the routing is still visible to anyone debugging it.
+     */
     static void routingNotice(String verb, String compilerVersion) {
+        if (!trace()) return;
         System.err.println("flix: " + q(verb) + " \u2192 wrapper " + WRAPPER_VERSION
                          + " (pinned compiler " + compilerVersion + " does not implement it)");
     }

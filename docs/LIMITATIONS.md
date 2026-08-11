@@ -260,8 +260,8 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 113-case regression suite — one of those cases being
-366 unit assertions over a corpus of real manifests — against one compiler release, on
+This wrapper has been exercised by a 115-case regression suite — one of those cases being
+363 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.
