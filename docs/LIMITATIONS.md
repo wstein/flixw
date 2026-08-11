@@ -109,6 +109,15 @@ is not a question, it is a hang; so a non-terminal stdin, or `CI` in the environ
 the instructions and a failure instead. `FLIXW_INSTALL_JDK=1` opts in ahead of time for
 scripted setup, and `./flix --wrapper-install-jdk` does it on demand.
 
+**The Windows install has been reasoned about, not run.** Unpacking there is a zip read
+by `java.util.zip` inside stage 0 — not `tar`, `Expand-Archive` or any external tool, so it
+needs nothing installed beyond the Java already running. The real Adoptium Windows archive
+was extracted and inspected during development: 577 entries, correct layout, `java.exe`
+where it belongs. What could not be exercised off Windows is `Files.isExecutable` on a
+`.exe`, so that check is no longer relied on there — Adoptium builds the Windows zip on a
+Unix machine, entries carry mode 0770, and `java.util.zip` discards it, so every file
+lands 0644 and an executable-bit test would have found no JDK at all.
+
 **The digest is Adoptium's, over Adoptium's TLS.** Same shape as the compiler pin: it
 defends against a corrupted or truncated download and against a mirror substituting bytes,
 not against Adoptium itself. It is trust-on-first-use, and it is one more supply chain than
@@ -191,7 +200,7 @@ shim also has to trust, which moves the problem rather than solving it.
 ## No field evidence
 
 This wrapper has been exercised by a 80-case regression suite — one of those cases being
-344 unit assertions over a corpus of real manifests — against one compiler release, on
+347 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.

@@ -366,6 +366,43 @@ public final class UnitCheck {
             bad("coords: architecture", "unexpected " + arch);
         else ok();
 
+        // The Windows archive is a zip built on a Unix machine: entries carry mode 0770
+        // and java.util.zip discards it, so everything lands 0644. Requiring an executable
+        // bit there would find no java.exe at all. Both trees are built here because CI
+        // never runs the install itself.
+        try {
+            Path root = Files.createTempDirectory("flixw-jdk-");
+            try {
+                Path bin = root.resolve("jdk-21.0.12+8").resolve("bin");
+                Files.createDirectories(bin);
+                String want = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
+                                    .startsWith("windows") ? "java.exe" : "java";
+                Path exe = bin.resolve(want);
+                Files.writeString(exe, "not really a jvm");
+                // 0644, exactly as unzip leaves it.
+                Path found = flix.findJavaUnder(root);
+                if (want.equals("java.exe")) {
+                    eq("findJavaUnder: a zip-extracted java.exe is found", exe.toString(),
+                       found == null ? null : found.toString());
+                } else {
+                    eq("findJavaUnder: a non-executable java is not a JDK", null,
+                       found == null ? null : found.toString());
+                    exe.toFile().setExecutable(true, true);
+                    eq("findJavaUnder: an executable one is", exe.toString(),
+                       flix.findJavaUnder(root) == null ? null : flix.findJavaUnder(root).toString());
+                }
+                eq("findJavaUnder: nothing under an empty tree", null,
+                   flix.findJavaUnder(Files.createTempDirectory("flixw-empty-")) == null
+                       ? null : "something");
+            } finally {
+                try (var w = Files.walk(root)) {
+                    w.sorted(java.util.Comparator.reverseOrder()).forEach(x -> {
+                        try { Files.deleteIfExists(x); } catch (IOException ignored) { }
+                    });
+                }
+            }
+        } catch (IOException e) { bad("findJavaUnder", e.toString()); }
+
         System.out.println("  ok   provisioning: metadata parsing and platform coordinates");
     }
 

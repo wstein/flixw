@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.8.0";
+    static final String WRAPPER_VERSION = "0.8.1";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -897,14 +897,24 @@ public final class flix {
         }
     }
 
-    /** Layout differs per platform -- macOS nests a .jdk bundle -- so look rather than guess. */
+    /**
+     * Layout differs per platform -- macOS nests a .jdk bundle -- so look rather than guess.
+     *
+     * The executable bit is only required where it means something.  Adoptium builds its
+     * Windows zip on a Unix machine, so entries carry a mode of 0770, and java.util.zip
+     * discards it: every file lands 0644.  On Windows that is irrelevant, because what
+     * makes java.exe runnable there is the extension and the ACL -- but a check for it
+     * would rest on platform semantics rather than on anything unpacking guarantees.  On
+     * POSIX the bit does mean something and tar preserves it, so it is still required.
+     */
     static Path findJavaUnder(Path root) {
         String want = isWindows() ? "java.exe" : "java";
         try (var s = Files.walk(root, 6)) {
             return s.filter(x -> x.getFileName().toString().equals(want)
                               && x.getParent() != null
                               && x.getParent().getFileName().toString().equals("bin")
-                              && Files.isExecutable(x))
+                              && Files.isRegularFile(x)
+                              && (isWindows() || Files.isExecutable(x)))
                     .findFirst().orElse(null);
         } catch (IOException e) { return null; }
     }
