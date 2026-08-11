@@ -3,14 +3,14 @@
 ## Design, Trade-offs, and Evaluation Plan for `flixw`
 
 **Werner Stein**  
-**Design paper — Revision 4**  
+**Design paper — Revision 5**  
 **11 August 2026**
 
 ## Abstract
 
 Flix already integrates compilation, dependency management, testing, packaging, publishing, and language-server support in one JVM application. A project can declare a compiler version in `flix.toml`, although current documentation says that the field is not yet used [2]. Earlier revisions of this paper proposed an official wrapper generator for every Flix project. This revision withdraws that recommendation. Flix is a rapidly changing pre-1.0 language whose Community Build deliberately keeps downstream projects near compiler head. Universal exact pinning could reduce that migration signal, accumulate breaking changes in dormant repositories, and transfer upgrade costs from continuous integration to users.
 
-The revised proposal is an opt-in third-party experiment, `wstein/flixw`. It targets projects that explicitly prefer reproducibility over automatic head tracking and must work with an unmodified stock compiler JAR published by `github.com/flix/flix`. A small single-file Java bootstrap verifies and installs a versioned `flixw-helper.jar`; that helper verifies and installs the separately pinned stock `flix.jar`, implements diagnostics and maintenance commands, and finally launches the compiler as an opaque process. Convenience scripts only locate Java and delegate. Generated non-executable `.flix-wrapper.toml` metadata pins both artifacts by URL and digest. Artifacts are cached by version and digest. Hashing occurs during installation and optionally on every run, avoiding an impossible universal 50 ms budget.
+The revised proposal is an opt-in third-party experiment, `wstein/flixw`. Its load-bearing claim is that a minimal, auditable, dependency-free stage-0 bootstrap can verify, install, and execute an exact unmodified stock compiler JAR published by `github.com/flix/flix`. Every operation uses one entry point, `./flix`. The dispatcher gives compiler verbs precedence, forwards unknown verbs to the compiler, and handles a wrapper verb only when the pinned compiler does not implement it. Initial wrapper verbs may live directly in `flix.java`; a helper JAR is introduced only if later functionality cannot remain small. Thus `./flix check` is always shim → stage 0 → stock `flix.jar`, and scaffolding retires automatically one verb at a time as Flix adopts equivalent commands.
 
 The paper separates evidence from proposal, defines falsifiable experiments over several Flix release cycles, and narrows upstream requests to two independently useful changes: publish checksums or signed release attestations, and warn when `[package].flix` differs from the running compiler. Official wrapper adoption is explicitly deferred until the experiment demonstrates demand, maintainability, and compatibility with Flix's upgrade culture.
 
@@ -63,15 +63,15 @@ Coursier and JBang are the strongest JVM-native alternatives. Coursier already p
 
 Neither alternative is zero-install by itself unless its launcher is also bootstrapped, and no current Maven Central coordinate exists for Flix 0.75.2. Nevertheless, Maven publication is now a decisive design fork rather than an incidental transport improvement. `flixw` should not reimplement features that become reliably delegable to Coursier.
 
-### 3.4 Why a Java bootstrap and helper JAR
+### 3.4 Why stage 0 is Java
 
-Java 21 or newer is already a Flix prerequisite [1], [5]. Java's source-file launcher can execute a small `.java` bootstrap without a committed binary or explicit compile step. That bootstrap has one security-critical job: validate and install the pinned `flixw-helper.jar`, then invoke it. The helper JAR provides TOML handling, SemVer validation, HTTPS policy, proxy behavior, SHA-256, atomic moves, path handling, diagnostics, and shared tests. This keeps the committed bootstrap auditable while allowing the richer implementation to be packaged and tested normally. Windows users can invoke the same bootstrap directly:
+Java 21 or newer is already a Flix prerequisite [1], [5]. The working prototype demonstrates that one Java source file can parse the compiler lock, detect manifest drift, download over HTTPS, verify SHA-256, populate a content-addressed cache atomically, and execute the stock compiler. JEP 330 source launch costs approximately 375 ms per invocation in the measured prototype, whereas the same code precompiled and cached starts in approximately 50 ms. Stage 0 therefore compiles itself into the user cache once and executes the cached form thereafter. No second distributed bootstrap artifact is required. Windows users can invoke the source entry directly for first contact:
 
 ```console
-java flixw.java test
+java flix.java test
 ```
 
-Git Bash may offer `./flix test` as a convenience on Windows. A tiny optional `flix.cmd` can cover common arguments but is never described as byte-for-byte equivalent. PowerShell is not a required implementation because enterprise execution policy can make workspace scripts administratively unrunnable.
+Git Bash and PowerShell may offer `./flix test` and `.\flix.ps1 test` as conveniences on Windows. A three-line `flix.cmd` trampoline supports `cmd.exe`; arguments that `cmd.exe` transforms remain documented deviations. `java flix.java test` is the universal Windows fallback and does not depend on PowerShell execution policy.
 
 ## 4. Experimental Architecture
 
@@ -80,61 +80,63 @@ Git Bash may offer `./flix test` as a convenience on Windows. A tiny optional `f
 ```text
 flix.toml                 # human-maintained Flix project manifest
 flix                      # small POSIX Java-discovery shim
-flixw                     # small POSIX helper-command shim
-flixw.java                # byte-identical stage-0 helper bootstrap
-.flix-wrapper.toml        # generated project-specific lock metadata
+flix.ps1                  # small PowerShell Java-discovery shim
+flix.cmd                  # minimal cmd.exe trampoline
+flix.java                 # byte-identical stage-0 dispatcher/bootstrap
+.flix-wrapper.toml        # committed compiler-only lock metadata
 .gitattributes            # line-ending rules merged idempotently
-flix.cmd                  # optional, non-normative convenience shim
 ```
 
 The sidecar uses TOML, avoiding a second configuration format. It is generated lock metadata rather than a second human-maintained compiler declaration:
 
 ```toml
-wrapperVersion = "0.1.0"
-
-[helper]
-version = "0.1.0"
-url = "https://github.com/wstein/flixw/releases/download/v0.1.0/flixw-helper.jar"
-sha256 = "<published-helper-digest>"
-
 [compiler]
 version = "0.75.2"
 url = "https://github.com/flix/flix/releases/download/v0.75.2/flix.jar"
 sha256 = "a2697d875725a0dde6e793b8d54cb220e86167a6d49ec5f0ccb0832966c8c15a"
 ```
 
-`flix.toml` remains the human authority for the compiler version. The sidecar repeats it so the helper can detect drift before downloading anything, while independently pinning the helper implementation. A mismatch produces an actionable diagnostic and never enters a download/retry loop.
+`flix.toml` remains the human authority for the compiler version. The committed sidecar repeats it so stage 0 can detect drift before downloading anything. A mismatch produces an actionable diagnostic and never enters a download/retry loop. `.gitattributes` explicitly normalizes `/.flix-wrapper.toml text eol=lf`.
 
-`flixw-helper.jar` is distributed as a standalone asset attached to a versioned `wstein/flixw` GitHub Release. It is not published or resolved as a Maven package and introduces no package-manager dependency. Its release model intentionally mirrors stock Flix: one directly executable JAR, one stable release URL convention, and one published SHA-256 or attestation. The bootstrap treats the helper and compiler as independent executable release artifacts.
+Wrapper verbs initially fit inside stage 0. A standalone `flixw-helper.jar` may later be attached to a versioned `wstein/flixw` GitHub Release if the integration surface outgrows the auditable bootstrap. Its coordinates would be wrapper-release constants in `flix.java`, with `FLIXW_HELPER_JAR` as a development and recovery override. It is scaffolding, never project lock data and never part of the compiler hot path.
 
 ### 4.2 Wrapper identity and validation
 
-`flix`, `flixw`, `flixw.java`, and an optional `flix.cmd` are byte-identical across repositories for a given wrapper release. Upstream or `wstein/flixw` can therefore publish one hash per wrapper file and version. Project-specific URL and digest data live only in `.flix-wrapper.toml`; updating a compiler pin changes data, not executable code.
+`flix`, `flix.ps1`, `flix.cmd`, and `flix.java` are byte-identical across repositories for a given wrapper release. `wstein/flixw` can therefore publish one hash per file and version. Project-specific URL and digest data live only in `.flix-wrapper.toml`; updating a compiler pin changes data, not executable code.
 
-Published wrapper hashes apply to canonical release bytes. `.gitattributes` establishes `/flix text eol=lf`, `/flixw text eol=lf`, `/flixw.java text eol=lf`, and optional `/flix.cmd text eol=crlf`. Validation distinguishes Git blob identity from checked-out canonical bytes. The generator owns a marked block in `.gitattributes`, replaces that block idempotently, preserves unrelated rules, and fails if a later rule overrides the wrapper paths.
+Published wrapper hashes apply to canonical release bytes. `.gitattributes` establishes `/flix text eol=lf`, `/flix.java text eol=lf`, `/.flix-wrapper.toml text eol=lf`, `/flix.ps1 text eol=crlf`, and `/flix.cmd text eol=crlf`. Validation distinguishes Git blob identity from checked-out canonical bytes. The installer owns a marked block, replaces it idempotently, preserves unrelated rules, and fails if a later rule overrides these paths. It also sets and verifies the POSIX executable bit and documents archive-download recovery.
 
 ### 4.3 Version and integrity policy
 
 The initial experiment supports exact versions only. Exactness is not a temporary omission; it is what makes a pinned digest meaningful. The generated sidecar binds the tuple:
 
 ```text
-(wrapper version, Flix version, distribution URL, SHA-256)
+(Flix version, distribution URL, SHA-256)
 ```
+
+The accepted identifier grammar is:
+
+```text
+[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?(?:\+[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?
+```
+
+Stage 0 independently rejects `..`, slash, backslash, whitespace, ranges, wildcards, empty suffixes, and leading `v`. Accepted examples include `0.75.2`, `0.76.0-rc.1`, `0.75.2+build.4`, and `1.2.3-beta.2+build.17`. Build metadata is accepted in the manifest but stripped from the canonical Flix release tag and compiler cache coordinate; the pinned digest still determines artifact identity. External utility operands use `--` wherever supported.
 
 GitHub's release API currently reports a SHA-256 for the single `flix.jar` asset. For 0.75.2 the field matches the observed cached JAR. This proves that the metadata is populated, not that it supplies independent authenticity: the hash and bytes share GitHub and TLS as their trust anchor, and an asset can be replaced. The initial model is therefore trust on first generation. A signed release attestation or independently published checksum is the preferred upstream improvement.
 
-### 4.4 Content-addressed cache
+### 4.4 Content-addressed cache and transport
 
-Both artifacts use version-plus-digest cache identities:
+`FLIX_CACHE_HOME` overrides the default cache. Defaults are outside tracked repository paths:
 
 ```text
-<cache>/helpers/flixw-helper-<version>-<sha256>.jar
-<cache>/compilers/flix-<version>-<sha256>.jar
+Linux:   ${XDG_CACHE_HOME:-$HOME/.cache}/flixw
+macOS:   $HOME/Library/Caches/flixw
+Windows: %LOCALAPPDATA%\flixw
 ```
 
-Projects using different mirrors or historical digests coexist. No project removes another project's cache entry. A cold setup installs the helper first and the stock compiler second. Each download uses a uniquely created temporary file in the destination directory, verifies SHA-256, and atomically renames it. Concurrent identical writers converge safely without locks.
+The compiler path is `<cache>/compilers/flix-<version>-<sha256>.jar`; a cached self-compiled stage 0 is stored separately by wrapper-source hash. Projects using different mirrors or historical digests coexist. Downloads use destination-local unique temporary files, unconditional SHA-256 verification, and atomic rename without locks. The measured 105 ms hash cost for the 33 MB JAR is approximately 2.5% of a representative warm `check`, so no install-stamp format or `FLIX_VERIFY_ALWAYS` mode is introduced.
 
-Verification occurs at installation. A stamp records digest, size, modification time, and file identity where available. Warm startup validates the stamp; `FLIX_VERIFY_ALWAYS=1` recomputes SHA-256 on every run for CI or a stronger local threat model. The paper no longer asserts a universal 50 ms budget before platform measurements.
+`FLIX_DIST_URL` rewrites the approved distribution base while preserving the committed digest. `HTTPS_PROXY`, `https_proxy`, and `NO_PROXY` are honored. HTTPS-only initial and redirected protocols, bounded connect and total timeouts, and one acquisition attempt per artifact are mandatory.
 
 ### 4.5 Java selection
 
@@ -146,11 +148,13 @@ Selection order is:
 4. Otherwise, inspect known installations and select a compatible candidate.
 5. Otherwise, fail with a concise Java requirement.
 
-The launcher first reads `$JAVA_HOME/release` or the platform equivalent and executes only the selected JVM when a reliable version cannot be obtained. It does not fork every candidate. No LTS ranking exists. The experiment assumes an existing JDK and states its benefit honestly: contributors who already have Java can skip installing Flix. Managed JDK acquisition is delegated to Coursier or JBang in a separate experiment, not silently implemented by `flixw`.
+Compatibility is the tested interval `[21, tested_ceiling]`. The shims locate a candidate sufficient to start `flix.java`; Java owns precedence, validation, diagnostics, and at most one relaunch. It reads a candidate's `release` file when reliable and otherwise executes that candidate once. A stale or inconsistent release file cannot trigger another relaunch. If no Java executable exists, the shim emits the sole shim-owned diagnostic, `FLIXW003`. No LTS ranking exists. Managed JDK acquisition remains a separate Coursier or JBang experiment.
+
+`FLIX_JVM_OPTS` uses one documented tokenizer implemented in Java. Options that replace the JAR, inject agents, load argument files, or install execution hooks require an explicit unsafe mode. `JAVA_TOOL_OPTIONS` and `_JAVA_OPTIONS` are reported because they can modify behavior and stderr.
 
 ### 4.6 Project selection and working directory
 
-Project search starts at the caller's current working directory, not at the wrapper file. It chooses the nearest ancestor containing `flix.toml`, never walks above the directory containing the wrapper unless `FLIX_PROJECT_ROOT` explicitly selects another root, and hard-stops at the filesystem root or home directory. `.git` may be a directory or file; GitHub archives have no `.git`, so the wrapper anchor remains the primary boundary.
+Stage 0 resolves the `flix.java` file's symlink chain without physicalizing unrelated directory symlinks. Project search starts at the caller's current working directory, not at the wrapper file. It chooses the nearest ancestor containing `flix.toml`, never walks above the directory containing the resolved wrapper unless `FLIX_PROJECT_ROOT` explicitly selects another root, and hard-stops at the filesystem root or home directory. `.git` may be a directory or file; GitHub archives have no `.git`, so the wrapper anchor remains the primary boundary.
 
 The wrapper does not change the caller's working directory. Relative paths and output locations retain ordinary CLI meaning. Root discovery selects configuration only. Flix issue #11150 remains the proper place for native compiler upward-search behavior [12].
 
@@ -158,9 +162,29 @@ The wrapper does not change the caller's working directory. Relative paths and o
 
 The launcher inherits stdin, stdout, stderr, and terminal handles. It allocates no console, buffers no child stream, and writes bootstrap diagnostics only to stderr. The no-argument Flix REPL therefore retains interactive input, line editing, and terminal-sensitive colour. Redirection such as `./flix run >out.txt` contains only compiler or program stdout.
 
-`--wrapper-version` and wrapper help execute without a manifest, network, compiler JAR, or compatible project. All compiler arguments otherwise pass through the Java implementation unchanged. `./flix -- <args>` forces pass-through when a future compiler argument collides with a launcher-level flag.
+`--wrapper-version` and `--wrapper-help` execute in stage 0 before project, lock, network, or compiler work. They require Java because stage 0 is Java; only “no Java executable” is handled by the shims. `./flix -- <args>` forces compiler pass-through.
 
-### 4.8 Setup and updates
+### 4.8 Compiler-first dispatch
+
+After installing and hashing the stock compiler, stage 0 captures `flix --help` once and stores one compiler verb per line beside the content-addressed JAR. The verb file is keyed by the compiler digest and cannot become stale. A future machine-readable command-list endpoint is an upstream convenience request; the prototype validates help parsing against every tested release.
+
+Dispatch precedence is normative:
+
+1. `./flix -- <args>` forwards everything after `--` to the compiler.
+2. `--wrapper-version` and `--wrapper-help` are answered by stage 0.
+3. If the first word is in the cached compiler verb set, invoke the compiler.
+4. Otherwise, if it is a wrapper verb—`pin`, `doctor`, `setup`, `validate`, or `update-wrapper`—invoke the wrapper implementation.
+5. Otherwise, invoke the compiler so Flix owns unknown-command diagnostics and future verbs.
+
+`FLIX_BACKEND=wrapper` forces a wrapper implementation during a transition. When a newly pinned compiler claims a wrapper verb, compiler precedence takes effect automatically and stage 0 prints a one-release deprecation notice for the displaced wrapper implementation. The hot path is silent; a wrapper-handled command prints one routing line to stderr.
+
+```text
+flix: 'doctor' → wrapper 0.1.0 (pinned compiler 0.75.2 does not implement it)
+```
+
+`./flix --wrapper-help` reports the wrapper version, compiler version and digest, selected Java, cache path, compiler-owned verbs, wrapper fallbacks, and the forced pass-through spelling. This generated routing table is the primary transparency mechanism.
+
+### 4.9 Installation, setup, and updates
 
 Project creation remains a global-tool operation because a repository wrapper cannot exist before the repository:
 
@@ -168,63 +192,38 @@ Project creation remains a global-tool operation because a repository wrapper ca
 flix init my-project
 ```
 
-The experimental wrapper is installed or refreshed independently:
+First contact uses a downloaded, release-verified `flix.java` directly; its `install` mode writes the invariant files and compiler-only lock. Thereafter one entry point is used:
 
 ```console
-flixw install .
-flixw update-wrapper .
-flixw pin 0.76.0 .
-flixw validate .
+java flix.java install .
+./flix setup
+./flix pin 0.76.0
+./flix validate
+./flix update-wrapper
 ```
 
-`pin` resolves the target once, writes a new `.flix-wrapper.toml`, and updates `[package].flix` transactionally through a real TOML implementation. It never rewrites executable wrapper code. A failed acquisition is attempted at most once per invocation.
+`setup` exercises the same stage-0 compiler acquisition used by `check`, then reports Java, compiler, cache, mirror, proxy, and routing state. `pin` resolves the target once and updates `[package].flix` plus `.flix-wrapper.toml` as a recoverable transaction. `update-wrapper` changes invariant wrapper files and any embedded helper constants, not the project compiler lock. `validate` checks canonical wrapper hashes, lock consistency, `.gitattributes`, executable mode, cache digest, and verb metadata.
 
-The stock-compiler entry point remains opaque:
+### 4.10 Stock-compiler compatibility and helper retirement
 
-```console
-./flix check
-./flix test
-./flix run
-```
+Stage 0 performs project discovery, version extraction, drift detection, Java selection, compiler acquisition, digest verification, verb dispatch, and process launch. It neither injects classes into stock Flix nor relies on private APIs. The load-bearing path is therefore tested even if no helper JAR exists.
 
-Capabilities not implemented by stock Flix use a separate helper surface routed through the verified helper JAR:
-
-```console
-./flixw setup
-./flixw doctor
-./flixw pin 0.76.0
-./flixw validate
-./flixw update-wrapper
-```
-
-This avoids claiming that current stock Flix implements `setup` or `wrapper`, and avoids reserving future compiler verbs in `./flix`. If Flix later adopts an equivalent command, the helper can deprecate its spelling and delegate to the compiler.
-
-`./flixw setup` is the explicit two-artifact preparation step. Stage 0 verifies or installs `flixw-helper.jar`; the helper then verifies or installs the exact stock `flix.jar` declared by the manifest and lock. It reports both versions and cache paths. Normal `./flix ...` execution follows the same chain lazily, so setup is recommended for diagnostics and offline preparation but not mandatory after the lock is committed.
-
-### 4.9 Stock-compiler compatibility boundary
-
-Every required `flixw` operation is external to the compiler: project discovery, version extraction, lock validation, Java selection, compiler acquisition, caching, and process launch. After bootstrap, the selected stock `flix.jar` receives the user's compiler arguments. `flixw` neither injects classes into the compiler nor relies on private Flix APIs.
-
-The current stock compiler need not honor `[package].flix`; `flixw` reads that declaration before startup and chooses the corresponding official release JAR. Proposed upstream checksum publication and compiler-version mismatch warnings are independent enhancements. Their absence may weaken provenance or diagnostics, but it must not make `flixw` unusable.
+The current stock compiler need not honor `[package].flix`; stage 0 reads that declaration before startup and chooses the corresponding official release JAR. Proposed upstream checksum publication and compiler-version mismatch warnings are independent enhancements. Their absence may weaken provenance or diagnostics, but it must not make `flixw` unusable.
 
 Compatibility is tested against official release artifacts from `github.com/flix/flix`, not against `wstein/flix-fork` or locally patched compilers. `FLIX_JAR` remains available for explicit development testing, but such runs are reported as overrides and do not count as stock-compatibility evidence.
 
-### 4.10 Integration-ready helper boundary
-
-Missing stock capabilities are implemented in `flixw-helper.jar` behind small services rather than embedded in shell or stage-0 control flow:
+If a helper JAR becomes necessary, it contains only wrapper-verb services:
 
 ```text
 ProjectManifest       read and transactionally update [package].flix
 ReleaseMetadata       resolve official URL, digest, and optional attestation
-ToolchainResolver     select Java and compiler cache entry
 ToolchainDoctor       report project and machine readiness
 WrapperInstaller      install, validate, and update invariant wrapper files
-CompilerProcess       launch an opaque stock flix.jar with inherited I/O
 ```
 
-The helper depends only on public files, release metadata, and process behavior. It does not link against compiler internals. Each service has fixtures and a transport-neutral result type so an accepted capability can later be reimplemented in the Flix repository's Scala code, exposed as an official command, and compared against the same behavioral corpus.
+These services depend only on public files and release metadata. They have transport-neutral results and shared fixtures so each can be ported into Flix's Scala code. No maintainer has agreed to receive that port; this is a handoff design, not an adoption claim.
 
-Project metadata is migration-stable. Upstream integration may read `[package].flix` and `.flix-wrapper.toml` directly or provide a one-time converter, but it must not require repositories to change their ordinary `./flix` commands. The external helper remains usable until an official release containing the replacement command is the project's pinned compiler.
+The retirement condition is per verb: when the pinned compiler's captured verb set contains a formerly wrapper-owned command and conformance fixtures pass, rule 3 routes to Flix. Deleting the last helper removes a branch only; it does not alter `./flix`, stage-0 compiler acquisition, or `.flix-wrapper.toml`.
 
 ## 5. Prototype Contract
 
@@ -236,7 +235,7 @@ The following requirements govern `wstein/flixw`; they are not demands placed on
 
 **P3 — Exact authenticated binding.** Flix version, URL, and digest form one generated lock record; manifest drift fails before network access.
 
-**P4 — Staged Java implementation.** `flixw.java` owns only trusted stage-0 helper acquisition. The released `flixw-helper.jar` owns project parsing, compiler acquisition, cache policy, diagnostics, maintenance commands, I/O, and stock-compiler launch. Shell or Command Prompt files are convenience delegates only.
+**P4 — One hot-path implementation.** `flix.java` owns lock parsing, drift detection, compiler acquisition, verification, dispatch, I/O, and stock-compiler launch. Shims only find an initial Java. An optional helper may implement wrapper verbs but never compiler launch.
 
 **P5 — Explicit Java precedence.** An incompatible explicit Java setting fails immediately rather than falling through.
 
@@ -244,24 +243,24 @@ The following requirements govern `wstein/flixw`; they are not demands placed on
 
 **P7 — Transparent process behavior.** Working directory and three standard streams are inherited; bootstrap messages use stderr only.
 
-**P8 — Offline inspection.** Wrapper version and help require no project, Java execution, compiler, or network. Cached projects work offline.
+**P8 — Offline inspection.** Wrapper version and help require Java but no project, lock, compiler, or network. Cached projects work offline.
 
-**P9 — Bounded failure.** One invocation performs at most one acquisition attempt for one resolved artifact.
+**P9 — Bounded failure.** One invocation performs at most one acquisition attempt for each resolved artifact and at most one Java relaunch.
 
 **P10 — Observable errors.** Stable `FLIXWnnn` strings are the normative discriminator. Numeric exit codes are advisory because a compiler or user program may return the same integer.
 
 **P11 — Stock Flix compatibility.** All required behavior shall work with unmodified official `github.com/flix/flix` release JARs. Upstream proposals are optional improvements, never runtime prerequisites.
 
-**P12 — Integration-ready helpers.** Missing compiler capabilities shall be exposed through the separate `flixw` helper, decomposed into portable services, and tested without private Flix APIs so they can be adopted upstream incrementally.
+**P12 — Compiler-first retirement.** Missing compiler capabilities use portable wrapper services reached through compiler-first dispatch. Each service retires automatically when the pinned compiler claims its verb and passes shared fixtures.
 
 ## 6. Security Model
 
-The threat model distinguishes three objects:
+The threat model distinguishes three required objects and one optional scaffold:
 
 - **Wrapper source:** validated against a hash published for the `flixw` release.
-- **Helper artifact:** `flixw-helper.jar`, independently pinned and verified from a `wstein/flixw` GitHub Release.
 - **Generated lock metadata:** reviewed as project data and checked for internal consistency with `flix.toml`.
 - **Compiler artifact:** verified against the digest recorded during trusted generation.
+- **Optional helper artifact:** verified against wrapper-release constants before any wrapper verb uses it.
 
 GitHub-provided asset hashes are generation-time TOFU, not signed provenance. The preferred upstream change is a release checksum file plus a build-provenance attestation verifiable independently of asset download. Maven Central publication would add repository checksums and publication signatures, while Coursier could delegate resolution and JVM provisioning.
 
@@ -276,19 +275,20 @@ The VS Code extension is deliberately excluded. Executing a workspace-provided w
 - `flix-invaders` demonstrates the practical need for version-directed acquisition and supplies concrete failure fixtures [16].
 - Its Windows workflow demonstrates that Git Bash may eliminate the need for a separate Windows implementation in CI.
 - The 0.75.2 GitHub asset digest matches the locally observed JAR, establishing API availability but not independent authenticity.
-- No proposed stage-0 bootstrap or `flixw-helper.jar` artifact has yet been validated in production.
+- A working 297-line prototype, renamed `flix.java` in this design, has parsed the lock, detected drift, downloaded the real 0.75.2 stock JAR, matched digest `a2697d87…`, populated the cache atomically, implemented `pin`, and launched the compiler. It is prototype evidence, not yet a multi-release field result.
+- Measured source launch is approximately 375 ms, cached precompiled stage 0 approximately 50 ms, unconditional SHA-256 approximately 105 ms, stock `flix.jar --version` approximately 200 ms, and a warm project `check` approximately 3.6–4.7 s.
 
 ### 7.2 Questions that can fail
 
-1. Does opt-in pinning reduce reproducibility failures without causing unacceptable upgrade lag over at least six Flix releases?
-2. Does the parser accept every public `flix.toml` used in the evaluation corpus and reject ambiguous compiler declarations?
-3. Does warm overhead, measured separately on Linux, macOS, Git Bash, and direct Windows Java, remain acceptable relative to `java -jar`?
-4. Do content-addressed cache entries coexist across mirrors and historical digests without deletion or repeated downloads?
-5. Does the REPL preserve TTY behavior, colour, signals, stdin, stdout, and stderr?
-6. Can the Community Build continue testing pinned projects against current compiler head?
-7. If Maven Central publication lands, does a Coursier implementation make custom acquisition code unnecessary?
-8. Does every supported operation work against stock Flix release JARs without patched compiler code or private APIs?
-9. Can each helper service be ported or delegated upstream without changing project commands or invalidating existing lock metadata?
+1. Can stage 0 verify, install, and execute an exact unmodified stock Flix release without a helper JAR or compiler changes?
+2. Does opt-in pinning reduce reproducibility failures without causing unacceptable upgrade lag over at least six Flix releases?
+3. Does the parser accept every public `flix.toml` used in the evaluation corpus and reject ambiguous compiler declarations?
+4. Is warm overhead of the end-state stage 0 → compiler path acceptable on Linux, macOS, Git Bash, PowerShell, `cmd.exe`, and direct Windows Java?
+5. Do content-addressed cache entries coexist across mirrors and historical digests without deletion or repeated downloads?
+6. Does the REPL preserve TTY behavior, colour, signals, stdin, stdout, and stderr?
+7. Can compiler-first dispatch retire wrapper verbs without changing project files or misrouting unknown commands?
+8. Can the Community Build continue testing pinned projects against current compiler head?
+9. If Maven Central publication lands, does Coursier make custom compiler acquisition unnecessary?
 
 Measurements include cold time, warm overhead, bytes transferred, hash time, recovery after truncation, upgrade lag, accumulated migration changes, corpus acceptance, stream fidelity, and argument vectors. Lines of code and committed files are costs.
 
@@ -305,27 +305,27 @@ Measurements include cold time, warm overhead, bytes transferred, hash time, rec
 
 ### Phase 1 — Define deterministic artifacts
 
-1. Specify canonical bytes and hashes for `flix`, `flixw`, `flixw.java`, and optional `flix.cmd`.
+1. Specify canonical bytes and hashes for `flix`, `flix.ps1`, `flix.cmd`, and `flix.java`.
 2. Specify `.flix-wrapper.toml` and its consistency rules.
 3. Implement idempotent marked-block merging for `.gitattributes` and detect later overrides.
 4. Define wrapper release and upgrade policy.
 
 **Gate:** independent generation with identical inputs produces identical wrapper files and lock metadata.
 
-### Phase 2 — Implement stage 0 and the helper JAR
+### Phase 2 — Complete the stage-0 compiler path
 
-1. Implement the small `flixw.java` bootstrap with only the lock parsing necessary to locate and verify `flixw-helper.jar`.
-2. Publish `flixw-helper.jar` as a standalone GitHub Release asset with SHA-256 and, when available, attestation.
-3. Implement full TOML handling, exact version validation, build metadata handling, and path-safety checks in the helper.
-4. Implement root selection without changing cwd.
-5. Implement stable diagnostics and advisory exit codes.
+1. Preserve the working prototype's lock parsing, drift detection, exact version validation, download, digest, cache, atomic install, and opaque stock-compiler launch.
+2. Add safe build-metadata normalization and independent traversal rejection.
+3. Compile stage 0 into the cache by wrapper-source hash after first source launch.
+4. Implement bounded root selection without changing cwd.
+5. Implement stable diagnostics and advisory exit codes with reachable sites.
 
-**Gate:** stage 0 cannot execute an unverified helper, and the helper's public-manifest corpus matches a standards-compliant TOML oracle.
+**Gate:** `./flix check` can verify, install, and execute an unmodified stock Flix JAR without any helper JAR, and the public-manifest corpus matches a TOML oracle.
 
 ### Phase 3 — Implement Java and process behavior
 
 1. Implement explicit Java precedence and hard-fail semantics.
-2. Read release metadata before executing the selected JVM where possible.
+2. Enforce `[21, tested_ceiling]`, reliable release-file parsing, one candidate execution, and at most one relaunch.
 3. Preserve cwd, arguments, terminal, and all three standard streams.
 4. Handle offline `--wrapper-version`, help, and forced pass-through first.
 
@@ -335,29 +335,30 @@ Measurements include cold time, warm overhead, bytes transferred, hash time, rec
 
 1. Implement HTTPS-only bounded download and proxy behavior.
 2. Store artifacts under version-plus-digest identity.
-3. Verify on installation and implement optional always-verify mode.
+3. Verify SHA-256 unconditionally on every execution.
 4. Use unique temporary files and atomic move without deletion of divergent valid entries.
 
 **Gate:** concurrent, corrupt, truncated, mirror-divergent, and offline cases terminate safely with at most one acquisition attempt.
 
-### Phase 5 — Implement installer and pin transaction
+### Phase 5 — Implement compiler-first dispatch and wrapper verbs
 
-1. Implement `flixw install`, `setup`, `doctor`, `update-wrapper`, `pin`, and `validate` in `flixw-helper.jar`.
-2. Make `pin` update `flix.toml` and `.flix-wrapper.toml` as one recoverable transaction.
-3. Ensure no command self-modifies executable wrapper source.
-4. Preserve unrelated `.gitattributes` content.
-5. Separate manifest, release, resolver, doctor, installer, and process services behind fixture-tested interfaces.
+1. Capture and cache compiler verbs by compiler digest.
+2. Implement the five dispatch rules, wrapper routing notice, forced backend, and compiler-first deprecation.
+3. Implement `install`, `setup`, `doctor`, `update-wrapper`, `pin`, and `validate` directly in stage 0 while they remain small.
+4. Make `pin` update `flix.toml` and `.flix-wrapper.toml` as one recoverable transaction.
+5. Preserve unrelated `.gitattributes` content and detect later overrides.
+6. Extract an optional helper JAR only if measured complexity requires it.
 
-**Gate:** injected failures at every write boundary leave either the old consistent pair or the new consistent pair.
+**Gate:** injected write failures leave the old or new consistent pair; known compiler verbs always win; unknown verbs always reach Flix; each wrapper verb retires when a fixture compiler claims it.
 
 ### Phase 6 — Cross-platform experiment
 
 1. Test POSIX launchers on Linux, macOS, and Git Bash.
-2. Test direct `java flixw.java` on Windows without PowerShell.
-3. Evaluate optional `flix.cmd`; reject it if any supported vector is silently altered.
+2. Test `flix.ps1`, `flix.cmd`, and direct `java flix.java` on Windows.
+3. Document arguments transformed by `cmd.exe`; direct Java remains the lossless fallback.
 4. Derive platform-specific warm-overhead budgets from measurement.
 
-**Gate:** normative POSIX and direct-Java paths preserve the contract; optional shims fail explicitly on unsupported vectors.
+**Gate:** POSIX, PowerShell, and direct-Java paths preserve the contract; Command Prompt deviations are bounded and documented.
 
 ### Phase 7 — Multi-release field study
 
@@ -393,17 +394,21 @@ When a project manifest declares `[package].flix`, compare it with the running c
 
 The editor should offer an explicit compiler version or JAR-path setting and verify downloaded artifacts. It should not execute a repository wrapper merely because a folder was opened.
 
+### 9.4 Expose a machine-readable command list
+
+A stable `flix --commands` or equivalent would remove the need to parse human-oriented help. The prototype remains compatible with stock releases by caching and validating `--help` output until such a surface exists.
+
 ## 10. Deliberately Not Implemented
 
 - Official `flix init` wrapper generation: premature before adoption evidence.
 - Compiler forks, plugins, or private APIs: `flixw` must remain compatible with stock Flix releases.
-- Pretending helper commands already exist in stock Flix: missing behavior stays under `./flixw` until an official release adopts it.
+- Permanent wrapper ownership of compiler names: compiler-first dispatch retires scaffolding automatically.
 - Universal exact pinning: potentially harmful to pre-1.0 migration feedback.
 - Floating `latest`: incompatible with a stable digest without a separate resolution policy.
 - Shell or PowerShell TOML parsers: one Java implementation is sufficient.
-- Mandatory PowerShell or Batch: direct Java and Git Bash are the normative experiment paths.
+- PowerShell as the only Windows route: `flix.ps1`, `flix.cmd`, and direct Java are complementary paths.
 - Automatic JDK installation: delegate experimentally to Coursier or JBang.
-- Per-run hashing by default: available through `FLIX_VERIFY_ALWAYS=1`.
+- Install-stamp integrity shortcuts: the compiler JAR is hashed unconditionally.
 - Workspace-wrapper LSP execution: conflicts with editor trust boundaries.
 - Numeric exit-code uniqueness: impossible for arbitrary user programs.
 - Manifest-format constraints imposed for wrapper convenience.
@@ -412,19 +417,21 @@ The editor should offer an explicit compiler version or JAR-path setting and ver
 
 The largest risk is policy rather than code: exact pins may weaken the feedback loop that helps a small team evolve Flix quickly. The field study must be allowed to conclude that some or all projects should track head instead.
 
-The second risk is maintenance duplication. If Flix reaches Maven Central, Coursier could make custom compiler download, cache, proxy, mirror, and JDK logic unjustifiable. The helper should isolate compiler acquisition so it can be deleted while preserving the GitHub-release distribution of `flixw-helper.jar` itself.
+The second risk is maintenance duplication. If Flix reaches Maven Central, Coursier could make custom compiler acquisition unjustifiable. Stage 0 isolates that service so it can be replaced. If a helper JAR is ever introduced, it adds a second release pipeline, digest publication, security-response path, and TOFU anchor. That cost is accepted only after stage-0 wrapper verbs exceed a measured complexity threshold.
+
+The helper handoff may never be accepted upstream. Compiler-first dispatch limits that risk: wrapper implementations remain usable without maintainer commitment, while each accepted command retires independently. The explicit retirement condition is a stock compiler verb plus passing conformance fixtures.
 
 Single-file Java still requires a compatible Java installation. The proposal no longer calls this pure zero-install bootstrapping. Its immediate promise is narrower: a contributor who already has Java can clone a project and avoid separately installing Flix.
 
 Release digests supplied by the same host as release bytes are not independent authenticity. Until attestations or signatures exist, generated pins are TOFU. Wrapper hashes protect known released source files but cannot protect a malicious first installation.
 
-Finally, the experiment has no running implementation evidence yet. The correct next move is to build `flixw`, exercise it over the actual Flix release cadence, and publish failures rather than continue expanding normative prose.
+Finally, the 297-line prototype proves the central download-and-launch path but not dispatch, multi-platform behavior, or multi-release policy. The correct next move is to preserve that prototype, implement this routing contract, exercise it over the actual release cadence, and publish failures rather than continue expanding normative prose.
 
 ## 12. Conclusion
 
-Repository-local compiler pinning is not an unconditional improvement for a fast-moving pre-1.0 language. It trades reproducibility for reduced upgrade pressure, and that trade must be measured against Flix's Community Build and release cadence. Revision 4 therefore withdraws the proposal that Flix generate wrappers universally.
+Repository-local compiler pinning is not an unconditional improvement for a fast-moving pre-1.0 language. It trades reproducibility for reduced upgrade pressure, and that trade must be measured against Flix's Community Build and release cadence. Revision 5 therefore keeps wrapper adoption opt-in.
 
-The remaining experiment is smaller and more testable: an opt-in third-party `flixw`, a minimal single-file Java bootstrap, a released helper JAR, an unmodified stock Flix JAR, invariant wrapper source, TOML lock metadata, version-plus-digest caches, explicit Java precedence, faithful process I/O, and no editor or JDK-provisioning overreach. The Flix team can independently improve release attestations and compiler-version mismatch diagnostics without adopting the wrapper.
+The remaining experiment is smaller and more testable: one `./flix` entry point, an auditable Java stage 0, an unmodified stock Flix JAR, a committed compiler-only lock, unconditional digest verification, content-addressed caching, compiler-first verb dispatch, faithful process I/O, and wrapper services that retire one at a time. A helper JAR is optional scaffolding, not the architecture and not the hot path.
 
 If several release cycles show that `flixw` reduces real onboarding and reproducibility failures without accumulating migration debt, it may earn documentation or deeper integration. If Coursier or a global Flix launcher makes it redundant, deleting the custom layer is the successful outcome.
 
@@ -477,20 +484,21 @@ If several release cycles show that `flixw` reduces real onboarding and reproduc
 ## Appendix A. Normative Prototype Pseudocode
 
 ```text
-# Stage 0: invariant flixw.java bootstrap
-wrapper_root := directory_containing(flixw.java)
-lock := parse_only_helper_record(wrapper_root / ".flix-wrapper.toml")
-helper := helper_cache / artifact_name(lock.helper.version, lock.helper.sha256)
-if not valid_install_stamp(helper, lock.helper.sha256):
-    temp := unique_temp_in(helper_cache)
-    download_once(lock.helper.url, temp) or fail(FLIXW005)
-    sha256(temp) == lock.helper.sha256 or fail(FLIXW006)
-    atomic_move(temp, helper) or accept_identical_concurrent_winner() or fail(FLIXW007)
-exec_or_spawn(current_java, "-jar", helper, invocation_mode, original_arguments)
+# Shims: only find an initial java executable.
+java0 := FLIX_JAVA_HOME/bin/java
+      or JAVA_HOME/bin/java
+      or java_on_path()
+      or fail(FLIXW003)
+exec(java0, "flix.java", original_arguments)
 
-# flixw-helper.jar: project and compiler behavior
-if argv is ["--wrapper-version"] or helper help:
+# Stage 0: one Java implementation.
+if argv is ["--wrapper-version"] or ["--wrapper-help"]:
     print offline metadata
+    exit 0
+if argv starts with an unknown launcher-level "--wrapper-" flag:
+    fail(FLIXW008)
+if argv is ["install", target] under first-contact mode:
+    install_invariant_files(target) or fail(FLIXW009)
     exit 0
 
 root := env("FLIX_PROJECT_ROOT")
@@ -499,26 +507,69 @@ root := env("FLIX_PROJECT_ROOT")
      or fail(FLIXW001)
 manifest_version := parse_package_flix(root / "flix.toml")
 lock := parse_generated_lock(root / ".flix-wrapper.toml")
-manifest_version == lock.compiler.version
-    or fail(FLIXW002, "run: ./flixw pin " + manifest_version)
+validate_version_and_paths(lock.compiler) or fail(FLIXW002)
 
-java := validate_current_or_select_relaunch_target()
-     or fail_explicit(FLIXW004)
-     or fail_implicit(FLIXW003)
+if env("FLIX_JAVA_HOME") is set:
+    java := validate_explicit(FLIX_JAVA_HOME, interval = [21, ceiling])
+         or fail(FLIXW004)
+else if env("JAVA_HOME") is set:
+    java := validate_explicit(JAVA_HOME, interval = [21, ceiling])
+         or fail(FLIXW004)
+else:
+    java := validate_current_or_select_once(interval = [21, ceiling])
+         or fail(FLIXW003)
+relaunch_at_most_once_if_needed(java)
+
+validated_jvm_options := parse_safe(env("FLIX_JVM_OPTS"))
+                      or fail(FLIXW008)
 
 if env("FLIX_JAR") is set:
     compiler := validate_override(env("FLIX_JAR")) or fail(FLIXW006)
 else:
     compiler := compiler_cache / artifact_name(lock.compiler.version,
                                                 lock.compiler.sha256)
-    install_verified_once_if_missing(lock.compiler, compiler)
+    if not exists(compiler):
+        temp := unique_temp_in(compiler_cache) or fail(FLIXW007)
+        download_once(rewrite_base_if_set(lock.compiler.url,
+                                          env("FLIX_DIST_URL")), temp)
+            or fail(FLIXW005)
+        sha256(temp) == lock.compiler.sha256 or fail(FLIXW006)
+        atomic_move(temp, compiler)
+            or accept_identical_concurrent_winner()
+            or fail(FLIXW007)
+    sha256(compiler) == lock.compiler.sha256 or fail(FLIXW006)
 
-inherit_cwd_and_stdio()
-exec_or_spawn(java, validated_jvm_options, "-jar", compiler,
-              passthrough_arguments)
+verbs_file := sibling(compiler, ".verbs")
+if not exists(verbs_file):
+    capture_and_validate_help_verbs(java, compiler, verbs_file)
+        or fail(FLIXW009)
+
+wrapper_verbs := [pin, doctor, setup, validate, update-wrapper]
+if env("FLIX_BACKEND") == "wrapper" and first_word(argv) in wrapper_verbs:
+    backend := WRAPPER
+else if argv starts with ["--"]:
+    backend := COMPILER
+    passthrough := argv after first "--"
+else if first_word(argv) in read_lines(verbs_file):
+    backend := COMPILER
+else if first_word(argv) in wrapper_verbs:
+    backend := WRAPPER
+else:
+    backend := COMPILER
+
+if backend == COMPILER:
+    if manifest_version != lock.compiler.version:
+        fail(FLIXW002, "run: ./flix pin " + manifest_version)
+    inherit_cwd_and_stdio()
+    exec_or_spawn(java, validated_jvm_options, "-jar", compiler,
+                  passthrough_or_original_arguments)
+else:
+    print_routing_notice_to_stderr()
+    run_wrapper_service(first_word(argv), remaining_arguments)
+        or fail(FLIXW009)
 ```
 
-Every Appendix C identifier has a reachable site above. Numeric codes are advisory; the identifier printed to stderr is normative.
+Every Appendix C identifier has a reachable site above. Numeric codes are advisory; the identifier printed to stderr is normative. Shims retain conventional 126 for a found but non-executable Java and 127 when no Java command exists.
 
 ## Appendix B. Evaluation Matrix
 
@@ -526,16 +577,17 @@ Every Appendix C identifier has a reachable site above. Numeric codes are adviso
 |---|---|
 | Upgrade policy | six releases; head CI retained; pin lag; accumulated migration effort; abandoned project |
 | Manifest | comments; whitespace; dotted/quoted keys; four string forms; multiline decoy; duplicate; ambiguity; public corpus |
+| Version | release; prerelease; build metadata; leading/trailing punctuation; `..`; slash; backslash; range; wildcard; leading `v` |
 | Lock | missing; manifest mismatch; URL mismatch; digest mismatch; deterministic generation; interrupted pair update |
-| Helper release | GitHub Release URL; helper digest; corrupt helper; offline helper hit/miss; helper upgrade independent of compiler |
 | Root and cwd | subdirectory; nested manifest; `.git` directory/file; archive without Git; home/root stop; override; relative input/output |
-| Java | each explicit source; incompatible explicit hard-fail; PATH; discovery; release-file parsing; selected-process fallback |
-| Cache | separate helper/compiler caches; content-address coexistence; hit; miss; corrupt; truncated; concurrent; offline; mirror; always-verify mode |
+| Java | `FLIX_JAVA_HOME`; `JAVA_HOME`; PATH; below 21; above ceiling; stale/unparseable release file; one relaunch bound; no-Java shim error |
+| Cache | platform defaults; `FLIX_CACHE_HOME`; self-compiled stage 0; content-address coexistence; hit; miss; corrupt; truncated; concurrent; offline; mirror |
+| Dispatch | forced pass-through; two wrapper flags; compiler wins; wrapper fallback; unknown to compiler; forced wrapper; per-verb retirement |
 | I/O | no-argument REPL; stdin; stdout redirect; stderr separation; TTY; colour; signal/Ctrl-C; no extra console |
-| Arguments | empty; spaces; quotes; Unicode; leading hyphen; forced pass-through; optional Command shim failures |
-| Wrapper files | canonical hashes; LF; executable bit; archive recovery; idempotent `.gitattributes`; overriding rule detection |
-| Security | one attempt per artifact; helper-before-compiler verification; HTTPS downgrade; proxy; timeout; attestation; unsafe JVM option; `_JAVA_OPTIONS` notice |
-| Platforms | Linux; macOS ARM/Intel; Git Bash on Windows; direct Java on Windows; optional `flix.cmd` |
+| Arguments | empty; spaces; quotes; Unicode; leading hyphen; forced pass-through; Command Prompt transformations |
+| Wrapper files | canonical hashes; LF/CRLF; committed lock; executable bit; symlink chain; archive recovery; idempotent `.gitattributes`; override detection |
+| Security | unconditional hash; one acquisition; HTTPS downgrade; `FLIX_DIST_URL`; proxy variables; timeout; attestation; unsafe JVM option; `_JAVA_OPTIONS` notice |
+| Platforms | Linux; macOS ARM/Intel; Git Bash; PowerShell; cmd.exe; direct Java on Windows |
 
 ## Appendix C. Stable Diagnostics
 
@@ -545,10 +597,10 @@ Every Appendix C identifier has a reachable site above. Numeric codes are adviso
 | `FLIXW002` | 81 | manifest and generated lock are missing, invalid, ambiguous, or inconsistent |
 | `FLIXW003` | 82 | no compatible implicit Java installation |
 | `FLIXW004` | 83 | explicitly selected Java is invalid or incompatible |
-| `FLIXW005` | 84 | the single helper or compiler acquisition attempt failed |
-| `FLIXW006` | 85 | helper, local override, or downloaded compiler failed digest validation |
+| `FLIXW005` | 84 | the single compiler acquisition attempt failed |
+| `FLIXW006` | 85 | local override, cached, or downloaded compiler failed digest validation |
 | `FLIXW007` | 86 | cache or atomic installation failed without an identical winner |
 | `FLIXW008` | 87 | wrapper environment, JVM option, or launcher flag is invalid |
-| `FLIXW009` | 88 | wrapper installation, pin, validation, or lock transaction failed |
+| `FLIXW009` | 88 | wrapper installation, verb capture, dispatch service, pin, validation, or lock transaction failed |
 
 A Flix program may return any integer, including 80–88. Automation distinguishes bootstrap failures by the `FLIXWnnn` stderr identifier, not by assuming globally unique numeric status values.
