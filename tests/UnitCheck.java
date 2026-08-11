@@ -198,6 +198,36 @@ public final class UnitCheck {
                 bad(label + " (rewrite)", "a decoy value was disturbed");
             else ok();
         }
+        // pin used a regex over the line, and an escaped quote inside the value stopped
+        // [^"']* early: `flix = "1.0\"x"` became `flix = "2.0.0"x"`, which is not TOML.
+        // The scanner records where the value sits and the whole span is replaced.
+        String tricky = lines("[package]", "name = \"x\"",
+                              "flix = \"1.0\\\"x\"", "authors = [\"n\"]");
+        String fixed = flix.rewritePackageFlix(tricky, "2.0.0", "tricky");
+        eq("rewrite: an escaped quote does not survive the rewrite", "2.0.0",
+           fixed == null ? null : flix.tomlLookup(fixed, "package", "flix", "tricky"));
+
+        // Replacing the whole span repairs a value that was never a quoted string.
+        String bare = lines("[package]", "flix = 1.0.0", "name = \"x\"");
+        String repaired = flix.rewritePackageFlix(bare, "2.0.0", "bare");
+        eq("rewrite: an unquoted value is repaired, not skipped", "2.0.0",
+           repaired == null ? null : flix.tomlLookup(repaired, "package", "flix", "bare"));
+
+        // A comment on the line must survive, since only the value span is touched.
+        String noted = lines("[package]", "flix = \"1.0.0\"  # pinned", "name = \"x\"");
+        String renoted = flix.rewritePackageFlix(noted, "2.0.0", "noted");
+        if (renoted == null || !renoted.contains("# pinned"))
+            bad("rewrite: a trailing comment survives", "comment lost");
+        else ok();
+
+        // Headers now fail closed rather than dropping what they cannot account for.
+        for (String header : new String[] { "[package] junk", "[[package" }) {
+            try {
+                flix.tomlLookup(lines(header, "flix = \"1.0.0\""), "package", "flix", "hdr");
+                bad("header: " + header, "accepted a malformed table header");
+            } catch (flix.Fail e) { ok(); }
+        }
+
         System.out.println("  ok   adversarial: " + cases().size() + " hand-written manifests");
     }
 

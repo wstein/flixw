@@ -20,10 +20,21 @@ for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
 rem Its path is read from a file rather than guessed: vendors nest differently.
 rem It names something this script will execute, so it may only name something
 rem inside the directory flixw unpacks into.
+rem The marker is cache-controlled text naming something this script will execute,
+rem so it is never echoed, called, or otherwise handed back to the parser: cmd
+rem metacharacters in it would run before anything could validate the path. The
+rem containment test uses delayed expansion alone -- strip the expected prefix,
+rem then require the original to be exactly prefix plus remainder, which is a
+rem starts-with test that never re-parses the value.
 set "MINE="
 if exist "%CACHE%\jdks\default" (
   for /f "usebackq delims=" %%J in ("%CACHE%\jdks\default") do (
-    if exist "%%J" call :inside "%%J" ) )
+    if not defined MINE set "MINE=%%J" ) )
+if defined MINE (
+  set "TAIL=!MINE:%CACHE%\jdks\=!"
+  if not "!MINE!"=="%CACHE%\jdks\!TAIL!" set "MINE="
+)
+if defined MINE if not exist "!MINE!" set "MINE="
 if not defined JAVA0 if defined MINE set "JAVA0=!MINE!"
 if not defined JAVA0 (
   echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
@@ -75,10 +86,3 @@ if not defined SLOWPATH if defined H if exist "!CACHE!\stage0\!H!\flix.class" (
   exit /b !ERRORLEVEL! )
 "%JAVA0%" "%SRC%" %*
 exit /b !ERRORLEVEL!
-
-:inside
-rem Accepts %1 only when it starts inside %CACHE%\jdks\. findstr /b anchors at
-rem the start of the line, which is the part that matters: a path merely
-rem containing the cache directory somewhere is not inside it.
-echo %~1| findstr /b /i /c:"%CACHE%\jdks\" >nul && set "MINE=%~1"
-goto :eof

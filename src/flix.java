@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.11.0";
+    static final String WRAPPER_VERSION = "0.12.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -162,7 +162,8 @@ public final class flix {
      * `value` is the raw right-hand side; `multiline` marks a `"""` or `'''` opener, whose
      * body this scanner deliberately does not reassemble -- no key flixw reads is one.
      */
-    record TomlEntry(int line, String table, String key, String value, boolean multiline) {}
+    record TomlEntry(int line, String table, String key, String value, boolean multiline,
+                     int valueStart, int valueEnd) {}
 
     /** Every scalar entry in a document, plus every table header, in file order. */
     record TomlScan(List<TomlEntry> entries, List<String> tables) {}
@@ -193,18 +194,32 @@ public final class flix {
         String[] lines = text.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
+            int base = 0;                                // offsets stay relative to lines[i]
             if (mlDelim != null) {                       // inside """ or ''': find the close
                 int e = line.indexOf(mlDelim);
                 if (e < 0) continue;
-                line = line.substring(e + 3);            // both delimiters are three chars
+                base = e + 3;                            // both delimiters are three chars
+                line = line.substring(base);
                 mlDelim = null;
             }
             String t = stripComment(line).trim();
             if (t.isEmpty()) continue;
-            if (t.startsWith("[[")) { current = "\u0000array"; continue; }
+            if (t.startsWith("[[")) {
+                // Fail closed: only a well-formed array-of-tables header counts as
+                // one, rather than anything that merely opens with two brackets.
+                if (!t.endsWith("]]"))
+                    throw w002(where + ": malformed array-of-tables header " + q(t));
+                current = "\u0000array";
+                continue;
+            }
             if (t.startsWith("[")) {
                 int close = t.indexOf(']');
                 if (close < 0) throw w002(where + ": unterminated table header " + q(t));
+                // Trailing text used to be dropped, so `[package] junk` read as
+                // `[package]`. A header the scanner cannot account for entirely is
+                // one it has no business guessing at.
+                if (!t.substring(close + 1).isBlank())
+                    throw w002(where + ": trailing text after table header " + q(t));
                 current = unquote(t.substring(1, close).trim());
                 tables.add(current);
                 continue;
@@ -215,7 +230,16 @@ public final class flix {
             String v = t.substring(eq + 1).trim();
             String delim = v.startsWith("\"\"\"") ? "\"\"\"" : v.startsWith("'''") ? "'''" : null;
             if (delim != null && !v.substring(3).contains(delim)) mlDelim = delim;
-            entries.add(new TomlEntry(i, current, k, v, delim != null));
+            // Where the value sits in the untouched line, so a rewrite can replace exactly
+            // it. `t` is the line with comments stripped and both ends trimmed, so the
+            // offset is the leading whitespace plus the position within `t`, plus whatever
+            // a multi-line string closing earlier on this same line already consumed.
+            String noComment = stripComment(line);
+            int lead = noComment.length() - noComment.stripLeading().length();
+            int vs = lead + eq + 1;
+            while (vs < noComment.length() && Character.isWhitespace(noComment.charAt(vs))) vs++;
+            entries.add(new TomlEntry(i, current, k, v, delim != null,
+                                      base + vs, base + vs + v.length()));
         }
         return new TomlScan(entries, tables);
     }
@@ -313,22 +337,27 @@ public final class flix {
      * manifestVersion reads -- including the multi-line-string body it must not rewrite.
      */
     static String rewritePackageFlix(String text, String version, String where) {
-        int target = -1;
+        TomlEntry target = null;
         for (TomlEntry e : tomlScan(text, where).entries()) {
             if (!isKey(e, "package", "flix")) continue;
             if (e.multiline()) throw w002(where + ": 'flix' must be a single-line string");
-            if (target >= 0) throw w002(where + ": duplicate 'flix' key in [package]");
-            target = e.line();
+            if (target != null) throw w002(where + ": duplicate 'flix' key in [package]");
+            target = e;
         }
-        if (target < 0) return null;
+        if (target == null) return null;
         // The same split tomlScan indexed, rejoined with the same separator: a manifest
         // with CRLF endings keeps them, and only the pinned line differs afterwards.
         String[] lines = text.split("\n", -1);
-        lines[target] = lines[target].replaceFirst("(=\\s*[\"'])[^\"']*([\"'])",
-                                                   "$1" + Matcher.quoteReplacement(version) + "$2");
+        String raw = lines[target.line()];
+        // The span the scanner recorded, replaced whole. A regex over the line could not do
+        // this safely: an escaped quote inside the value stopped [^"']* early and left
+        // flix = "2.0.0"x", which is not TOML at all. Replacing the whole span also repairs
+        // an unquoted or mis-quoted value, which is exactly what pin is for.
+        lines[target.line()] = raw.substring(0, target.valueStart())
+                             + '"' + version + '"'
+                             + raw.substring(target.valueEnd());
         return String.join("\n", lines);
     }
-
     // ---- cache ------------------------------------------------------------
 
     static boolean isWindows() {
@@ -497,6 +526,7 @@ public final class flix {
     static String runCapture(List<String> cmd, Duration timeout, int cap) throws IOException {
         Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
         String[] box = new String[1];
+        Thread readerThread = null;
         try {
             p.getOutputStream().close();
             Thread reader = new Thread(() -> {
@@ -522,6 +552,7 @@ public final class flix {
                 }
             }, "flixw-capture");
             reader.setDaemon(true);
+            readerThread = reader;
             reader.start();
             if (!p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) return null;
             reader.join(2000);          // the child is gone; this is EOF, not a wait
@@ -530,9 +561,19 @@ public final class flix {
             Thread.currentThread().interrupt();
             return null;
         } finally {
-            // A probe must never outlive the probe. Without this, a child that does not
-            // answer leaves a JVM behind on every invocation.
-            if (p.isAlive()) p.destroyForcibly();
+            // A probe must never outlive the probe. Killing the child alone is not enough:
+            // anything it started is reparented and keeps running, and the reader thread
+            // would otherwise be left parked on a pipe nobody will close.
+            if (p.isAlive()) {
+                p.descendants().forEach(ProcessHandle::destroyForcibly);
+                p.destroyForcibly();
+                try { p.waitFor(5, TimeUnit.SECONDS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            if (readerThread != null) {
+                try { readerThread.join(2000); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
         }
     }
 
@@ -874,6 +915,16 @@ public final class flix {
     static Path installJdk(JdkPackage p) {
         Path dir = cacheHome().resolve("jdks");
         Path dest = dir.resolve(p.name().replaceAll("\\.(tar\\.gz|zip)$", ""));
+        // Containing a bin/java is not evidence of anything: any directory can. The note
+        // flixw writes after a verified unpack is, so a tree without one -- or with one
+        // recording a different archive -- is replaced rather than trusted.
+        Path origin = dest.resolve(".flixw-origin");
+        boolean vouched = false;
+        try {
+            vouched = Files.isDirectory(dest) && Files.isRegularFile(origin)
+                   && Files.readString(origin, StandardCharsets.UTF_8).strip().equals(p.sha256());
+        } catch (IOException ignored) { }
+        if (Files.isDirectory(dest) && !vouched) deleteTree(dest);
         if (!Files.isDirectory(dest)) {
             Path tmp = null, staging = null;
             try {
@@ -903,6 +954,8 @@ public final class flix {
                     // what is there is what we were about to put there.
                     if (findJavaUnder(dest) == null) throw e;
                 }
+                try { Files.writeString(origin, p.sha256() + System.lineSeparator()); }
+                catch (IOException ignored) { }   // a read-only cache is still usable
             } catch (IOException e) {
                 throw w007("cannot install a JDK into " + dir + ": " + why(e));
             } finally {
@@ -935,8 +988,12 @@ public final class flix {
             // directory flixw unpacks into. A marker pointing anywhere else is not a
             // record of an install; it is an instruction to run someone else's binary.
             Path jdks = cacheHome().resolve("jdks").toAbsolutePath().normalize();
-            if (!exe.startsWith(jdks)) return null;
-            return Files.isRegularFile(exe) ? exe : null;
+            if (!exe.startsWith(jdks) || !Files.isRegularFile(exe)) return null;
+            // A lexical prefix is not containment: a symlink or junction under jdks/ can
+            // point anywhere, and this path is about to be executed. Both sides are
+            // resolved before they are compared.
+            if (!exe.toRealPath().startsWith(jdks.toRealPath())) return null;
+            return exe;
         } catch (IOException | RuntimeException e) { return null; }
     }
 
@@ -1452,10 +1509,21 @@ public final class flix {
         rem Its path is read from a file rather than guessed: vendors nest differently.
         rem It names something this script will execute, so it may only name something
         rem inside the directory flixw unpacks into.
+        rem The marker is cache-controlled text naming something this script will execute,
+        rem so it is never echoed, called, or otherwise handed back to the parser: cmd
+        rem metacharacters in it would run before anything could validate the path. The
+        rem containment test uses delayed expansion alone -- strip the expected prefix,
+        rem then require the original to be exactly prefix plus remainder, which is a
+        rem starts-with test that never re-parses the value.
         set "MINE="
         if exist "%CACHE%\\jdks\\default" (
           for /f "usebackq delims=" %%J in ("%CACHE%\\jdks\\default") do (
-            if exist "%%J" call :inside "%%J" ) )
+            if not defined MINE set "MINE=%%J" ) )
+        if defined MINE (
+          set "TAIL=!MINE:%CACHE%\\jdks\\=!"
+          if not "!MINE!"=="%CACHE%\\jdks\\!TAIL!" set "MINE="
+        )
+        if defined MINE if not exist "!MINE!" set "MINE="
         if not defined JAVA0 if defined MINE set "JAVA0=!MINE!"
         if not defined JAVA0 (
           echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
@@ -1507,13 +1575,6 @@ public final class flix {
           exit /b !ERRORLEVEL! )
         "%JAVA0%" "%SRC%" %*
         exit /b !ERRORLEVEL!
-
-        :inside
-        rem Accepts %1 only when it starts inside %CACHE%\\jdks\\. findstr /b anchors at
-        rem the start of the line, which is the part that matters: a path merely
-        rem containing the cache directory somewhere is not inside it.
-        echo %~1| findstr /b /i /c:"%CACHE%\\jdks\\" >nul && set "MINE=%~1"
-        goto :eof
         """;
 
     // ---- wrapper verbs ----------------------------------------------------
