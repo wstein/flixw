@@ -1,0 +1,1189 @@
+// flixw stage 0 -- repository-local Flix compiler bootstrap.
+//
+// Invoked by the ./flix shim as:   java .flix-wrapper/flix.java <args>
+// or, once self-compiled, as:      java -cp <cache>/stage0/<hash> flix <args>
+//
+// One file, no dependencies, Java 21.  Owns: project discovery, lock parsing, drift
+// detection, version validation, Java selection, compiler acquisition, unconditional
+// digest verification, compiler-first verb dispatch, wrapper verbs, and process launch.
+//
+// The stock Flix compiler is never modified, patched, or linked against.  It is fetched
+// by URL, verified against a committed SHA-256, and executed as an opaque process.
+import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigInteger;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public final class flix {
+
+    static final String WRAPPER_VERSION = "0.3.0";
+    static final String WRAPPER_DIR = ".flix-wrapper";
+    static final int MIN_JAVA = 21;
+
+    /** The interval flixw is tested on.  Above the ceiling is a warning, not an error. */
+    static final int TESTED_CEILING = 25;
+
+    static final List<String> WRAPPER_VERBS =
+        List.of("pin", "doctor", "setup", "validate", "update-wrapper");
+
+    /**
+     * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
+     * cannot be captured or parsed.  Its only job is to answer "does the pinned compiler
+     * already implement one of WRAPPER_VERBS" -- a question whose answer changes at most
+     * once a year, and never silently.  Being one release stale here costs nothing;
+     * failing here would brick every project pinned to a compiler flixw has not seen.
+     */
+    static final List<String> BUILTIN_VERBS = List.of(
+        "init", "check", "build", "build-jar", "build-fatjar", "build-pkg", "clean",
+        "doc", "format", "run", "test", "repl", "lsp", "lsp-vscode", "release",
+        "outdated", "eff-check", "eff-lock");
+
+    // ---- diagnostics -----------------------------------------------------
+
+    static final class Fail extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final String code; final int exit;
+        Fail(String code, int exit, String msg) { super(msg); this.code = code; this.exit = exit; }
+    }
+    static Fail fail(String code, int exit, String msg) { return new Fail(code, exit, msg); }
+    static Fail w001(String m) { return fail("FLIXW001", 80, m); }
+    static Fail w002(String m) { return fail("FLIXW002", 81, m); }
+    static Fail w003(String m) { return fail("FLIXW003", 82, m); }
+    static Fail w004(String m) { return fail("FLIXW004", 83, m); }
+    static Fail w005(String m) { return fail("FLIXW005", 84, m); }
+    static Fail w006(String m) { return fail("FLIXW006", 85, m); }
+    static Fail w007(String m) { return fail("FLIXW007", 86, m); }
+    static Fail w008(String m) { return fail("FLIXW008", 87, m); }
+    static Fail w009(String m) { return fail("FLIXW009", 88, m); }
+
+    /** FLIXW010 and FLIXW011 are advisory: they are printed, they never set exit status. */
+    static void w010(String m) { System.err.println("FLIXW010: " + m); }
+    static void w011(String m) { System.err.println("FLIXW011: " + m); }
+
+    static String env(String k) {
+        String v = System.getenv(k);
+        return (v == null || v.isBlank()) ? null : v;
+    }
+    static boolean trace() { return env("FLIXW_TRACE") != null; }
+    static long T0 = System.nanoTime();
+    static void tr(String s) {
+        if (trace()) System.err.printf("flixw[%6.1fms] %s%n", (System.nanoTime() - T0) / 1e6, s);
+    }
+
+    // ---- version grammar --------------------------------------------------
+
+    static final Pattern SEMVERISH = Pattern.compile(
+        "[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?"
+      + "(?:\\+[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?");
+
+    static String validateVersion(String v, String where) {
+        if (v == null) throw w002(where + ": no version");
+        for (char c : v.toCharArray())
+            if (Character.isWhitespace(c) || c == '/' || c == '\\')
+                throw w002(where + ": illegal character in version " + q(v));
+        if (v.contains("..")) throw w002(where + ": '..' in version " + q(v));
+        if (v.startsWith("v")) throw w002(where + ": strip the leading 'v' from " + q(v));
+        if (!SEMVERISH.matcher(v).matches())
+            throw w002(where + ": " + q(v) + " is not an exact version"
+                     + "\n       ranges, wildcards and empty suffixes are not accepted");
+        return v;
+    }
+
+    /**
+     * The single normalization used for release tags, cache coordinates, and every
+     * version comparison.  SemVer build metadata identifies a build, not a release, so
+     * it is accepted in the manifest and stripped everywhere it would name an artifact.
+     * Defining this once is what stops `flix = "0.75.2+build.4"` from producing a drift
+     * error that `./flix pin` cannot repair.
+     */
+    static String canonical(String v) { int i = v.indexOf('+'); return i < 0 ? v : v.substring(0, i); }
+
+    static String q(String s) { return "'" + s + "'"; }
+    /** IOException.getMessage() is often bare the path; name the failure too. */
+    static String why(Exception e) {
+        String m = e.getMessage();
+        return e.getClass().getSimpleName() + (m == null ? "" : ": " + m);
+    }
+
+    // ---- lock and manifest ------------------------------------------------
+
+    record Lock(String version, String url, String sha256) {}
+
+    static String scalar(String text, String key) {
+        Matcher m = Pattern.compile("(?m)^\\s*\"?" + Pattern.quote(key) + "\"?\\s*=\\s*\"([^\"]*)\"")
+                           .matcher(text);
+        return m.find() ? m.group(1) : null;
+    }
+
+    static Path lockPath(Path root) { return root.resolve(WRAPPER_DIR).resolve("lock.toml"); }
+
+    static Lock readLock(Path lockFile) {
+        String text;
+        try { text = Files.readString(lockFile, StandardCharsets.UTF_8); }
+        catch (IOException e) {
+            throw w002("cannot read " + lockFile + ": " + why(e)
+                     + "\n       run: ./flix pin <version>");
+        }
+        String v = scalar(text, "version"), u = scalar(text, "url"), s = scalar(text, "sha256");
+        if (v == null || u == null || s == null)
+            throw w002(lockFile + " is missing version, url or sha256");
+        validateVersion(v, lockFile.toString());
+        if (!s.matches("[0-9a-f]{64}")) throw w002(lockFile + ": sha256 is not 64 lowercase hex digits");
+        if (!u.startsWith("https://")) throw w002(lockFile + ": url must be https");
+        return new Lock(v, u, s);
+    }
+
+    /** The manifest is the human authority; disagreement stops us before the network. */
+    static String manifestVersion(Path manifest) {
+        if (!Files.isRegularFile(manifest)) return null;
+        try {
+            String declared = scalar(Files.readString(manifest, StandardCharsets.UTF_8), "flix");
+            return declared == null ? null : validateVersion(declared, manifest.toString());
+        } catch (IOException e) { return null; }
+    }
+
+    // ---- cache ------------------------------------------------------------
+
+    static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+    }
+    static boolean isMac() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
+    }
+
+    static Path cacheHome() {
+        String o = env("FLIX_CACHE_HOME");
+        if (o != null) return Paths.get(o).toAbsolutePath();
+        String home = System.getProperty("user.home");
+        if (isWindows()) {
+            String local = env("LOCALAPPDATA");
+            return Paths.get(local != null ? local : home).resolve("flixw");
+        }
+        if (isMac()) return Paths.get(home, "Library", "Caches", "flixw");
+        String xdg = env("XDG_CACHE_HOME");
+        return (xdg != null ? Paths.get(xdg) : Paths.get(home, ".cache")).resolve("flixw");
+    }
+
+    static String sha256(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] buf = new byte[1 << 16];
+            for (int n; (n = in.read(buf)) > 0; ) md.update(buf, 0, n);
+            return String.format("%064x", new BigInteger(1, md.digest()));
+        } catch (Exception e) {
+            throw w007("cannot hash " + file + ": " + e.getMessage());
+        }
+    }
+    static String sha256(byte[] b) {
+        try {
+            return String.format("%064x",
+                new BigInteger(1, MessageDigest.getInstance("SHA-256").digest(b)));
+        } catch (Exception e) { throw w007("cannot hash: " + e.getMessage()); }
+    }
+
+    // ---- acquisition ------------------------------------------------------
+
+    static Path compilerPath(Lock lock) {
+        return cacheHome().resolve("compilers")
+                 .resolve("flix-" + canonical(lock.version()) + "-" + lock.sha256() + ".jar");
+    }
+
+    static String rewriteBase(String url) {
+        String base = env("FLIX_DIST_URL");
+        if (base == null) return url;
+        if (!base.startsWith("https://")) throw w008("FLIX_DIST_URL must be https");
+        int slash = url.indexOf('/', "https://".length());
+        String tail = slash < 0 ? "" : url.substring(slash);
+        return base.replaceAll("/+$", "") + tail;
+    }
+
+    static Path acquire(Lock lock) {
+        Path jar = compilerPath(lock);
+        if (!Files.isRegularFile(jar)) {
+            Path dir = jar.getParent(), tmp;
+            String url = rewriteBase(lock.url());          // validated before we announce
+            System.err.println("flixw: downloading Flix " + lock.version() + " from " + url);
+            try {
+                Files.createDirectories(dir);
+                tmp = Files.createTempFile(dir, ".flix-", ".part");
+            } catch (IOException e) {
+                throw w007("cannot prepare cache " + dir + ": " + why(e));
+            }
+            try {
+                download(url, tmp);                              // exactly one attempt
+                String got = sha256(tmp);
+                if (!got.equals(lock.sha256()))
+                    throw w006("digest mismatch for " + lock.url()
+                             + "\n       expected " + lock.sha256() + "\n       actual   " + got);
+                try { Files.move(tmp, jar, StandardCopyOption.ATOMIC_MOVE); }
+                catch (IOException e) {
+                    if (!Files.isRegularFile(jar))               // no identical concurrent winner
+                        throw w007("cannot install " + jar + ": " + e.getMessage());
+                }
+            } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
+        }
+        tr("compiler present");
+        String got = sha256(jar);                                // unconditional, every run
+        tr("sha256 done");
+        if (!got.equals(lock.sha256()))
+            throw w006("cached " + jar + " no longer matches its pinned digest");
+        return jar;
+    }
+
+    static void download(String url, Path dest) {
+        if (!url.startsWith("https://")) throw w005("refusing non-https url " + url);
+        HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(30)).build();
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofMinutes(10))
+                .header("User-Agent", "flixw/" + WRAPPER_VERSION).build();
+        try {
+            HttpResponse<Path> res = client.send(req, HttpResponse.BodyHandlers.ofFile(dest));
+            if (!"https".equals(res.uri().getScheme()))
+                throw w005("refusing a redirect off https: " + res.uri());
+            if (res.statusCode() != 200)
+                throw w005("HTTP " + res.statusCode() + " for " + url
+                         + "\n       check that flix.toml names a published release.");
+        } catch (IOException e) {
+            throw w005("download failed: " + url + "\n       " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw w005("download interrupted");
+        }
+    }
+
+    // ---- Java selection ---------------------------------------------------
+
+    record Jvm(Path exe, int feature, String how) {}
+
+    static Path exeIn(String home) {
+        return Paths.get(home, "bin", isWindows() ? "java.exe" : "java");
+    }
+
+    /** Reads <home>/release when it is present and parseable; otherwise runs the candidate once. */
+    static int probe(Path exe) {
+        Path home = exe.getParent() == null ? null : exe.getParent().getParent();
+        if (home != null) {
+            Path rel = home.resolve("release");
+            if (Files.isRegularFile(rel)) {
+                try {
+                    String t = Files.readString(rel, StandardCharsets.UTF_8);
+                    Matcher m = Pattern.compile("(?m)^JAVA_VERSION=\"([^\"]+)\"").matcher(t);
+                    if (m.find()) {
+                        Integer f = feature(m.group(1));
+                        if (f != null) return f;
+                    }
+                } catch (IOException ignored) { }
+            }
+        }
+        try {                                                     // one execution, no retry
+            Process p = new ProcessBuilder(exe.toString(), "-XshowSettings:properties", "-version")
+                    .redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            p.waitFor();
+            Matcher m = Pattern.compile("java\\.specification\\.version = ([0-9.]+)").matcher(out);
+            if (m.find()) { Integer f = feature(m.group(1)); if (f != null) return f; }
+        } catch (Exception ignored) { }
+        return -1;
+    }
+
+    static Integer feature(String v) {
+        Matcher m = Pattern.compile("^([0-9]+)").matcher(v);
+        return m.find() ? Integer.parseInt(m.group(1)) : null;
+    }
+
+    static boolean strictJava() { return env("FLIXW_STRICT_JAVA") != null; }
+
+    /**
+     * Below MIN_JAVA is always fatal: the compiler will not run.  Above TESTED_CEILING is
+     * a warning, because a JDK upgrade must not break a wrapper whose pinned compiler
+     * tolerates it.  FLIXW_STRICT_JAVA=1 makes the ceiling fatal for reproducible builds.
+     */
+    static boolean acceptable(int f, String source) {
+        if (f < 0) return false;
+        if (f < MIN_JAVA) return false;
+        if (f > TESTED_CEILING) {
+            if (strictJava()) return false;
+            w011("Java " + f + " (" + source + ") is above the tested ceiling "
+               + TESTED_CEILING + "; proceeding. Set FLIXW_STRICT_JAVA=1 to make this fatal.");
+        }
+        return true;
+    }
+
+    static Jvm selectJava() {
+        for (String var : new String[] { "FLIX_JAVA_HOME", "JAVA_HOME" }) {
+            String h = env(var);
+            if (h == null) continue;
+            Path exe = exeIn(h);
+            if (!Files.isRegularFile(exe))
+                throw w004(var + "=" + h + " has no " + exe.getFileName() + " at " + exe);
+            if (!Files.isExecutable(exe))
+                throw w004(var + "=" + h + ": " + exe + " is not executable");
+            int f = probe(exe);
+            if (!acceptable(f, var))
+                throw w004(var + "=" + h + " is Java " + (f < 0 ? "unidentifiable" : f)
+                         + "; flixw needs [" + MIN_JAVA + ", " + TESTED_CEILING + "]"
+                         + (strictJava() ? " (FLIXW_STRICT_JAVA is set)" : ""));
+            return new Jvm(exe, f, var);
+        }
+        int self = Runtime.version().feature();
+        Path selfExe = ProcessHandle.current().info().command()
+                .map(Paths::get).orElse(exeIn(System.getProperty("java.home")));
+        if (acceptable(self, "running JVM")) return new Jvm(selfExe, self, "running JVM");
+        for (Path cand : knownInstalls()) {
+            int f = probe(cand);
+            if (f >= MIN_JAVA && (f <= TESTED_CEILING || !strictJava()))
+                return new Jvm(cand, f, "known installation");
+        }
+        throw w003("no Java in [" + MIN_JAVA + ", " + TESTED_CEILING + "] found"
+                 + "\n       this JVM is " + self + "; set FLIX_JAVA_HOME or JAVA_HOME");
+    }
+
+    static List<Path> knownInstalls() {
+        List<Path> out = new ArrayList<>();
+        List<Path> roots = new ArrayList<>();
+        if (isMac()) {
+            roots.add(Paths.get("/Library/Java/JavaVirtualMachines"));
+            roots.add(Paths.get(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines"));
+            roots.add(Paths.get("/opt/homebrew/opt"));
+        } else if (!isWindows()) {
+            roots.add(Paths.get("/usr/lib/jvm"));
+            roots.add(Paths.get("/usr/java"));
+        } else {
+            roots.add(Paths.get("C:\\Program Files\\Java"));
+            roots.add(Paths.get("C:\\Program Files\\Eclipse Adoptium"));
+        }
+        for (Path r : roots) {
+            if (!Files.isDirectory(r)) continue;
+            try (var s = Files.list(r)) {
+                s.sorted().forEach(d -> {
+                    for (Path h : new Path[] { d, d.resolve("Contents/Home"),
+                                               d.resolve("libexec/openjdk.jdk/Contents/Home") }) {
+                        Path e = h.resolve("bin").resolve(isWindows() ? "java.exe" : "java");
+                        if (Files.isExecutable(e)) { out.add(e); return; }
+                    }
+                });
+            } catch (IOException ignored) { }
+        }
+        return out;
+    }
+
+    // ---- FLIX_JVM_OPTS ----------------------------------------------------
+
+    static final Pattern UNSAFE = Pattern.compile(
+        "^(-jar|-cp|-classpath|--class-path|--module-path|-p|-javaagent:.*|-agentlib:.*|"
+      + "-agentpath:.*|@.*|-XX:OnError=.*|-XX:OnOutOfMemoryError=.*|-XX:\\+?UnlockDiagnosticVMOptions|"
+      + "-XX:Flags=.*|--patch-module.*|-Xbootclasspath.*)$");
+
+    static List<String> jvmOpts() {
+        String raw = env("FLIX_JVM_OPTS");
+        if (raw == null) return List.of();
+        List<String> toks = tokenize(raw);
+        boolean unsafeOk = env("FLIXW_UNSAFE_JVM_OPTS") != null;
+        for (String t : toks) {
+            if (!t.startsWith("-")) throw w008("FLIX_JVM_OPTS: " + q(t) + " is not an option");
+            if (UNSAFE.matcher(t).matches() && !unsafeOk)
+                throw w008("FLIX_JVM_OPTS: " + q(t) + " needs FLIXW_UNSAFE_JVM_OPTS=1");
+        }
+        return toks;
+    }
+
+    /** One documented tokenizer: whitespace separates; '' and "" quote; \ escapes inside "" and bare. */
+    static List<String> tokenize(String s) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean has = false; char quote = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (quote != 0) {
+                if (c == quote) quote = 0;
+                else if (c == '\\' && quote == '"' && i + 1 < s.length()) cur.append(s.charAt(++i));
+                else cur.append(c);
+            } else if (c == '\'' || c == '"') { quote = c; has = true; }
+            else if (c == '\\' && i + 1 < s.length()) { cur.append(s.charAt(++i)); has = true; }
+            else if (Character.isWhitespace(c)) {
+                if (has || cur.length() > 0) { out.add(cur.toString()); cur.setLength(0); has = false; }
+            }
+            else { cur.append(c); has = true; }
+        }
+        if (quote != 0) throw w008("FLIX_JVM_OPTS: unterminated " + quote + " quote");
+        if (has || cur.length() > 0) out.add(cur.toString());
+        return out;
+    }
+
+    // ---- project root -----------------------------------------------------
+
+    /** Resolves this file's own symlink chain without physicalizing unrelated directories. */
+    static Path wrapperAnchor() {
+        String src = env("FLIXW_SOURCE");                 // set by the self-compiled fast path
+        Path self = null;
+        if (src != null) self = Paths.get(src);
+        else {
+            try {
+                self = Paths.get(flix.class.getProtectionDomain().getCodeSource()
+                                 .getLocation().toURI());
+            } catch (Exception ignored) { }
+        }
+        if (self == null) return Paths.get("").toAbsolutePath();
+        try { self = resolveLinkChain(self.toAbsolutePath()); } catch (IOException ignored) { }
+        Path dir = Files.isDirectory(self) ? self : self.getParent();   // .../.flix-wrapper
+        // The anchor is the PROJECT ROOT: the parent of the wrapper directory, not the
+        // wrapper directory itself, which holds no flix.toml and would bound every search
+        // below the manifest.
+        if (dir != null && dir.getFileName() != null
+            && dir.getFileName().toString().equals(WRAPPER_DIR)) return dir.getParent();
+        return dir == null ? Paths.get("").toAbsolutePath() : dir;
+    }
+
+    static Path resolveLinkChain(Path p) throws IOException {
+        Path cur = p;
+        for (int i = 0; i < 40 && Files.isSymbolicLink(cur); i++) {
+            Path t = Files.readSymbolicLink(cur);
+            cur = t.isAbsolute() ? t : cur.getParent().resolve(t).normalize();
+        }
+        return cur;
+    }
+
+    /**
+     * Search upward from cwd for flix.toml, bounded above by the wrapper's own project.
+     * Invocation from outside that tree is refused rather than searched: an unbounded walk
+     * finds the first stray manifest above cwd and silently builds an unrelated project.
+     */
+    static Path findRoot(Path anchor) {
+        String o = env("FLIX_PROJECT_ROOT");
+        if (o != null) {
+            Path r = Paths.get(o).toAbsolutePath().normalize();
+            if (!Files.isRegularFile(r.resolve("flix.toml")))
+                throw w001("FLIX_PROJECT_ROOT=" + o + " has no flix.toml");
+            return r;
+        }
+        Path cwd = Paths.get("").toAbsolutePath().normalize();
+        if (!cwd.startsWith(anchor))
+            throw w001("this wrapper belongs to " + anchor + ", but the current directory is "
+                     + cwd + "\n       cd into the project, or set FLIX_PROJECT_ROOT explicitly");
+        for (Path p = cwd; p != null && p.startsWith(anchor); p = p.getParent())
+            if (Files.isRegularFile(p.resolve("flix.toml"))) return p;
+        throw w001("no flix.toml between " + cwd + " and " + anchor);
+    }
+
+    // ---- verb capture -----------------------------------------------------
+
+    /**
+     * Verb records live in the wrapper cache keyed by identity, never beside the JAR:
+     * a content-addressed compiler directory is legitimately read-only, and a FLIX_JAR
+     * override points at a JAR flixw does not own and must not write next to.
+     */
+    static Path verbsFile(Path jar, String identity) {
+        return cacheHome().resolve("verbs").resolve(identity + ".verbs");
+    }
+
+    /** Pinned compilers are identified by their locked digest; overrides by path+size+mtime. */
+    static String verbIdentity(Path jar, Lock lock, boolean override) {
+        if (!override) return lock.sha256();
+        try {
+            return "override-" + sha256((jar.toAbsolutePath() + "|" + Files.size(jar) + "|"
+                    + Files.getLastModifiedTime(jar).toMillis()).getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return "override-" + sha256(jar.toAbsolutePath().toString().getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    static List<String> verbs(Path javaExe, Path jar, String identity) {
+        Path vf = verbsFile(jar, identity);
+        try {
+            if (Files.isRegularFile(vf)) {
+                List<String> v = new ArrayList<>(Files.readAllLines(vf, StandardCharsets.UTF_8));
+                v.removeIf(String::isBlank);
+                if (!v.isEmpty()) return v;
+            }
+        } catch (IOException ignored) { }
+        List<String> v;
+        try { v = captureVerbs(javaExe, jar); }
+        catch (Fail f) {
+            // Capture is an optimisation, never a precondition.  Its sole purpose is to
+            // notice that a pinned compiler has claimed one of WRAPPER_VERBS.  Failing
+            // here would make an unparseable help screen fatal for `check`, which does
+            // not consult the verb set at all.
+            w010(f.getMessage().split("\n")[0]
+               + "\n          using the built-in verb table for Flix 0.75.x;"
+               + " compiler-first dispatch still applies");
+            return BUILTIN_VERBS;
+        }
+        try {
+            Files.createDirectories(vf.getParent());
+            Path tmp = Files.createTempFile(vf.getParent(), ".verbs-", ".part");
+            Files.writeString(tmp, String.join("\n", v) + "\n", StandardCharsets.UTF_8);
+            Files.move(tmp, vf, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            // A read-only cache is a correct configuration, not an error.  Stay silent.
+            tr("cannot cache verbs at " + vf + ": " + e.getMessage());
+        }
+        return v;
+    }
+
+    static List<String> captureVerbs(Path javaExe, Path jar) {
+        String out;
+        try {
+            Process p = new ProcessBuilder(javaExe.toString(), "-jar", jar.toString(), "--help")
+                    .redirectErrorStream(true).start();
+            p.getOutputStream().close();
+            out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (!p.waitFor(60, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                throw w009("`flix --help` did not finish within 60s");
+            }
+        } catch (IOException | InterruptedException e) {
+            throw w009("cannot run `flix --help`: " + e.getMessage());
+        }
+        // Two independent parses.  `Command: lsp-vscode port` carries an argument, so a
+        // whole-line parse yields a phantom verb; take the first token only.
+        Set<String> set = new LinkedHashSet<>();
+        Matcher usage = Pattern.compile("(?m)^Usage:.*?\\[([a-z0-9|_-]+)\\]").matcher(out);
+        if (usage.find()) for (String s : usage.group(1).split("\\|")) if (!s.isBlank()) set.add(s.trim());
+        Matcher cmd = Pattern.compile("(?m)^Command:\\s+([A-Za-z][A-Za-z0-9_-]*)").matcher(out);
+        while (cmd.find()) set.add(cmd.group(1));
+        if (set.size() < 3)
+            throw w009("cannot parse verbs from `flix --help` of " + jar
+                     + " (got " + set.size() + " candidate(s))");
+        return new ArrayList<>(set);
+    }
+
+    // ---- self-compiled stage 0 --------------------------------------------
+
+    static Path stage0Dir(String srcHash) {
+        return cacheHome().resolve("stage0").resolve(srcHash);
+    }
+
+    /**
+     * Compiles this source into the cache so the shim can skip the JEP 330 source launch
+     * next time.  The shim -- not stage 0 -- consults this cache: stage 0 is already the
+     * running process by the time it could decide.  That is the one place the shim is
+     * allowed to know a cache layout, and it is why the cache path is a versioned
+     * interface between the shim and stage 0.
+     */
+    static void selfCompile(Path source) {
+        if (source == null) return;
+        byte[] bytes;
+        try { bytes = Files.readAllBytes(source); } catch (IOException e) { return; }
+        Path dir = stage0Dir(sha256(bytes));
+        if (Files.isRegularFile(dir.resolve("flix.class"))) return;
+        javax.tools.JavaCompiler jc = javax.tools.ToolProvider.getSystemJavaCompiler();
+        if (jc == null) { tr("no javac in this runtime; staying on the source path"); return; }
+        Path tmp = null;
+        try {
+            tmp = Files.createTempDirectory(Files.createDirectories(dir.getParent()), ".stage0-");
+            int rc = jc.run(null, java.io.OutputStream.nullOutputStream(),
+                            java.io.OutputStream.nullOutputStream(),
+                            "-d", tmp.toString(), "-nowarn", source.toString());
+            if (rc != 0) { tr("self-compile failed rc=" + rc); return; }
+            Files.writeString(tmp.resolve("source.path"), source.toAbsolutePath() + "\n");
+            Files.move(tmp, dir, StandardCopyOption.ATOMIC_MOVE);
+            tmp = null;
+            tr("self-compiled stage 0 into " + dir);
+        } catch (IOException e) {
+            tr("self-compile skipped: " + e.getMessage());
+        } finally {
+            // A directory move cannot take REPLACE_EXISTING, so a concurrent loser must
+            // remove its own tree by hand or the cache accumulates one per race.
+            if (tmp != null) deleteTree(tmp);
+        }
+    }
+
+    static void deleteTree(Path p) {
+        try (var s = Files.walk(p)) {
+            s.sorted(java.util.Comparator.reverseOrder()).forEach(x -> {
+                try { Files.deleteIfExists(x); } catch (IOException ignored) { }
+            });
+        } catch (IOException ignored) { }
+    }
+
+    // ---- installed shims --------------------------------------------------
+    //
+    // Both shims locate a Java, then prefer the content-keyed compiled stage 0 in the
+    // user cache over a source launch.  Measured: ~131ms of wrapper overhead instead of
+    // ~532ms.  Any failure in the cache lookup falls through to the source path, so the
+    // fast route can never be the reason a command does not run.
+
+    static final String SHIM = """
+        #!/bin/sh
+        # flixw shim -- invariant file, byte-identical across projects for a wrapper release.
+        # Finds an initial java, prefers the compiled stage 0, else launches the source.
+        set -e
+        self=$0
+        while [ -L "$self" ]; do
+          link=$(readlink "$self")
+          case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+        done
+        # CDPATH is cleared for this command only: a set CDPATH makes `cd` resolve
+        # elsewhere and echo the result. shellcheck reads that as a typo (SC1007).
+        # shellcheck disable=SC1007
+        root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
+        src=$root/.flix-wrapper/flix.java
+
+        if [ -n "${FLIX_JAVA_HOME:-}" ]; then java0=$FLIX_JAVA_HOME/bin/java
+        elif [ -n "${JAVA_HOME:-}" ]; then java0=$JAVA_HOME/bin/java
+        else java0=$(command -v java 2>/dev/null || true); fi
+
+        if [ -z "$java0" ]; then
+          echo "FLIXW003: no java executable found." >&2
+          echo "          Flix needs Java 21+. Set JAVA_HOME or put java on PATH." >&2
+          exit 127
+        fi
+        if [ ! -x "$java0" ]; then
+          echo "FLIXW003: $java0 is not executable." >&2
+          exit 126
+        fi
+        if [ ! -f "$src" ]; then
+          echo "FLIXW009: missing $src" >&2
+          exit 88
+        fi
+
+        # Content-keyed compiled stage 0.  Versioned interface with stage 0; see README.
+        if [ -n "${FLIX_CACHE_HOME:-}" ]; then cache=$FLIX_CACHE_HOME
+        else
+          case $(uname -s) in
+            Darwin) cache=$HOME/Library/Caches/flixw ;;
+            *)      cache=${XDG_CACHE_HOME:-$HOME/.cache}/flixw ;;
+          esac
+        fi
+        h=
+        if command -v shasum >/dev/null 2>&1; then h=$(shasum -a 256 "$src" 2>/dev/null | cut -d' ' -f1)
+        elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$src" 2>/dev/null | cut -d' ' -f1)
+        elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 -r "$src" 2>/dev/null | cut -d' ' -f1)
+        fi
+        if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ]; then
+          FLIXW_SOURCE=$src; export FLIXW_SOURCE
+          exec "$java0" -cp "$cache/stage0/$h" flix "$@"
+        fi
+        exec "$java0" "$src" "$@"
+        """;
+
+    static final String CMD = """
+        @echo off
+        rem flixw cmd.exe trampoline -- invariant file.  Finds an initial java, prefers the
+        rem compiled stage 0 in the user cache, else launches the source.
+        setlocal enabledelayedexpansion
+        set "ROOT=%~dp0"
+        set "SRC=%ROOT%.flix-wrapper\\flix.java"
+
+        if defined FLIX_JAVA_HOME ( set "JAVA0=%FLIX_JAVA_HOME%\\bin\\java.exe" ) else (
+        if defined JAVA_HOME ( set "JAVA0=%JAVA_HOME%\\bin\\java.exe" ) else (
+        for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
+        if not defined JAVA0 (
+          echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
+          exit /b 127 )
+        if not exist "%JAVA0%" (
+          echo FLIXW003: %JAVA0% not found. 1>&2
+          exit /b 127 )
+        if not exist "%SRC%" (
+          echo FLIXW009: missing %SRC% 1>&2
+          exit /b 88 )
+
+        if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
+          set "CACHE=%LOCALAPPDATA%\\flixw" )
+        set "H="
+        for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
+          if not defined H set "H=%%L" )
+        if defined H set "H=!H: =!"
+        if defined H if exist "!CACHE!\\stage0\\!H!\\flix.class" (
+          set "FLIXW_SOURCE=%SRC%"
+          "%JAVA0%" -cp "!CACHE!\\stage0\\!H!" flix %*
+          exit /b !ERRORLEVEL! )
+        "%JAVA0%" "%SRC%" %*
+        exit /b !ERRORLEVEL!
+        """;
+
+    // ---- wrapper verbs ----------------------------------------------------
+
+    static void wrapperVerb(String verb, List<String> rest, Path root, Lock lock, Path jar,
+                            Jvm jvm, List<String> compilerVerbs) {
+        switch (verb) {
+            case "pin" -> {
+                if (rest.isEmpty()) throw w009("usage: ./flix pin <version>");
+                pin(root, validateVersion(rest.get(0), "pin"));
+            }
+            case "doctor", "setup" -> {
+                report(root, lock, jar, jvm, compilerVerbs);
+                if (verb.equals("setup")) System.out.println("compiler ready.");
+            }
+            case "validate" -> validate(root, lock, jar);
+            case "update-wrapper" -> updateWrapper(root);
+            default -> throw w009("no wrapper implementation for " + q(verb));
+        }
+    }
+
+    static void report(Path root, Lock lock, Path jar, Jvm jvm, List<String> cv) {
+        System.out.println("flixw            " + WRAPPER_VERSION);
+        System.out.println("project root     " + root);
+        System.out.println("compiler         " + (lock == null ? "-" : lock.version()));
+        System.out.println("digest           " + (lock == null ? "-" : lock.sha256()));
+        System.out.println("jar              " + (jar == null ? "-" : jar));
+        System.out.println("java             " + (jvm == null ? "-" : jvm.exe() + "  (" + jvm.feature()
+                                                  + ", via " + jvm.how() + ")"));
+        System.out.println("cache            " + cacheHome());
+        System.out.println("dist url         " + (lock == null ? "-" : rewriteBase(lock.url())));
+        if (env("FLIX_DIST_URL") != null) System.out.println("mirror           FLIX_DIST_URL is set");
+        for (String p : new String[] { "HTTPS_PROXY", "https_proxy", "NO_PROXY" })
+            if (env(p) != null) System.out.println("proxy            " + p + "=" + env(p));
+        for (String p : new String[] { "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS" })
+            if (env(p) != null) System.out.println("note             " + p + "=" + env(p)
+                                                 + "  (affects the JVM and stderr)");
+        if (env("FLIX_JAR") != null) System.out.println("override         FLIX_JAR=" + env("FLIX_JAR")
+                                     + "  (unverified; not stock-compatibility evidence)");
+        System.out.println("compiler verbs   " + (cv == null ? "(not captured)" : String.join(" ", cv)));
+        List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
+        if (cv != null) fallback.removeAll(cv);
+        System.out.println("wrapper verbs    " + String.join(" ", fallback));
+        System.out.println("pass-through     ./flix -- <args>");
+    }
+
+    /** Runs `git <args>` in root; null when git is absent or the command fails to start. */
+    static Integer git(Path root, String... args) {
+        List<String> cmd = new ArrayList<>(List.of("git"));
+        cmd.addAll(Arrays.asList(args));
+        try {
+            Process p = new ProcessBuilder(cmd).directory(root.toFile())
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            return p.waitFor(30, TimeUnit.SECONDS) ? p.exitValue() : null;
+        } catch (IOException | InterruptedException e) { return null; }
+    }
+
+    static void validate(Path root, Lock lock, Path jar) {
+        int bad = 0;
+        Path shim = root.resolve("flix");
+        if (!Files.isRegularFile(shim)) { System.out.println("FAIL  missing ./flix"); bad++; }
+        else if (!isWindows() && !Files.isExecutable(shim)) {
+            System.out.println("FAIL  ./flix is not executable (chmod +x flix)"); bad++;
+        } else System.out.println("ok    ./flix");
+
+        Path src = root.resolve(WRAPPER_DIR).resolve("flix.java");
+        if (!Files.isRegularFile(src)) {
+            System.out.println("FAIL  missing " + WRAPPER_DIR + "/flix.java"); bad++;
+        } else {
+            try {
+                System.out.println("ok    " + WRAPPER_DIR + "/flix.java  sha256="
+                                 + sha256(Files.readAllBytes(src)));
+            } catch (IOException e) {
+                System.out.println("FAIL  unreadable " + WRAPPER_DIR + "/flix.java"); bad++;
+            }
+        }
+
+        String mv = manifestVersion(root.resolve("flix.toml"));
+        if (lock == null) { System.out.println("FAIL  no lock"); bad++; }
+        else if (mv != null && !canonical(mv).equals(canonical(lock.version()))) {
+            System.out.println("FAIL  flix.toml says " + mv + ", lock pins " + lock.version()); bad++;
+        } else System.out.println("ok    lock agrees with flix.toml");
+
+        if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
+        System.out.println((Files.isRegularFile(root.resolve(".gitattributes")) ? "ok    " : "warn  ")
+                         + ".gitattributes");
+
+        // Generated wrapper files are only reproducible for a collaborator if git actually
+        // carries them.  A .gitignore rule that swallows the lock is silent otherwise.
+        List<String> generated = List.of("flix", "flix.cmd",
+                                         WRAPPER_DIR + "/flix.java", WRAPPER_DIR + "/lock.toml");
+        Integer isRepo = git(root, "rev-parse", "--is-inside-work-tree");
+        if (isRepo == null || isRepo != 0) {
+            System.out.println("warn  not a git work tree; cannot check tracked status");
+        } else {
+            for (String rel : generated) {
+                if (!Files.exists(root.resolve(rel))) continue;
+                Integer ignored = git(root, "check-ignore", "-q", "--", rel);
+                if (ignored != null && ignored == 0) {
+                    System.out.println("FAIL  " + rel + " is matched by a gitignore rule"); bad++;
+                    continue;
+                }
+                Integer tracked = git(root, "ls-files", "--error-unmatch", "--", rel);
+                if (tracked != null && tracked != 0) {
+                    System.out.println("warn  " + rel + " is not tracked yet (git add " + rel + ")");
+                } else System.out.println("ok    " + rel + " is tracked");
+            }
+        }
+        if (bad > 0) throw w009(bad + " validation failure(s)");
+    }
+
+    static void pin(Path root, String version) {
+        String url = "https://github.com/flix/flix/releases/download/v"
+                   + canonical(version) + "/flix.jar";
+        Path wrapperDir = root.resolve(WRAPPER_DIR);
+        Path tmp;
+        try {
+            Files.createDirectories(wrapperDir);
+            tmp = Files.createTempFile(wrapperDir, ".pin-", ".part");
+        }
+        catch (IOException e) { throw w009("cannot write in " + wrapperDir + ": " + e.getMessage()); }
+        Path manifest = root.resolve("flix.toml"), lockFile = lockPath(root);
+        String oldManifest = null;
+        try {
+            download(rewriteBase(url), tmp);
+            String digest = sha256(tmp);
+            String lock = """
+                # Generated by ./flix pin. Do not edit by hand; commit this file.
+                wrapperVersion = "%s"
+
+                [compiler]
+                version = "%s"
+                url     = "%s"
+                sha256  = "%s"
+                """.formatted(WRAPPER_VERSION, version, url, digest);
+            // recoverable transaction: manifest first, lock second, manifest restored on failure
+            if (Files.isRegularFile(manifest)) {
+                oldManifest = Files.readString(manifest, StandardCharsets.UTF_8);
+                String updated = oldManifest.replaceFirst(
+                    "(?m)^(\\s*\"?flix\"?\\s*=\\s*\")[^\"]*(\")", "$1" + version + "$2");
+                if (!updated.equals(oldManifest)) Files.writeString(manifest, updated);
+            }
+            Files.writeString(lockFile, lock, StandardCharsets.UTF_8);
+            Path jar = cacheHome().resolve("compilers")
+                         .resolve("flix-" + canonical(version) + "-" + digest + ".jar");
+            if (!Files.isRegularFile(jar)) {
+                Files.createDirectories(jar.getParent());
+                try { Files.move(tmp, jar, StandardCopyOption.ATOMIC_MOVE); } catch (IOException ignored) {}
+            }
+            System.err.println("flixw: pinned Flix " + version + " (" + digest.substring(0, 16) + "...)");
+        } catch (IOException e) {
+            if (oldManifest != null) {
+                try { Files.writeString(manifest, oldManifest); } catch (IOException ignored) {}
+            }
+            throw w009("pin failed: " + why(e));
+        } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
+    }
+
+    static void install(Path target, Path source) {
+        try {
+            Path fw = target.resolve(WRAPPER_DIR);
+            Files.createDirectories(fw);
+            if (source == null || !Files.isRegularFile(source))
+                throw w009("install needs the wrapper source; run it as: java flix.java install <dir>");
+            Files.copy(source, fw.resolve("flix.java"), StandardCopyOption.REPLACE_EXISTING);
+            Path shim = target.resolve("flix");
+            Files.writeString(shim, SHIM, StandardCharsets.UTF_8);
+            shim.toFile().setExecutable(true, false);
+            Files.writeString(target.resolve("flix.cmd"), CMD.replace("\n", "\r\n"),
+                              StandardCharsets.UTF_8);
+            mergeGitattributes(target.resolve(".gitattributes"));
+            System.out.println("installed ./flix, ./flix.cmd and " + WRAPPER_DIR
+                             + "/flix.java into " + target);
+            System.out.println("next: ./flix pin <version>   then commit all four files");
+        } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
+    }
+
+    /**
+     * Rewrites the invariant wrapper files from the running stage 0, leaving the project's
+     * compiler lock untouched. This repairs the failures that actually happen: a shim that
+     * lost its executable bit to an archive download, a hand-edited shim, a .gitattributes
+     * block clobbered by a merge.
+     *
+     * It deliberately does not fetch a newer flixw. Self-update needs a published release
+     * feed with its own digests, which does not exist; until it does, upgrading means
+     * running `install` from the newer release, and saying so is better than pretending.
+     */
+    static void updateWrapper(Path root) {
+        int changed = 0;
+        try {
+            Path shim = root.resolve("flix");
+            if (!Files.isRegularFile(shim)
+                || !Files.readString(shim, StandardCharsets.UTF_8).equals(SHIM)) {
+                Files.writeString(shim, SHIM, StandardCharsets.UTF_8);
+                System.out.println("rewrote  ./flix"); changed++;
+            }
+            if (!isWindows() && !Files.isExecutable(shim)) {
+                shim.toFile().setExecutable(true, false);
+                System.out.println("restored ./flix executable bit"); changed++;
+            }
+            Path cmd = root.resolve("flix.cmd");
+            String cmdBytes = CMD.replace("\n", "\r\n");
+            if (!Files.isRegularFile(cmd)
+                || !Files.readString(cmd, StandardCharsets.UTF_8).equals(cmdBytes)) {
+                Files.writeString(cmd, cmdBytes, StandardCharsets.UTF_8);
+                System.out.println("rewrote  ./flix.cmd"); changed++;
+            }
+            Path ga = root.resolve(".gitattributes");
+            String before = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
+            mergeGitattributes(ga);
+            if (!before.equals(Files.readString(ga, StandardCharsets.UTF_8))) {
+                System.out.println("merged   ./.gitattributes"); changed++;
+            }
+        } catch (IOException e) { throw w009("update-wrapper failed: " + why(e)); }
+        System.out.println(changed == 0
+            ? "wrapper files already match flixw " + WRAPPER_VERSION
+            : changed + " file(s) rewritten from flixw " + WRAPPER_VERSION);
+        System.out.println("note: this refreshes the files this wrapper ships; to move to a"
+                         + " newer flixw,\n      run `java flix.java install .` from that release.");
+    }
+
+    static void mergeGitattributes(Path ga) throws IOException {
+        String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
+        String block = begin + "\n/flix text eol=lf\n"
+                     + "/" + WRAPPER_DIR + "/flix.java text eol=lf\n"
+                     + "/" + WRAPPER_DIR + "/lock.toml text eol=lf\n"
+                     + "/flix.cmd text eol=crlf\n" + end + "\n";
+        String cur = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
+        String next = cur.contains(begin)
+            ? cur.replaceAll("(?s)" + Pattern.quote(begin) + ".*?" + Pattern.quote(end) + "\\R?",
+                             Matcher.quoteReplacement(block))
+            : (cur.isEmpty() || cur.endsWith("\n") ? cur : cur + "\n") + block;
+        Files.writeString(ga, next, StandardCharsets.UTF_8);
+    }
+
+    // ---- main -------------------------------------------------------------
+
+    public static void main(String[] args) {
+        try { realMain(new ArrayList<>(Arrays.asList(args))); }
+        catch (Fail f) {
+            System.err.println(f.code + ": " + f.getMessage());
+            System.exit(f.exit);
+        }
+    }
+
+    static void realMain(List<String> argv) {
+        tr("stage 0 entered");
+        String first = argv.isEmpty() ? null : argv.get(0);
+
+        // Offline launcher flags, before project, lock, network or compiler work.
+        if ("--wrapper-version".equals(first) || "--wrapper-help".equals(first)) {
+            if (argv.size() > 1)
+                throw w008(q(first) + " takes no arguments; use ./flix -- " + String.join(" ", argv));
+            if (first.equals("--wrapper-version")) {
+                System.out.println("flixw " + WRAPPER_VERSION);
+                System.out.println("stage0 " + (env("FLIXW_SOURCE") != null ? "compiled" : "source")
+                                 + "  java " + Runtime.version());
+            } else wrapperHelp();
+            return;
+        }
+        if (first != null && first.startsWith("--wrapper-"))
+            throw w008("unknown launcher flag " + q(first)
+                     + "\n       known: --wrapper-version --wrapper-help");
+
+        Path anchor = wrapperAnchor();
+        if ("install".equals(first) && !Files.isRegularFile(lockPath(anchor))) {
+            install(Paths.get(argv.size() > 1 ? argv.get(1) : ".").toAbsolutePath().normalize(),
+                    selfSource());
+            return;
+        }
+
+        Path root = findRoot(anchor);
+        tr("root " + root);
+        Path lockFile = lockPath(root);
+        Lock lock = Files.isRegularFile(lockFile) ? readLock(lockFile) : null;
+        String mv = manifestVersion(root.resolve("flix.toml"));
+
+        // Drift is detected here -- immediately after the manifest and the lock are read,
+        // before any Java selection, any network access, and any compiler execution.
+        String drift = (lock != null && mv != null && !canonical(mv).equals(canonical(lock.version())))
+            ? "flix.toml declares " + mv + " but " + WRAPPER_DIR + "/lock.toml pins "
+              + lock.version() + "\n       run: ./flix pin " + mv
+            : null;
+
+        boolean forcedWrapper = "wrapper".equals(env("FLIX_BACKEND"));
+        boolean forcedCompiler = "compiler".equals(env("FLIX_BACKEND"));
+
+        // When the project cannot reach a compiler -- no lock yet, or a lock that
+        // disagrees with the manifest -- the verbs that create and diagnose that state
+        // must still run, or the repair the diagnostic recommends is unreachable. They
+        // route on the built-in wrapper list alone, so no compiler is consulted.
+        if ((lock == null || drift != null) && first != null && !forcedCompiler
+            && WRAPPER_VERBS.contains(first) && !first.equals("setup")) {
+            if (drift != null) System.err.println("flixw: warning: " + drift.split("\n")[0]);
+            routingNotice(first, lock == null ? "none" : lock.version());
+            if (first.equals("pin"))
+                pin(root, validateVersion(argv.size() > 1 ? argv.get(1) : null, "pin"));
+            else
+                wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null);
+            return;
+        }
+        if (lock == null)
+            throw w002("no " + lockFile + "\n       run: ./flix pin <version>");
+        if (drift != null) throw w002(drift);
+
+        // pin is the documented repair and never needs the compiler.
+        if ("pin".equals(first) && !forcedCompiler) {
+            routingNotice("pin", lock.version());
+            pin(root, validateVersion(argv.size() > 1 ? argv.get(1) : null, "pin"));
+            return;
+        }
+
+        Jvm jvm = selectJava();
+        tr("java " + jvm.exe() + " (" + jvm.feature() + ")");
+        if (relaunch(jvm, argv)) return;
+        List<String> opts = jvmOpts();
+
+        Path jar;
+        String fj = env("FLIX_JAR");
+        boolean override = fj != null;
+        if (override) {
+            jar = Paths.get(fj).toAbsolutePath();
+            if (!Files.isRegularFile(jar)) throw w008("FLIX_JAR=" + fj + " is not a file");
+            System.err.println("flixw: note: FLIX_JAR override in use; the JAR is NOT digest-verified"
+                             + " and this run is not stock-compatibility evidence");
+        } else jar = acquire(lock);
+
+        List<String> compilerVerbs = verbs(jvm.exe(), jar, verbIdentity(jar, lock, override));
+        tr("verbs " + compilerVerbs.size());
+        selfCompile(selfSource());
+
+        // ---- dispatch ----------------------------------------------------
+        boolean toCompiler; List<String> forward = argv;
+        if (forcedWrapper && first != null && WRAPPER_VERBS.contains(first)) {
+            toCompiler = false;
+        } else if ("--".equals(first)) {
+            toCompiler = true; forward = argv.subList(1, argv.size());
+        } else if (first != null && compilerVerbs.contains(first)) {
+            toCompiler = true;
+        } else if (first != null && WRAPPER_VERBS.contains(first)) {
+            toCompiler = false;
+        } else {
+            toCompiler = true;                       // unknown verbs, and no verb at all
+        }
+
+        if (!toCompiler) {
+            if (forcedWrapper && compilerVerbs.contains(first))
+                System.err.println("flix: " + q(first) + " \u2192 wrapper " + WRAPPER_VERSION
+                                 + " (forced by FLIX_BACKEND=wrapper; compiler " + lock.version()
+                                 + " also implements it)");
+            else routingNotice(first, lock.version());
+            wrapperVerb(first, forward.subList(1, forward.size()), root, lock, jar, jvm, compilerVerbs);
+            return;
+        }
+        if (first != null && WRAPPER_VERBS.contains(first) && compilerVerbs.contains(first))
+            System.err.println("flix: note: compiler " + lock.version() + " now implements "
+                             + q(first) + "; the wrapper implementation is deprecated"
+                             + " and will be removed in the next wrapper release");
+
+        launch(jvm.exe(), opts, jar, forward);
+    }
+
+    static void routingNotice(String verb, String compilerVersion) {
+        System.err.println("flix: " + q(verb) + " \u2192 wrapper " + WRAPPER_VERSION
+                         + " (pinned compiler " + compilerVersion + " does not implement it)");
+    }
+
+    static void wrapperHelp() {
+        System.out.println("flixw " + WRAPPER_VERSION + " -- repository-local Flix bootstrap");
+        System.out.println();
+        System.out.println("  ./flix <compiler verb> [args]   run the pinned stock compiler");
+        System.out.println("  ./flix -- <args>                forced compiler pass-through");
+        System.out.println("  ./flix pin <version>            repin flix.toml and the lock");
+        System.out.println("  ./flix doctor | setup | validate | update-wrapper");
+        System.out.println("  ./flix --wrapper-version | --wrapper-help      (offline)");
+        System.out.println();
+        System.out.println("cache            " + cacheHome());
+        System.out.println("java             " + System.getProperty("java.home")
+                         + "  (" + Runtime.version().feature() + ")");
+        // Offline-only enrichment: never downloads, never launches the compiler.  The
+        // routing table is shown from what is already on disk, so --wrapper-help keeps
+        // working on a cold clone and while the project is drifted.
+        Path root = null;
+        try { root = findRoot(wrapperAnchor()); } catch (Fail ignored) { }
+        if (root == null) {
+            System.out.println("project          (none found; run inside a project for the routing table)");
+            return;
+        }
+        System.out.println("project root     " + root);
+        Lock lock;
+        try { lock = readLock(lockPath(root)); } catch (Fail f) {
+            System.out.println("lock             " + f.getMessage().split("\n")[0]); return;
+        }
+        System.out.println("compiler         " + lock.version() + "  " + lock.sha256());
+        Path vf = verbsFile(compilerPath(lock), lock.sha256());
+        List<String> cv = null;
+        if (Files.isRegularFile(vf)) {
+            try {
+                cv = new ArrayList<>(Files.readAllLines(vf));
+                cv.removeIf(String::isBlank);
+            } catch (IOException ignored) {}
+        }
+        System.out.println("compiler verbs   " + (cv == null
+            ? "(not captured yet; run any compiler verb once)" : String.join(" ", cv)));
+        List<String> fb = new ArrayList<>(WRAPPER_VERBS);
+        if (cv != null) fb.removeAll(cv);
+        System.out.println("wrapper verbs    " + String.join(" ", fb));
+        System.out.println("pass-through     ./flix -- <args>");
+    }
+
+    static Path selfSource() {
+        String s = env("FLIXW_SOURCE");
+        if (s != null) return Paths.get(s);
+        try {
+            Path loc = Paths.get(flix.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            if (Files.isRegularFile(loc) && loc.toString().endsWith(".java")) return loc;
+            Path p = loc.resolve("source.path");                      // compiled stage 0
+            if (Files.isRegularFile(p)) return Paths.get(Files.readString(p).trim());
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    /** At most one relaunch, guarded by an env marker, so a stale release file cannot loop. */
+    static boolean relaunch(Jvm jvm, List<String> argv) {
+        Path cur = ProcessHandle.current().info().command().map(Paths::get).orElse(null);
+        if (cur != null && cur.equals(jvm.exe())) return false;
+        if (env("FLIXW_RELAUNCHED") != null) return false;
+        Path src = selfSource();
+        if (src == null) return false;
+        List<String> cmd = new ArrayList<>(List.of(jvm.exe().toString(), src.toString()));
+        cmd.addAll(argv);
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
+            pb.environment().put("FLIXW_RELAUNCHED", "1");
+            System.exit(pb.start().waitFor());
+        } catch (IOException | InterruptedException e) {
+            throw w004("relaunch under " + jvm.exe() + " failed: " + e.getMessage());
+        }
+        return true;
+    }
+
+    /** Inherit cwd and the three streams; propagate the child's status. */
+    static void launch(Path javaExe, List<String> opts, Path jar, List<String> args) {
+        List<String> cmd = new ArrayList<>();
+        cmd.add(javaExe.toString());
+        cmd.addAll(opts);
+        cmd.add("-jar"); cmd.add(jar.toString());
+        cmd.addAll(args);
+        tr("exec " + String.join(" ", cmd));
+        try {
+            Process p = new ProcessBuilder(cmd).inheritIO().start();
+            // Java has no exec(2): stage 0 must stay resident for the compiler's whole life.
+            // The child keeps the terminal, so SIGINT reaches it through the foreground
+            // process group.  The hook covers the rest: without it, a SIGTERM to stage 0
+            // orphans a compiler that then runs forever.  SIGKILL still orphans it -- no
+            // Java code can prevent that, and the README says so.
+            Thread hook = new Thread(() -> {
+                if (p.isAlive()) {
+                    p.destroy();
+                    try { p.waitFor(10, TimeUnit.SECONDS); }
+                    catch (InterruptedException ignored) { }
+                }
+            }, "flixw-reaper");
+            Runtime.getRuntime().addShutdownHook(hook);
+            int rc = p.waitFor();
+            try { Runtime.getRuntime().removeShutdownHook(hook); } catch (IllegalStateException ignored) {}
+            System.exit(rc);
+        } catch (IOException e) {
+            throw w005("cannot launch " + jar + ": " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.exit(130);
+        }
+    }
+}
