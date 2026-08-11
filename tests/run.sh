@@ -367,9 +367,20 @@ t 0  "SIGTERM to stage 0 does not orphan the compiler"          sh -c '
   outer=$!
   # Wait for the compiler child to exist, then kill only the stage-0 JVM above it.
   # Match on the verb too: the short-lived --help probe shares the jar name.
+  #
+  # A command-line match alone is not enough, and the way it fails is instructive: this
+  # script contains the pattern it searches for, so pgrep -f matches the sh running the
+  # case -- and the subshell of the command substitution -- as well as the JVM. Those have
+  # lower pids, so `head -1` selected the poller itself on Linux and the case then waited
+  # for its own shell to exit. Requiring the process to actually be a JVM settles it.
   n=0
+  inner=
   while [ $n -lt 150 ]; do
-    inner=$(pgrep -f "sleeper.jar check" 2>/dev/null | head -1)
+    for pid in $(pgrep -f "sleeper.jar check" 2>/dev/null); do
+      case $(ps -o comm= -p "$pid" 2>/dev/null) in
+        *java*) inner=$pid; break ;;
+      esac
+    done
     [ -n "$inner" ] && break
     n=$((n + 1)); sleep 0.1
   done
