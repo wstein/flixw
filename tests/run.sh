@@ -361,7 +361,7 @@ echo "drift"
 cp flix.toml "$work/flix.toml.bak"
 sed 's/^flix .*/flix        = "0.75.1"/' flix.toml > "$work/drifted" && cp "$work/drifted" flix.toml
 g 81 'declares 0.75.1' "drift blocks the compiler"              ./flix check
-t 0  "drift does not block --wrapper-version"                   ./flix wrapper --version
+t 0  "drift does not block wrapper --version"                   ./flix wrapper --version
 t 0  "drift does not block doctor"                              ./flix doctor
 t 88 "drift does not block validate (which reports it)"         ./flix validate
 cp "$work/flix.toml.bak" flix.toml

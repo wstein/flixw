@@ -1485,7 +1485,7 @@ public final class flix {
     // is known to be able to load the class.  exec leaves no way back: a class built for
     // the floor and handed to an older JVM is an UnsupportedClassVersionError printed by
     // the JVM, with no FLIXW code reached, no diagnostic, and no fallback -- and it takes
-    // `--wrapper-help` down with it, which is the command someone would run to find out
+    // `wrapper --help` down with it, which is the command someone would run to find out
     // why.  Whatever a shim cannot determine, it does not act on; it falls through to the
     // source path, where stage 0 owns every Java decision and every message.
 
@@ -2374,7 +2374,7 @@ public final class flix {
         System.out.println("java             " + System.getProperty("java.home")
                          + "  (" + Runtime.version().feature() + ")");
         // Offline-only enrichment: never downloads, never launches the compiler.  The
-        // routing table is shown from what is already on disk, so --wrapper-help keeps
+        // routing table is shown from what is already on disk, so `wrapper --help` keeps
         // working on a cold clone and while the project is drifted.
         Path root = null;
         try { root = findRoot(wrapperAnchor()); } catch (Fail ignored) { }
