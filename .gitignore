@@ -4,16 +4,19 @@
 # scratch space used by the regression suite
 tests/.work/
 
-# sbt (services/, built only if the wrapper-verb surface outgrows stage 0)
-target/
-lib_managed/
-src_managed/
-project/boot/
-project/plugins/project/
-project/local-plugins.sbt
-.history
-.sbt-scripted/
-local.sbt
+# sbt (services/, built only if the wrapper-verb surface outgrows stage 0).
+# Anchored to the one directory that has a build definition: an unanchored `target/`
+# matches at any depth, and quietly hid a stale sbt tree at the repository root -- left
+# over from the pre-restructure Scala scaffold -- for the whole life of the project.
+/services/target/
+/services/lib_managed/
+/services/src_managed/
+/services/local.sbt
+/services/.history
+/services/project/target/
+/services/project/project/
+/services/project/boot/
+/services/project/local-plugins.sbt
 
 # Bloop / Metals / IDEs
 .bsp
