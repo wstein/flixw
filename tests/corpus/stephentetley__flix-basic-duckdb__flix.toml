@@ -1,0 +1,15 @@
+[package]
+name        = "flix-basic-duckdb"
+description = "A database interface for Flix to DuckDB."
+version     = "0.8.0"
+flix        = "0.75.1"
+license     = "Apache-2.0"
+authors     = ["Stephen Tetley <stephen.tetley@gmail.com>"]
+
+[dependencies]
+"github:stephentetley/flix-pretty" = { version = "0.11.0", security = "unrestricted" }
+"github:stephentetley/effect-extras" = { version = "0.3.1", security = "unrestricted" }
+
+[mvn-dependencies]
+"org.duckdb:duckdb_jdbc" = "1.5.4.0"
+

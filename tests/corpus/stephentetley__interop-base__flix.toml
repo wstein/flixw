@@ -1,0 +1,10 @@
+[package]
+name        = "interop-base"
+description = "Low level Flix wrappers over classes and interfaces in the JDK"
+version     = "0.10.0"
+flix        = "0.45.0"
+license     = "Apache-2.0"
+authors     = ["Stephen Tetley <stephen.tetley@gmail.com>"]
+
+[dependencies]
+"github:stephentetley/charset-locale"                = "0.2.0"

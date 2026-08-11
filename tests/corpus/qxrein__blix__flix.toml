@@ -1,0 +1,11 @@
+[package]
+name = "mylang"
+description = "A programming language that compiles to BEAM bytecode"
+version = "0.1.0"
+flix = "0.60.0"
+license = "MIT"
+authors = ["Manav <manavrj.07@gmail.com>"]
+
+[dependencies]
+
+[dev-dependencies]

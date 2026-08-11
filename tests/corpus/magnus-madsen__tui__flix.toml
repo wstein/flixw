@@ -1,0 +1,10 @@
+[package]
+name        = "tui"
+description = "A JLine-backed TUI library for Flix."
+version     = "1.1.0"
+repository  = "github:magnus-madsen/tui"
+flix        = "0.74.0"
+authors     = ["iostream <magnus-madsen@users.noreply.github.com>"]
+
+[mvn-dependencies]
+"org.jline:jline" = "3.30.9"

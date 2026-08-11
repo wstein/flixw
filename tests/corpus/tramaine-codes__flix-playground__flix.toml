@@ -1,0 +1,6 @@
+[package]
+name        = "flix-playground"
+description = "A place to explore the Flix programming language."
+version     = "0.1.0"
+flix        = "0.47.0"
+authors     = ["Tramaine Gillus"]

@@ -1,0 +1,6 @@
+[package]
+name        = "flix-todo-app"
+description = "todo app for flix practice"
+version     = "0.1.0"
+flix        = "0.75.0"
+authors     = ["cj-bc <cj.bc-sd@outlook.jp"]

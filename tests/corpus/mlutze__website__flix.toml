@@ -1,0 +1,9 @@
+[package]
+name        = "website"
+description = "HTML Generator for Matthew Lutze's personal website"
+version     = "0.1.0"
+flix        = "0.37.0"
+authors     = ["Matthew Lutze"]
+
+[dependencies]
+"github:stephentetley/flix-htmldoc" = { version = "0.4.3", security = "unrestricted" }

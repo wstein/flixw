@@ -1,0 +1,14 @@
+[package]
+name        = "interop-commons-io-bom"
+description = "Flix wrappers over the Byte Order Mark classes of Apache Commons IO."
+version     = "0.4.1"
+flix        = "0.41.0"
+license     = "Apache-2.0"
+authors     = ["Stephen Tetley <stephen.tetley@gmail.com>"]
+
+[dependencies]
+"github:stephentetley/charset-locale"           = "0.1.0"
+"github:stephentetley/platform-basis"           = "0.2.0"
+
+[mvn-dependencies]
+"commons-io:commons-io" = "2.11.0"

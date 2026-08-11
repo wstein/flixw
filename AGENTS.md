@@ -48,8 +48,14 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 73-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 74-case regression suite; one ~32MB download on a cold cache
 ```
+
+`tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
+those cases. It reaches what the shell cannot: the manifest scanner over
+`tests/corpus/`, the `pin` rewrite as a property over the same corpus, 17 adversarial
+manifests, and the bounds on `runCapture` — 327 assertions in total. Refresh the corpus
+with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `helper/` holds a build definition and nothing else — no sources, reserved against the
 possibility that wrapper verbs outgrow stage 0. See `helper/README.md` for the entry
@@ -57,7 +63,9 @@ condition. It is **not** on any hot path and is not built by lint or CI.
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
 space: two JDK stand-ins, a JAR whose `--help` cannot be parsed, a JAR that sleeps, and a
-git-initialised scratch project. Nothing binary is committed.
+git-initialised scratch project. Nothing binary is committed. Four cases cannot exist on
+Windows — three need a runnable fake `bin/java.exe`, one needs a POSIX signal — and are
+reported as `skip` rather than asserted for the wrong reason.
 
 ## Architecture
 
@@ -132,10 +140,12 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 
 ### Known rough edges
 
-- `lock.toml` and `flix.toml` are read by `tomlLookup()`, a hand-written table-aware
+- `lock.toml` and `flix.toml` are read by `tomlScan()`, a hand-written table-aware
   scanner, not a conforming TOML parser. It handles tables, comments, multi-line strings and
-  duplicate rejection, and fails closed on anything else. Still the weakest point in the
-  manifest corpus test of paper §7.2 question 3.
+  duplicate rejection, and fails closed on anything else. `pin`'s rewrite goes through the
+  same scanner — it used to have its own, which read different keys — so reader and writer
+  cannot drift apart. It agrees with `tomllib` on all 95 manifests in `tests/corpus/`, which
+  answers paper §7.2 question 3 for real input but not for exotic-but-legal TOML.
 - Rule 5 routes unknown verbs to the compiler so future verbs and filenames keep working,
   but Flix has no unknown-command diagnostic: `flix doctro` answers
   `Unrecognized file extension: 'doctro'.` on **stdout**, exit 1. The routing is right; the

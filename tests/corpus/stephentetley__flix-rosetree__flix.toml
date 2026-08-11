@@ -1,0 +1,9 @@
+[package]
+name        = "flix-rosetree"
+description = "A rose tree data struture for Flix."
+version     = "0.3.0"
+flix        = "0.68.0"
+license     = "Apache-2.0"
+authors     = ["Stephen Tetley <stephen.tetley@gmail.com>"]
+
+

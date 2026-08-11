@@ -107,8 +107,15 @@ asked about is an error, not a guess.
 
 The remaining mitigations are that both files are small, that the version is
 grammar-validated after extraction, and that a wrong version fails at the digest rather
-than silently running something else. A corpus test over real published manifests is the
-right next attack on this.
+than silently running something else.
+
+The corpus test that used to be listed here as future work now exists. `tests/corpus/`
+holds 95 real `flix.toml` files from 76 public repositories, and `tests/UnitCheck.java`
+requires the scanner to agree, file by file, with what python3's `tomllib` reads from each
+one. It does, and repinning every one of them changes exactly one line. That measures the
+scanner against manifests people actually publish — none of which, as it happens, contains
+a multi-line string, a dotted key or a quoted table header. The exotic-but-legal input
+above is covered only by 17 hand-written adversarial cases, and remains the honest gap.
 
 ## The compiled stage 0 in the cache is executed on trust
 
@@ -128,8 +135,9 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 73-case regression suite against one compiler
-release, on Linux, macOS and Windows. It has not been run across the real Flix release
+This wrapper has been exercised by a 74-case regression suite — one of those cases being
+327 unit assertions over a corpus of real manifests — against one compiler release, on
+Linux, macOS and Windows. It has not been run across the real Flix release
 cadence, by anyone other than its author, or on any project but a scratch fixture and one
 game.
 

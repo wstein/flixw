@@ -1,0 +1,7 @@
+[package]
+name        = "miniparse"
+description = "Educational parser combinators for Flix: Parsec- and PEG-style APIs, streaming, and suspendable CoParsers"
+version     = "0.3.0"
+flix        = "0.75.1"
+authors     = ["USAMI Kenta <tadsan@zonu.me>"]
+license     = "Apache-2.0"

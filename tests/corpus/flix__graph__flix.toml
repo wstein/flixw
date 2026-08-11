@@ -1,0 +1,6 @@
+[package]
+name        = "graph"
+description = "A small graph library"
+version     = "1.0.0"
+flix        = "0.71.0"
+authors     = ["Nina Andrup Pedersen"]

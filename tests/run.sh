@@ -391,6 +391,18 @@ t 0  "stdout carries only compiler output"                      sh -c '
   ./flix run > "$1/out.txt" 2>/dev/null
   grep -qx ok "$1/out.txt"' sh "$work"
 
+# --- unit checks -----------------------------------------------------------
+# Compiled against stage 0 itself, so it can reach the manifest scanner and the bounded
+# capture directly. Its output is shown rather than swallowed: the corpus size and the
+# per-group counts are the interesting part, and one shell case cannot express them.
+echo "unit checks"
+javac -d "$work/unit" "$root/src/flix.java" "$root/tests/UnitCheck.java"
+set +e
+java -cp "$work/unit" UnitCheck "$root/tests/corpus"
+unit_rc=$?
+set -e
+t 0  "manifest corpus, pin rewrite and capture bounds"          test "$unit_rc" = 0
+
 # --- diagnostics -----------------------------------------------------------
 echo "diagnostics"
 # doctor output is meant to be pasted into bug reports, so it must not carry the password

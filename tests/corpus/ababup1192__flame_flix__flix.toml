@@ -1,0 +1,10 @@
+[package]
+name        = "flame"
+description = "A lightweight web framework for Flix with effect polymorphism"
+version     = "0.1.0"
+flix        = "0.69.1"
+authors     = ["ababup1192"]
+
+[dependencies]
+
+[mvn-dependencies]

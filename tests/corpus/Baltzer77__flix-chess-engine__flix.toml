@@ -1,0 +1,6 @@
+[package]
+name        = "chess-engine"
+description = "simple chess engine using minimax and alpha-beta pruning"
+version     = "0.1.0"
+flix        = "0.67.2"
+authors     = ["Kasper Overgaard <202305141@post.au.dk>"]

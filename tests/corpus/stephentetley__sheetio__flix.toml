@@ -1,0 +1,16 @@
+[package]
+name        = "sheetio"
+description = "A Flix library built on top of Apache POI to read and write Excel files."
+version     = "0.3.0"
+flix        = "0.75.1"
+license     = "Apache-2.0"
+authors     = ["Stephen Tetley <stephen.tetley@gmail.com>"]
+
+[dependencies]
+"github:stephentetley/effect-extras" = { version = "0.3.1", security = "unrestricted" }
+
+
+[mvn-dependencies]
+"org.apache.poi:poi-ooxml" = "5.5.1"
+"org.apache.poi:poi" = "5.5.1"
+"org.apache.logging.log4j:log4j-core" = "2.26.1"

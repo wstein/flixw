@@ -1,0 +1,11 @@
+[package]
+name        = "flix-kure"
+description = "The start of a Flix port of Haskell's KURE library."
+version     = "0.1.0"
+flix        = "0.71.0"
+license     = "Apache-2.0"
+authors     = ["Stephen Tetley <stephen.tetley@gmail.com>"]
+
+[dependencies]
+"github:stephentetley/interop-json" = { version = "0.8.0", security = "unrestricted" }
+

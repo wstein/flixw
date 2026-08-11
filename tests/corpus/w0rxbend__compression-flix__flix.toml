@@ -1,0 +1,7 @@
+[package]
+name        = "compression"
+description = "Chess clock and move compression algorithms for lichess.org (Flix port)"
+version     = "3.2.1"
+flix        = "0.75.1"
+license     = "AGPL-3.0-or-later"
+authors     = ["lichess.org"]

@@ -1,0 +1,14 @@
+[package]
+name        = "flwebapp"
+description = "Flix web app with Javalin"
+version     = "0.1.0"
+flix        = "0.62.0"
+authors     = ["John Doe <john@example.com>"]
+
+[dependencies]
+
+[mvn-dependencies]
+"io.javalin:javalin" = "6.7.0"
+"org.slf4j:slf4j-simple" = "2.0.10"
+"org.xerial:sqlite-jdbc" = "3.46.0.0"
+"com.fasterxml.jackson.core:jackson-databind" = "2.17.1"

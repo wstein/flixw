@@ -1,0 +1,7 @@
+[package]
+name        = "flix-puresat"
+description = "A mechanical Flix proof-of-concept port of puresat"
+version     = "0.1.0"
+flix        = "0.75.1"
+license     = "BSD-3-Clause"
+authors     = ["Werner Stein"]

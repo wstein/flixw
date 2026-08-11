@@ -1,0 +1,9 @@
+[package]
+name        = "learning-flix"
+description = "test"
+version     = "0.1.0"
+flix        = "0.60.0"
+authors     = ["John Doe <john@example.com>"]
+
+[mvn-dependencies]
+"org.typemeta:funcj-parser" = "0.6.18"

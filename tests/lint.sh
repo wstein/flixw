@@ -22,8 +22,9 @@ say() { printf '%s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 
 # --- 1. Java ---------------------------------------------------------------
-if javac -Xlint:all -Werror -d "$work/classes" "$root/src/flix.java" 2>"$work/javac.log"; then
-  say "ok    javac -Xlint:all -Werror"
+if javac -Xlint:all -Werror -d "$work/classes" \
+        "$root/src/flix.java" "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
+  say "ok    javac -Xlint:all -Werror (stage 0 and unit checks)"
 else
   bad "javac"
   cat "$work/javac.log"

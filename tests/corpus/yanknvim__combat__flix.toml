@@ -1,0 +1,6 @@
+[package]
+name        = "combat"
+description = "Combat parser combinator library"
+version     = "0.1.0"
+flix        = "0.75.0"
+authors     = [""]
