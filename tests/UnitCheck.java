@@ -267,6 +267,55 @@ public final class UnitCheck {
         }
     }
 
+    // ---- 5: choosing among discovered JDKs --------------------------------
+
+    /**
+     * The scenario is a developer machine with several JDKs and none of them exported:
+     * the search finds them all and something has to pick. It cannot be staged in CI --
+     * a runner has one JDK -- so it is asserted here, on the pure function.
+     */
+    static java.util.List<flix.Jvm> jdks(int... features) {
+        java.util.List<flix.Jvm> out = new ArrayList<>();
+        for (int f : features) out.add(new flix.Jvm(Paths.get("/jdk" + f), f, "known installation"));
+        return out;
+    }
+
+    static void chooser() {
+        // The case measured on a real machine: 11, 17, 21, 25 and 26 installed, and the
+        // old first-in-directory-order rule answered 26 -- above the tested ceiling, and
+        // warned about -- because a symlink named `java` sorts before `openjdk@21`.
+        flix.Jvm pick = flix.chooseInstall(jdks(26, 11, 21, 17, 25), false);
+        eq("chooser: newest inside the tested interval", "25", pick == null ? null : "" + pick.feature());
+
+        // Above the ceiling is a fallback, not a preference, and the closest one wins.
+        pick = flix.chooseInstall(jdks(27, 26, 30), false);
+        eq("chooser: lowest above the ceiling when nothing fits", "26",
+           pick == null ? null : "" + pick.feature());
+
+        // FLIXW_STRICT_JAVA removes that fallback entirely.
+        pick = flix.chooseInstall(jdks(27, 26, 30), true);
+        eq("chooser: strict refuses everything above the ceiling", null,
+           pick == null ? null : "" + pick.feature());
+
+        // Below the floor is never a candidate, strict or not.
+        pick = flix.chooseInstall(jdks(8, 11, 17, 20), false);
+        eq("chooser: below the floor is never chosen", null,
+           pick == null ? null : "" + pick.feature());
+
+        pick = flix.chooseInstall(jdks(), false);
+        eq("chooser: nothing found is not a choice", null,
+           pick == null ? null : "" + pick.feature());
+
+        // Exactly at the boundaries, both of which are inclusive.
+        pick = flix.chooseInstall(jdks(21), false);
+        eq("chooser: the floor itself is usable", "21", pick == null ? null : "" + pick.feature());
+        pick = flix.chooseInstall(jdks(25, 21), true);
+        eq("chooser: the ceiling itself is usable under strict", "25",
+           pick == null ? null : "" + pick.feature());
+
+        System.out.println("  ok   chooser: 7 selections over discovered JDK sets");
+    }
+
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         List<Row> rows = rows(dir);
@@ -274,6 +323,7 @@ public final class UnitCheck {
         rewriteProperty(dir, rows);
         adversarial();
         crlf();
+        chooser();
         bounded();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);

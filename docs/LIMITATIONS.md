@@ -39,7 +39,7 @@ whole life, which has three consequences:
 Ctrl-C is fine: both processes are in the terminal's foreground process group, so the
 signal reaches the compiler directly.
 
-## Windows has coverage but no results yet
+## Windows is covered, with two gaps
 
 `flix.cmd` is written, lint-checked, and covered by a CI job that installs into a scratch
 project and runs `pin`, `check`, `run` and `validate` through it under `cmd.exe`, plus the
@@ -95,6 +95,26 @@ to one of them is a separate experiment, and until it runs the promise here is n
 *a contributor who already has Java can skip installing Flix*, not zero-install
 bootstrapping.
 
+It looks in the directories JDKs are normally unpacked into, including the version
+managers that hold them when the OS does not know about them at all — SDKMAN, asdf, mise,
+jenv, Gradle's provisioned JDKs, Homebrew on both architectures, and Scoop on Windows.
+It deliberately does not shell out to `java_home`, `update-alternatives`, `dpkg`, `rpm`,
+`scoop` or `choco`: on this author's macOS machine `/usr/libexec/java_home -V` reports no
+Java at all while five Homebrew JDKs are installed and one of them is running the wrapper,
+`update-alternatives --config` is interactive and wants root, and the package managers
+answer with package names rather than paths.
+
+Discovery only runs when neither `FLIX_JAVA_HOME` nor `JAVA_HOME` is set and the JVM
+already running is unusable; an explicit setting is always obeyed and fails loudly rather
+than being quietly improved upon.
+
+**Below Java 15 the diagnostic degrades badly.** Stage 0 is a single source file compiled
+at launch by whatever JVM the shim found, and it uses text blocks and records. On Java 17
+this works and you get a clean `FLIXW004`; on Java 11 you get a wall of `javac` errors
+starting with `unclosed string literal`, because the file cannot be compiled before it can
+report anything. Nothing in a single-file bootstrap can fix that — the diagnostic would
+have to be a second, older-syntax file — so it is stated instead.
+
 ## The manifest is not read by a TOML parser
 
 `flix.toml` and the lock are read by a small hand-written scanner, because stage 0 has no
@@ -140,7 +160,7 @@ shim also has to trust, which moves the problem rather than solving it.
 ## No field evidence
 
 This wrapper has been exercised by a 76-case regression suite — one of those cases being
-327 unit assertions over a corpus of real manifests — against one compiler release, on
+334 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.

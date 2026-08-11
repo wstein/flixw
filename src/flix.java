@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.4.0";
+    static final String WRAPPER_VERSION = "0.5.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -579,6 +579,33 @@ public final class flix {
         return true;
     }
 
+    /**
+     * Picks among discovered installations: the newest JDK that is still inside the
+     * tested interval, and only if none is, the one just above it.
+     *
+     * Taking the first acceptable candidate in directory order was the earlier rule, and
+     * it answers by filename.  On a machine carrying 11, 17, 21, 25 and 26 it selected 26
+     * -- outside the tested interval, and warned about on every run -- because the
+     * symlink named `java` sorts before `openjdk@21`.  Nothing was wrong with the search;
+     * the choice was made by `sort`.
+     *
+     * Above the ceiling is a last resort rather than a preference, so the lowest such
+     * candidate wins: it is the one closest to ground that has actually been tested.
+     * Returns null when nothing is usable, which is the caller's cue to fail.
+     */
+    static Jvm chooseInstall(List<Jvm> candidates, boolean strict) {
+        Jvm tested = null, above = null;
+        for (Jvm c : candidates) {
+            if (c.feature() < MIN_JAVA) continue;
+            if (c.feature() <= TESTED_CEILING) {
+                if (tested == null || c.feature() > tested.feature()) tested = c;
+            } else if (!strict) {
+                if (above == null || c.feature() < above.feature()) above = c;
+            }
+        }
+        return tested != null ? tested : above;
+    }
+
     static Jvm selectJava() {
         for (String var : new String[] { "FLIX_JAVA_HOME", "JAVA_HOME" }) {
             String h = env(var);
@@ -599,35 +626,67 @@ public final class flix {
         Path selfExe = ProcessHandle.current().info().command()
                 .map(Paths::get).orElse(exeIn(System.getProperty("java.home")));
         if (acceptable(self, "running JVM")) return new Jvm(selfExe, self, "running JVM");
+
+        // Every candidate is probed before any is chosen.  probe() reads the JDK's own
+        // release file first and only executes a candidate that has none, so this is
+        // cheap, and it is reached only when the JVM already running is unusable.
+        List<Jvm> found = new ArrayList<>();
         for (Path cand : knownInstalls()) {
             int f = probe(cand);
-            if (f >= MIN_JAVA && (f <= TESTED_CEILING || !strictJava()))
-                return new Jvm(cand, f, "known installation");
+            if (f >= MIN_JAVA) found.add(new Jvm(cand, f, "known installation"));
         }
+        Jvm pick = chooseInstall(found, strictJava());
+        if (pick != null) return pick;
         throw w003("no Java in [" + MIN_JAVA + ", " + TESTED_CEILING + "] found"
                  + "\n       this JVM is " + self + "; set FLIX_JAVA_HOME or JAVA_HOME");
     }
 
+    /**
+     * Directories a JDK is commonly unpacked into.  Deliberately only directories: the
+     * OS-native inventories are either unusable or misleading here.  `java_home -V` is
+     * blind to Homebrew, which on macOS is where the JDKs usually are;
+     * `update-alternatives --config` is interactive and wants root; `dpkg`, `rpm`, `scoop
+     * list` and `choco list` answer with package names rather than paths; and `find /` is
+     * an unbounded walk on a tool that runs on every command.  A directory that is not
+     * there costs one stat.
+     */
     static List<Path> knownInstalls() {
         List<Path> out = new ArrayList<>();
         List<Path> roots = new ArrayList<>();
+        String home = System.getProperty("user.home", "");
         if (isMac()) {
             roots.add(Paths.get("/Library/Java/JavaVirtualMachines"));
-            roots.add(Paths.get(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines"));
-            roots.add(Paths.get("/opt/homebrew/opt"));
+            roots.add(Paths.get(home, "Library/Java/JavaVirtualMachines"));
+            roots.add(Paths.get("/opt/homebrew/opt"));            // Homebrew, Apple silicon
+            roots.add(Paths.get("/usr/local/opt"));               // Homebrew, Intel
         } else if (!isWindows()) {
             roots.add(Paths.get("/usr/lib/jvm"));
+            roots.add(Paths.get("/usr/lib64/jvm"));
             roots.add(Paths.get("/usr/java"));
+            roots.add(Paths.get("/opt/java"));
         } else {
             roots.add(Paths.get("C:\\Program Files\\Java"));
             roots.add(Paths.get("C:\\Program Files\\Eclipse Adoptium"));
+            roots.add(Paths.get("C:\\Program Files\\Microsoft"));
+            roots.add(Paths.get("C:\\Program Files\\Amazon Corretto"));
+            roots.add(Paths.get("C:\\Program Files\\Zulu"));
+            roots.add(Paths.get("C:\\Program Files (x86)\\Java"));
+            roots.add(Paths.get(home, "scoop", "apps"));          // scoop
         }
+        // Version managers hold the JDKs of anyone who keeps more than one, and none of
+        // them registers with the OS -- which is exactly the case this search exists for.
+        for (String vm : new String[] { ".sdkman/candidates/java", ".asdf/installs/java",
+                                        ".local/share/mise/installs/java", ".jenv/versions",
+                                        ".gradle/jdks" })
+            roots.add(Paths.get(home, vm.split("/")));
+
         for (Path r : roots) {
             if (!Files.isDirectory(r)) continue;
             try (var s = Files.list(r)) {
                 s.sorted().forEach(d -> {
                     for (Path h : new Path[] { d, d.resolve("Contents/Home"),
-                                               d.resolve("libexec/openjdk.jdk/Contents/Home") }) {
+                                               d.resolve("libexec/openjdk.jdk/Contents/Home"),
+                                               d.resolve("current") }) {   // scoop's shim
                         Path e = h.resolve("bin").resolve(isWindows() ? "java.exe" : "java");
                         if (Files.isExecutable(e)) { out.add(e); return; }
                     }

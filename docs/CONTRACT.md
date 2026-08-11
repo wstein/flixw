@@ -83,6 +83,17 @@ Version is read from the candidate's `release` file when it is parseable, and ot
 by executing that candidate once. At most one relaunch per invocation, guarded by an
 environment marker, so a stale `release` file cannot loop.
 
+Among *known installations* the newest JDK inside `[21, ceiling]` wins, and one above the
+ceiling is taken only when nothing inside it exists — the lowest such, being nearest to
+tested ground. Directory order does not decide: on a machine holding 11, 17, 21, 25 and
+26 the first-in-order rule chose 26, warned about the ceiling on every run, and had an
+exactly-tested JDK one entry away.
+
+Discovery covers the directories JDKs are unpacked into, including version managers the
+OS has no record of — SDKMAN, asdf, mise, jenv, Gradle, Homebrew on both architectures,
+Scoop. It never shells out to an inventory tool; `docs/LIMITATIONS.md` says why. It is
+reached only when no explicit setting exists and the running JVM is unusable.
+
 ## Dispatch
 
 `./flix <verb>` is compiler-first. In order:

@@ -54,7 +54,7 @@ sh tests/run.sh     # 76-case regression suite; one ~32MB download on a cold cac
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 17 adversarial
-manifests, and the bounds on `runCapture` — 327 assertions in total. Refresh the corpus
+manifests, and the bounds on `runCapture` — 334 assertions in total. Refresh the corpus
 with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `services/` holds a build definition and nothing else — no sources, reserved against the
