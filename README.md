@@ -54,12 +54,18 @@ That is one project and one compiler release, which is not yet evidence that pin
 ## Getting it into a project
 
 ```console
-curl -fsSLO https://raw.githubusercontent.com/wstein/flixw/main/src/flix.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.15.0/flix.java
+shasum -a 256 flix.java           # compare with the release notes before running it
 java flix.java install .          # writes flix, flix.cmd, .flix-wrapper/, .gitattributes
 rm flix.java
 ./flix pin 0.75.2                 # writes the lock, fetches and verifies the compiler
 git add flix flix.cmd .flix-wrapper .gitattributes
 ```
+
+Install from a release rather than from `main`: a tool that asks you to pin an exact
+compiler should not ask you to fetch itself from a moving branch. Every release publishes
+the SHA-256 of all three files it installs, and `./flix validate` prints the one it finds
+in your project so you can compare it against the release you meant to install.
 
 Then `./flix check`, `./flix test`, `./flix run` — the pinned stock compiler, unmodified.
 `./flix wrapper --help` prints the routing table: which verbs go to the compiler, which
