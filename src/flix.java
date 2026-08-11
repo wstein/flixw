@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.8.1";
+    static final String WRAPPER_VERSION = "0.9.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -648,6 +648,11 @@ public final class flix {
         // release file first and only executes a candidate that has none, so this is
         // cheap, and it is reached only when the JVM already running is unusable.
         List<Jvm> found = new ArrayList<>();
+        Path mine = installedJdk();
+        if (mine != null) {
+            int f = probe(mine);
+            if (f >= MIN_JAVA) found.add(new Jvm(mine, f, "installed by flixw"));
+        }
         for (Path cand : knownInstalls()) {
             int f = probe(cand);
             if (f >= MIN_JAVA) found.add(new Jvm(cand, f, "known installation"));
@@ -868,7 +873,26 @@ public final class flix {
         }
         Path exe = findJavaUnder(dest);
         if (exe == null) throw w003("no bin/java inside " + dest);
+        // One line naming the java, so a shim can use it without knowing that Temurin
+        // nests differently on every platform -- and so that a machine with no system
+        // java at all still has a route back to this one. Part of the cache contract.
+        try {
+            Files.writeString(dir.resolve("default"), exe + System.lineSeparator(),
+                              StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
+            // A read-only cache is a correct configuration; the JDK still works here.
+        }
         return exe;
+    }
+
+    /** The java recorded by the last successful install, if it is still there. */
+    static Path installedJdk() {
+        Path marker = cacheHome().resolve("jdks").resolve("default");
+        try {
+            if (!Files.isRegularFile(marker)) return null;
+            Path exe = Paths.get(Files.readString(marker, StandardCharsets.UTF_8).strip());
+            return Files.isRegularFile(exe) ? exe : null;
+        } catch (IOException | RuntimeException e) { return null; }
     }
 
     /** Returns whatever the unpacker said, for a diagnostic; success is judged separately. */
@@ -1257,14 +1281,38 @@ public final class flix {
         root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
         src=$root/.flix-wrapper/flix.java
 
+        # The cache is resolved before the java search, because a JDK flixw installed
+        # earlier lives in it and is the last thing worth trying.
+        if [ -n "${FLIX_CACHE_HOME:-}" ]; then cache=$FLIX_CACHE_HOME
+        else
+          case $(uname -s) in
+            Darwin) cache=$HOME/Library/Caches/flixw ;;
+            *)      cache=${XDG_CACHE_HOME:-$HOME/.cache}/flixw ;;
+          esac
+        fi
+
         if [ -n "${FLIX_JAVA_HOME:-}" ]; then java0=$FLIX_JAVA_HOME/bin/java
         elif [ -n "${JAVA_HOME:-}" ]; then java0=$JAVA_HOME/bin/java
         else java0=$(command -v java 2>/dev/null || true); fi
 
+        # Nothing on PATH: fall back to the JDK flixw installed, if there is one. Its path
+        # is read from a file rather than guessed, because every vendor nests differently.
+        if [ -z "$java0" ] && [ -r "$cache/jdks/default" ]; then
+          java0=$(cat "$cache/jdks/default" 2>/dev/null || true)
+          [ -x "$java0" ] || java0=
+        fi
+
         if [ -z "$java0" ]; then
-          echo "FLIXW003: no java executable found." >&2
-          echo "          Flix needs Java 21+. Set JAVA_HOME or put java on PATH." >&2
-          echo "          https://adoptium.net/temurin/releases/?version=21" >&2
+          echo "FLIXW003: no java executable found. Flix needs Java 21+." >&2
+          echo "          Install a JDK -- Eclipse Temurin is the usual choice:" >&2
+          case $(uname -s) in
+            Darwin) echo "            brew install temurin@21" >&2 ;;
+            *)      echo "            apt install temurin-21-jdk    (or your package manager)" >&2 ;;
+          esac
+          echo "            https://adoptium.net/temurin/releases/?version=21" >&2
+          echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
+          echo "          With any Java 21+ present, ./flix --wrapper-install-jdk will" >&2
+          echo "          fetch and verify one into the flixw cache for this project." >&2
           exit 127
         fi
         if [ ! -x "$java0" ]; then
@@ -1293,13 +1341,6 @@ public final class flix {
         fi
 
         # Content-keyed compiled stage 0.  Versioned interface with stage 0; see README.
-        if [ -n "${FLIX_CACHE_HOME:-}" ]; then cache=$FLIX_CACHE_HOME
-        else
-          case $(uname -s) in
-            Darwin) cache=$HOME/Library/Caches/flixw ;;
-            *)      cache=${XDG_CACHE_HOME:-$HOME/.cache}/flixw ;;
-          esac
-        fi
         h=
         if command -v shasum >/dev/null 2>&1; then h=$(shasum -a 256 "$src" 2>/dev/null | cut -d' ' -f1)
         elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$src" 2>/dev/null | cut -d' ' -f1)
@@ -1327,12 +1368,26 @@ public final class flix {
         set "ROOT=%~dp0"
         set "SRC=%ROOT%.flix-wrapper\\flix.java"
 
+        rem The cache is resolved first: a JDK flixw installed earlier lives in it, and is
+        rem the last thing worth trying when nothing else answers.
+        if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
+          set "CACHE=%LOCALAPPDATA%\\flixw" )
+
         if defined FLIX_JAVA_HOME ( set "JAVA0=%FLIX_JAVA_HOME%\\bin\\java.exe" ) else (
         if defined JAVA_HOME ( set "JAVA0=%JAVA_HOME%\\bin\\java.exe" ) else (
         for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
+        rem Its path is read from a file rather than guessed: vendors nest differently.
+        if not defined JAVA0 if exist "%CACHE%\\jdks\\default" (
+          for /f "usebackq delims=" %%J in ("%CACHE%\\jdks\\default") do (
+            if exist "%%J" set "JAVA0=%%J" ) )
         if not defined JAVA0 (
           echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
-          echo           https://adoptium.net/temurin/releases/?version=21 1>&2
+          echo           Install a JDK -- Eclipse Temurin is the usual choice: 1>&2
+          echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
+          echo             https://adoptium.net/temurin/releases/?version=21 1>&2
+          echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
+          echo           With any Java 21+ present, flix.cmd --wrapper-install-jdk will 1>&2
+          echo           fetch and verify one into the flixw cache for this project. 1>&2
           exit /b 127 )
         if not exist "%JAVA0%" (
           echo FLIXW003: %JAVA0% not found. 1>&2
@@ -1355,8 +1410,6 @@ public final class flix {
         set "SLOWPATH=1"
         if defined JFEATURE if !JFEATURE! GEQ 21 set "SLOWPATH="
 
-        if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
-          set "CACHE=%LOCALAPPDATA%\\flixw" )
         set "H="
         for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
           if not defined H set "H=%%L" )

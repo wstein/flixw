@@ -99,10 +99,24 @@ are equally legitimate; flixw simply does not choose between them for you, and w
 
 Three limits are worth knowing.
 
-**It cannot bootstrap from no Java at all.** Stage 0 is a Java program, so something must
-already be able to run it. With no `java` anywhere the shim exits before stage 0 starts,
-and all you get is the message and a link. The offer therefore only reaches you when a
+**It cannot bootstrap from no Java at all — the first time.** Stage 0 is a Java program,
+so something must be able to run it before flixw can fetch anything. With no `java`
+anywhere, the shim exits before stage 0 starts, and what you get is its own message: how
+to install Temurin on this OS, and a note that `./flix --wrapper-install-jdk` will manage
+one for you once any Java 21+ exists. The offer itself therefore only reaches you when a
 *too old* Java exists, not when none does.
+
+Afterwards it is no longer true. A JDK flixw installed is recorded in
+`<cache>/jdks/default`, and the shims read that when `PATH`, `JAVA_HOME` and
+`FLIX_JAVA_HOME` all come up empty — so a machine with no system Java at all still
+compiles and runs, on flixw's own JDK. That is verified: with `PATH` stripped of every
+`java`, `./flix run` builds and runs the program.
+
+**A `java` that is not a JVM still defeats it.** macOS ships `/usr/bin/java` as a stub that
+exists, is executable, and only prints *"Unable to locate a Java Runtime"*. The shim
+cannot distinguish that from a real one without running it, so it is used and the stub's
+own message is what you see. Setting `JAVA_HOME`, or removing the stub from `PATH`, is the
+way out.
 
 **It never prompts where nobody can answer.** In CI, in a pipe, or in a git hook a prompt
 is not a question, it is a hang; so a non-terminal stdin, or `CI` in the environment, gets
@@ -199,7 +213,7 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 80-case regression suite — one of those cases being
+This wrapper has been exercised by a 83-case regression suite — one of those cases being
 347 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 

@@ -5,12 +5,26 @@ setlocal enabledelayedexpansion
 set "ROOT=%~dp0"
 set "SRC=%ROOT%.flix-wrapper\flix.java"
 
+rem The cache is resolved first: a JDK flixw installed earlier lives in it, and is
+rem the last thing worth trying when nothing else answers.
+if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
+  set "CACHE=%LOCALAPPDATA%\flixw" )
+
 if defined FLIX_JAVA_HOME ( set "JAVA0=%FLIX_JAVA_HOME%\bin\java.exe" ) else (
 if defined JAVA_HOME ( set "JAVA0=%JAVA_HOME%\bin\java.exe" ) else (
 for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
+rem Its path is read from a file rather than guessed: vendors nest differently.
+if not defined JAVA0 if exist "%CACHE%\jdks\default" (
+  for /f "usebackq delims=" %%J in ("%CACHE%\jdks\default") do (
+    if exist "%%J" set "JAVA0=%%J" ) )
 if not defined JAVA0 (
   echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
-  echo           https://adoptium.net/temurin/releases/?version=21 1>&2
+  echo           Install a JDK -- Eclipse Temurin is the usual choice: 1>&2
+  echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
+  echo             https://adoptium.net/temurin/releases/?version=21 1>&2
+  echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
+  echo           With any Java 21+ present, flix.cmd --wrapper-install-jdk will 1>&2
+  echo           fetch and verify one into the flixw cache for this project. 1>&2
   exit /b 127 )
 if not exist "%JAVA0%" (
   echo FLIXW003: %JAVA0% not found. 1>&2
@@ -33,8 +47,6 @@ rem version with no way back.  Default to the source path; earn the fast one.
 set "SLOWPATH=1"
 if defined JFEATURE if !JFEATURE! GEQ 21 set "SLOWPATH="
 
-if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
-  set "CACHE=%LOCALAPPDATA%\flixw" )
 set "H="
 for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
   if not defined H set "H=%%L" )

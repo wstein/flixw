@@ -352,6 +352,23 @@ if [ "$posix" = yes ]; then
   # pointing at an old JVM died on class file version with no way back, so an
   # unidentifiable Java now earns the source path rather than the fast one.
   g 0   'stage0 source' "an unidentifiable Java declines the class too"   env FLIX_JAVA_HOME="$work/jdkbare" ./flix --wrapper-version
+
+  # With no java on PATH at all the shim never reaches stage 0, so the only help a user
+  # gets is the shim's own message -- and the only route back is a JDK flixw installed
+  # earlier, whose path it reads from a file rather than guessing a vendor's layout.
+  # PATH is stripped to a directory of the utilities the shim itself needs, minus java.
+  mkdir -p "$work/tools"
+  for u in uname dirname readlink cat sed cut head grep tr shasum sha256sum openssl; do
+    p=$(command -v "$u" 2>/dev/null) && ln -sf "$p" "$work/tools/$u"
+  done
+  g 127 'Temurin' "no java at all names a JDK to install"       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix check
+  g 127 'wrapper-install-jdk' "and says how flixw can fetch one" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix check
+  # A recorded JDK is used when nothing else answers. The fixture stands in for a real
+  # install so the suite stays offline; what is under test is the shim reading it.
+  mkdir -p "$cache/jdks"
+  printf '%s\n' "$realjava" > "$cache/jdks/default"
+  g 0 'flixw' "a recorded JDK is used when PATH has none"       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix --wrapper-version
+  rm -f "$cache/jdks/default"
 else
   s "explicit Java below the floor is fatal"                    "needs a runnable fake bin/java.exe"
   s "above the ceiling warns and proceeds"                      "needs a runnable fake bin/java.exe"
@@ -359,6 +376,9 @@ else
   s "below the floor the shim declines the class"               "needs a runnable fake bin/java.exe"
   s "at the floor or above the shim uses it"                    "needs a runnable fake bin/java.exe"
   s "an unidentifiable Java declines the class too"              "needs a runnable fake bin/java.exe"
+  s "no java at all names a JDK to install"                     "PATH cannot be stripped the same way"
+  s "and says how flixw can fetch one"                          "PATH cannot be stripped the same way"
+  s "a recorded JDK is used when PATH has none"                 "PATH cannot be stripped the same way"
 fi
 
 # --- jvm options -----------------------------------------------------------

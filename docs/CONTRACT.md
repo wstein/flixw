@@ -77,7 +77,11 @@ trust-on-first-generation. See [LIMITATIONS.md](LIMITATIONS.md).
 
 ## Java
 
-Selection order: `FLIX_JAVA_HOME` → `JAVA_HOME` → the running JVM → known installations.
+Selection order: `FLIX_JAVA_HOME` → `JAVA_HOME` → the running JVM → a JDK flixw
+installed earlier → known installations. The shims share only the first three and the
+flixw-installed one: with nothing on `PATH` they read `<cache>/jdks/default`, which names
+that JDK's `java` outright, because vendors nest differently on every platform and a shim
+must not have to know how.
 An explicit setting that is invalid or incompatible fails immediately rather than
 falling through to a JVM the user did not choose.
 
@@ -232,6 +236,7 @@ between shim and stage 0, not an implementation detail:
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
+<cache>/jdks/default                 # one line: the java the last install produced
 ```
 
 The stage-0 class is compiled with `--release 21`, the same floor `MIN_JAVA` declares.
