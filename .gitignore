@@ -4,7 +4,7 @@
 # scratch space used by the regression suite
 tests/.work/
 
-# sbt (helper/, built only if the wrapper-verb surface outgrows stage 0)
+# sbt (services/, built only if the wrapper-verb surface outgrows stage 0)
 target/
 lib_managed/
 src_managed/
