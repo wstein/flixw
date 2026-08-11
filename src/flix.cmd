@@ -10,13 +10,21 @@ rem the last thing worth trying when nothing else answers.
 if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
   set "CACHE=%LOCALAPPDATA%\flixw" )
 
+rem CHOSEN marks an explicitly named JDK: those are obeyed as given, failing
+rem included, rather than replaced by one the caller did not ask for.
+set "CHOSEN=1"
 if defined FLIX_JAVA_HOME ( set "JAVA0=%FLIX_JAVA_HOME%\bin\java.exe" ) else (
 if defined JAVA_HOME ( set "JAVA0=%JAVA_HOME%\bin\java.exe" ) else (
+set "CHOSEN="
 for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
 rem Its path is read from a file rather than guessed: vendors nest differently.
-if not defined JAVA0 if exist "%CACHE%\jdks\default" (
+rem It names something this script will execute, so it may only name something
+rem inside the directory flixw unpacks into.
+set "MINE="
+if exist "%CACHE%\jdks\default" (
   for /f "usebackq delims=" %%J in ("%CACHE%\jdks\default") do (
-    if exist "%%J" set "JAVA0=%%J" ) )
+    if exist "%%J" call :inside "%%J" ) )
+if not defined JAVA0 if defined MINE set "JAVA0=!MINE!"
 if not defined JAVA0 (
   echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
   echo           Install a JDK -- Eclipse Temurin is the usual choice: 1>&2
@@ -44,6 +52,16 @@ if exist "%JHOME%\release" (
 rem Unknown is not good enough: a java that is a shim script rather than a JDK
 rem layout has no release file, and running the class blind fails on class file
 rem version with no way back.  Default to the source path; earn the fast one.
+rem A java below the floor is worse than none: it cannot load the compiled class
+rem and, far enough below, cannot compile stage 0 either. Prefer a recorded JDK --
+rem but never over an explicitly named one, which must fail loudly instead.
+if not defined CHOSEN if defined JFEATURE if !JFEATURE! LSS 21 if defined MINE (
+  set "JAVA0=!MINE!"
+  set "JFEATURE="
+  for %%H in ("!MINE!") do set "JHOME=%%~dpH"
+  if exist "!JHOME!..\release" (
+    for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "!JHOME!..\release" 2^>nul') do (
+      for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) ) )
 set "SLOWPATH=1"
 if defined JFEATURE if !JFEATURE! GEQ 21 set "SLOWPATH="
 
@@ -57,3 +75,10 @@ if not defined SLOWPATH if defined H if exist "!CACHE!\stage0\!H!\flix.class" (
   exit /b !ERRORLEVEL! )
 "%JAVA0%" "%SRC%" %*
 exit /b !ERRORLEVEL!
+
+:inside
+rem Accepts %1 only when it starts inside %CACHE%\jdks\. findstr /b anchors at
+rem the start of the line, which is the part that matters: a path merely
+rem containing the cache directory somewhere is not inside it.
+echo %~1| findstr /b /i /c:"%CACHE%\jdks\" >nul && set "MINE=%~1"
+goto :eof

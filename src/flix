@@ -35,6 +35,9 @@ else java0=$(command -v java 2>/dev/null || true); chosen=no; fi
 # is read from a file rather than guessed, because every vendor nests differently.
 if [ -z "$java0" ] && [ -r "$cache/jdks/default" ]; then
   java0=$(cat "$cache/jdks/default" 2>/dev/null || true)
+  # It names something the shim will execute, so it may only name something
+  # inside the directory flixw unpacks into.
+  case $java0 in "$cache/jdks/"*) ;; *) java0= ;; esac
   [ -x "$java0" ] || java0=
 fi
 
@@ -82,7 +85,8 @@ fi
 if [ "$chosen" = no ] && [ -n "$jfeature" ] && [ "$jfeature" -lt 21 ] \
    && [ -r "$cache/jdks/default" ]; then
   mine=$(cat "$cache/jdks/default" 2>/dev/null || true)
-  if [ -x "$mine" ]; then
+  case $mine in "$cache/jdks/"*) ;; *) mine= ;; esac
+  if [ -n "$mine" ] && [ -x "$mine" ]; then
     java0=$mine
     jhome=${mine%/bin/java}
     jfeature=

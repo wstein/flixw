@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.10.0";
+    static final String WRAPPER_VERSION = "0.11.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -734,6 +734,9 @@ public final class flix {
     // built around digest verification would be absurd.  One vendor, named in one place,
     // is also one fewer thing for a reader to check.
 
+    /** Adoptium answers in a few tens of KiB; this is room to spare, not a target. */
+    static final int METADATA_CAP = 1 << 21;
+
     static final String ADOPTIUM_API = "https://api.adoptium.net/v3/assets/latest/";
     static final String ADOPTIUM_RELEASES = "https://github.com/adoptium/";
 
@@ -760,10 +763,28 @@ public final class flix {
                 .timeout(Duration.ofSeconds(60))
                 .header("User-Agent", "flixw/" + WRAPPER_VERSION).build();
         try {
-            HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+            // Bounded, because this response supplies both the JDK's URL and the digest it
+            // will be verified against: a server that answers forever would otherwise be
+            // answering into the heap. ofString has no cap, so the body is read by hand.
+            HttpResponse<InputStream> res =
+                client.send(req, HttpResponse.BodyHandlers.ofInputStream());
+            if (!"https".equals(res.uri().getScheme()))
+                throw w005("refusing a redirect off https: " + redact(res.uri().toString()));
             if (res.statusCode() != 200)
                 throw w005("HTTP " + res.statusCode() + " from " + redact(url));
-            return res.body();
+            ByteArrayOutputStream sink = new ByteArrayOutputStream();
+            try (InputStream in = res.body()) {
+                byte[] buf = new byte[1 << 16];
+                int total = 0, n;
+                while (total < METADATA_CAP && (n = in.read(buf)) > 0) {
+                    sink.write(buf, 0, Math.min(n, METADATA_CAP - total));
+                    total += n;
+                }
+                if (total >= METADATA_CAP)
+                    throw w005("metadata from " + redact(url) + " exceeded "
+                             + (METADATA_CAP >> 10) + "KiB");
+            }
+            return sink.toString(StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw w005("cannot reach " + redact(url) + "\n       " + e.getMessage());
         } catch (InterruptedException e) {
@@ -873,8 +894,15 @@ public final class flix {
                 if (findJavaUnder(staging) == null)
                     throw w007("no bin/java after unpacking " + p.name()
                              + (log.isBlank() ? "" : "\n       " + log.strip()));
-                Files.move(staging, dest, StandardCopyOption.ATOMIC_MOVE);
-                staging = null;
+                try {
+                    Files.move(staging, dest, StandardCopyOption.ATOMIC_MOVE);
+                    staging = null;
+                } catch (IOException e) {
+                    // Another process may have finished the same install first. That is a
+                    // win, not a collision: content is addressed by the archive name, so
+                    // what is there is what we were about to put there.
+                    if (findJavaUnder(dest) == null) throw e;
+                }
             } catch (IOException e) {
                 throw w007("cannot install a JDK into " + dir + ": " + why(e));
             } finally {
@@ -901,7 +929,13 @@ public final class flix {
         Path marker = cacheHome().resolve("jdks").resolve("default");
         try {
             if (!Files.isRegularFile(marker)) return null;
-            Path exe = Paths.get(Files.readString(marker, StandardCharsets.UTF_8).strip());
+            Path exe = Paths.get(Files.readString(marker, StandardCharsets.UTF_8).strip())
+                            .toAbsolutePath().normalize();
+            // The shims execute what this names, so it may only name something inside the
+            // directory flixw unpacks into. A marker pointing anywhere else is not a
+            // record of an install; it is an instruction to run someone else's binary.
+            Path jdks = cacheHome().resolve("jdks").toAbsolutePath().normalize();
+            if (!exe.startsWith(jdks)) return null;
             return Files.isRegularFile(exe) ? exe : null;
         } catch (IOException | RuntimeException e) { return null; }
     }
@@ -1314,6 +1348,9 @@ public final class flix {
         # is read from a file rather than guessed, because every vendor nests differently.
         if [ -z "$java0" ] && [ -r "$cache/jdks/default" ]; then
           java0=$(cat "$cache/jdks/default" 2>/dev/null || true)
+          # It names something the shim will execute, so it may only name something
+          # inside the directory flixw unpacks into.
+          case $java0 in "$cache/jdks/"*) ;; *) java0= ;; esac
           [ -x "$java0" ] || java0=
         fi
 
@@ -1361,7 +1398,8 @@ public final class flix {
         if [ "$chosen" = no ] && [ -n "$jfeature" ] && [ "$jfeature" -lt 21 ] \\
            && [ -r "$cache/jdks/default" ]; then
           mine=$(cat "$cache/jdks/default" 2>/dev/null || true)
-          if [ -x "$mine" ]; then
+          case $mine in "$cache/jdks/"*) ;; *) mine= ;; esac
+          if [ -n "$mine" ] && [ -x "$mine" ]; then
             java0=$mine
             jhome=${mine%/bin/java}
             jfeature=
@@ -1404,13 +1442,21 @@ public final class flix {
         if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
           set "CACHE=%LOCALAPPDATA%\\flixw" )
 
+        rem CHOSEN marks an explicitly named JDK: those are obeyed as given, failing
+        rem included, rather than replaced by one the caller did not ask for.
+        set "CHOSEN=1"
         if defined FLIX_JAVA_HOME ( set "JAVA0=%FLIX_JAVA_HOME%\\bin\\java.exe" ) else (
         if defined JAVA_HOME ( set "JAVA0=%JAVA_HOME%\\bin\\java.exe" ) else (
+        set "CHOSEN="
         for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
         rem Its path is read from a file rather than guessed: vendors nest differently.
-        if not defined JAVA0 if exist "%CACHE%\\jdks\\default" (
+        rem It names something this script will execute, so it may only name something
+        rem inside the directory flixw unpacks into.
+        set "MINE="
+        if exist "%CACHE%\\jdks\\default" (
           for /f "usebackq delims=" %%J in ("%CACHE%\\jdks\\default") do (
-            if exist "%%J" set "JAVA0=%%J" ) )
+            if exist "%%J" call :inside "%%J" ) )
+        if not defined JAVA0 if defined MINE set "JAVA0=!MINE!"
         if not defined JAVA0 (
           echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
           echo           Install a JDK -- Eclipse Temurin is the usual choice: 1>&2
@@ -1438,6 +1484,16 @@ public final class flix {
         rem Unknown is not good enough: a java that is a shim script rather than a JDK
         rem layout has no release file, and running the class blind fails on class file
         rem version with no way back.  Default to the source path; earn the fast one.
+        rem A java below the floor is worse than none: it cannot load the compiled class
+        rem and, far enough below, cannot compile stage 0 either. Prefer a recorded JDK --
+        rem but never over an explicitly named one, which must fail loudly instead.
+        if not defined CHOSEN if defined JFEATURE if !JFEATURE! LSS 21 if defined MINE (
+          set "JAVA0=!MINE!"
+          set "JFEATURE="
+          for %%H in ("!MINE!") do set "JHOME=%%~dpH"
+          if exist "!JHOME!..\\release" (
+            for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "!JHOME!..\\release" 2^>nul') do (
+              for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) ) )
         set "SLOWPATH=1"
         if defined JFEATURE if !JFEATURE! GEQ 21 set "SLOWPATH="
 
@@ -1451,6 +1507,13 @@ public final class flix {
           exit /b !ERRORLEVEL! )
         "%JAVA0%" "%SRC%" %*
         exit /b !ERRORLEVEL!
+
+        :inside
+        rem Accepts %1 only when it starts inside %CACHE%\\jdks\\. findstr /b anchors at
+        rem the start of the line, which is the part that matters: a path merely
+        rem containing the cache directory somewhere is not inside it.
+        echo %~1| findstr /b /i /c:"%CACHE%\\jdks\\" >nul && set "MINE=%~1"
+        goto :eof
         """;
 
     // ---- wrapper verbs ----------------------------------------------------
@@ -1513,29 +1576,31 @@ public final class flix {
         return 1;
     }
 
-    /**
-     * Does a .gitattributes pattern affect one of the four files flixw ships?
-     *
-     * The earlier check only looked for `*`, `*.` and `**`, so the most direct override
-     * of all -- `/flix text eol=crlf`, naming the file outright -- passed as healthy. On a
-     * POSIX shim that is not a cosmetic problem: CRLF makes it unrunnable.
-     */
-    static boolean affectsShipped(String pattern) {
+    /** The line endings the flixw block pins for one shipped path. */
+    static String canonicalAttrs(String shipped) {
+        return shipped.equals("flix.cmd") ? "text eol=crlf" : "text eol=lf";
+    }
+
+    static final List<String> SHIPPED =
+        List.of("flix", "flix.cmd", WRAPPER_DIR + "/flix.java", WRAPPER_DIR + "/lock.toml");
+
+    /** Does one .gitattributes pattern match one path flixw ships? */
+    static boolean patternMatches(String pattern, String path) {
         String p = pattern.startsWith("/") ? pattern.substring(1) : pattern;
-        for (String f : List.of("flix", "flix.cmd",
-                                WRAPPER_DIR + "/flix.java", WRAPPER_DIR + "/lock.toml")) {
-            if (p.equals("*") || p.equals("**") || p.equals(f)) return true;
-            if (p.startsWith("*.") && f.endsWith(p.substring(1))) return true;
-            // A pattern without a slash matches that name at any depth, per gitattributes.
-            if (!p.contains("/") && (f.equals(p) || f.endsWith("/" + p))) return true;
-        }
-        return false;
+        if (p.equals("*") || p.equals("**") || p.equals(path)) return true;
+        if (p.startsWith("*.") && path.endsWith(p.substring(1))) return true;
+        // A pattern without a slash matches that name at any depth, per gitattributes.
+        return !p.contains("/") && (path.equals(p) || path.endsWith("/" + p));
     }
 
     /**
      * gitattributes resolves by *last* matching pattern, so a rule after the wrapper block
      * silently overrides it -- and a checked-out shim with the wrong line endings is exactly
      * the failure the block exists to prevent.
+     *
+     * What counts as an override is the resulting attribute, not the mere presence of a
+     * later rule: a repetition of what the block already says changes nothing, and calling
+     * it harmful would send someone hunting for a problem they do not have.
      */
     static int checkGitattributes(Path ga) {
         if (!Files.isRegularFile(ga)) {
@@ -1545,33 +1610,46 @@ public final class flix {
         String text;
         try { text = Files.readString(ga, StandardCharsets.UTF_8); }
         catch (IOException e) { System.out.println("FAIL  unreadable .gitattributes"); return 1; }
-        int end = text.indexOf("# <<< flixw <<<");
-        if (end < 0) {
+
+        String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
+        int opens = count(text, begin), closes = count(text, end);
+        if (opens == 0 && closes == 0) {
             System.out.println("warn  .gitattributes has no flixw block (./flix update-wrapper)");
             return 0;
         }
         int bad = 0;
-        // More than one block is its own problem: the last one wins, and update-wrapper
-        // used to rewrite them all in place rather than leaving exactly one.
-        int blocks = 0, at = 0;
-        while ((at = text.indexOf("# >>> flixw >>>", at)) >= 0) { blocks++; at += 1; }
-        if (blocks > 1) {
-            System.out.println("FAIL  .gitattributes has " + blocks + " flixw blocks"
+        // Markers have to balance and be unique. A stray end marker on its own used to
+        // pass for a block, and two blocks meant the last one silently won.
+        if (opens != 1 || closes != 1) {
+            System.out.println("FAIL  .gitattributes has " + opens + " flixw start and "
+                             + closes + " end markers; expected one of each"
                              + " (./flix update-wrapper)");
             bad++;
         }
-        for (String line : text.substring(text.lastIndexOf("# <<< flixw <<<")).split("\r?\n")) {
+        int after = text.lastIndexOf(end);
+        if (after < 0) return bad;                    // nothing after an end that is not there
+        for (String line : text.substring(after).split("\r?\n")) {
             String t = line.trim();
             if (t.isEmpty() || t.startsWith("#")) continue;
             String pattern = t.split("\\s+")[0];
-            if (affectsShipped(pattern)) {
-                System.out.println("FAIL  .gitattributes rule " + q(t)
-                                 + " comes after the flixw block and overrides it");
-                bad++;
+            String attrs = t.substring(pattern.length()).trim();
+            for (String f : SHIPPED) {
+                if (patternMatches(pattern, f) && !attrs.equals(canonicalAttrs(f))) {
+                    System.out.println("FAIL  .gitattributes rule " + q(t)
+                                     + " comes after the flixw block and changes " + f);
+                    bad++;
+                    break;
+                }
             }
         }
         if (bad == 0) System.out.println("ok    .gitattributes block is not overridden");
         return bad;
+    }
+
+    static int count(String haystack, String needle) {
+        int n = 0, at = 0;
+        while ((at = haystack.indexOf(needle, at)) >= 0) { n++; at += needle.length(); }
+        return n;
     }
 
     /** Runs `git <args>` in root; null when git is absent or the command fails to start. */
@@ -1618,7 +1696,14 @@ public final class flix {
             }
         }
 
-        String mv = manifestVersion(root.resolve("flix.toml"));
+        String mv = null;
+        try { mv = manifestVersion(root.resolve("flix.toml")); }
+        catch (Fail f) {
+            // validate exists to say what is wrong; failing on the first wrong thing
+            // would stop it reporting the rest.
+            System.out.println("FAIL  " + f.getMessage().split("\n")[0]);
+            bad++;
+        }
         if (lock == null) { System.out.println("FAIL  no lock"); bad++; }
         else if (mv != null && !canonical(mv).equals(canonical(lock.version()))) {
             System.out.println("FAIL  flix.toml says " + mv + ", lock pins " + lock.version()); bad++;
@@ -1905,7 +1990,13 @@ public final class flix {
             try { lock = readLock(lockFile); }
             catch (Fail f) { lockError = f; }
         }
-        String mv = manifestVersion(root.resolve("flix.toml"));
+        // Carried, not thrown, for the same reason as the lock above: pin, doctor and
+        // validate are the way out of a broken manifest, and they cannot be the way out
+        // if reading it is what fails first.
+        String mv = null;
+        Fail manifestError = null;
+        try { mv = manifestVersion(root.resolve("flix.toml")); }
+        catch (Fail f) { manifestError = f; }
 
         // Drift is detected here -- immediately after the manifest and the lock are read,
         // before any Java selection, any network access, and any compiler execution.
@@ -1918,10 +2009,12 @@ public final class flix {
         // disagrees with the manifest -- the verbs that create and diagnose that state
         // must still run, or the repair the diagnostic recommends is unreachable. They
         // route on the built-in wrapper list alone, so no compiler is consulted.
-        if ((lock == null || drift != null) && first != null && !forcedCompiler
+        if ((lock == null || drift != null || manifestError != null) && first != null && !forcedCompiler
             && WRAPPER_VERBS.contains(first) && !first.equals("setup")) {
             if (lockError != null)
                 System.err.println("flixw: warning: " + lockError.getMessage().split("\n")[0]);
+            if (manifestError != null)
+                System.err.println("flixw: warning: " + manifestError.getMessage().split("\n")[0]);
             if (drift != null) System.err.println("flixw: warning: " + drift.split("\n")[0]);
             routingNotice(first, lock == null ? "none" : lock.version());
             if (first.equals("pin"))
@@ -1931,6 +2024,7 @@ public final class flix {
             return;
         }
         if (lockError != null) throw lockError;      // unreadable, and the repair declined it
+        if (manifestError != null) throw manifestError;
         if (lock == null)
             throw w002("no " + lockFile + "\n       run: ./flix pin <version>");
         if (drift != null) throw w002(drift);
