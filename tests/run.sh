@@ -21,7 +21,9 @@ work=$root/tests/.work/run
 version=${FLIXW_TEST_VERSION:-0.75.2}
 
 # A previous run may have left a read-only directory behind; make it removable.
-[ -d "$work" ] && chmod -R u+w "$work" 2>/dev/null || true
+# Spelled as an if rather than `A && B || true`: older shellcheck reads that idiom as a
+# mistyped if-then-else (SC2015) and the runners do not all ship the same version.
+if [ -d "$work" ]; then chmod -R u+w "$work" 2>/dev/null || true; fi
 rm -rf "$work"
 mkdir -p "$work"
 
@@ -31,6 +33,17 @@ export FLIX_CACHE_HOME="$cache"
 
 pass=0
 fail=0
+skipped=0
+
+# Two fixtures cannot exist on Windows, and asserting around that would be worse than
+# saying so. A fake JDK needs a runnable bin/java.exe, and a copied java.exe resolves
+# java.home from its own path, so it would find no lib/modules; and a JVM started from
+# MSYS does not receive a POSIX SIGTERM, so the reaper cannot be provoked. Both
+# behaviours are covered on Linux and macOS. See docs/LIMITATIONS.md.
+case $(uname -s) in
+  MINGW* | MSYS* | CYGWIN*) posix=no ;;
+  *)                        posix=yes ;;
+esac
 
 # t <expected-rc> <label> <command...>
 t() {
@@ -49,6 +62,12 @@ t() {
     printf '  FAIL %-52s rc=%s want=%s\n' "$label" "$rc" "$want"
     printf '       %s\n' "$(printf '%s' "$out" | head -3 | tr '\n' '|')"
   fi
+}
+
+# s <label> <reason>  -- record a case this platform cannot host
+s() {
+  skipped=$((skipped + 1))
+  printf '  skip %-52s %s\n' "$1" "$2"
 }
 
 # g <expected-rc> <pattern> <label> <command...>  -- also assert output matches
@@ -181,6 +200,9 @@ t 1  "rule 5  unknown verb reaches the compiler"                ./flix frobnicat
 t 0  "no arguments reaches the compiler"                        ./flix
 t 0  "FLIX_BACKEND=wrapper forces the wrapper"                  env FLIX_BACKEND=wrapper ./flix validate
 t 1  "FLIX_BACKEND=compiler forces the compiler"                env FLIX_BACKEND=compiler ./flix doctor
+# An unrecognised value used to read as unset, which silently restores ordinary dispatch --
+# the one outcome someone forcing a side is trying to rule out.
+t 87 "an unknown FLIX_BACKEND is rejected, not ignored"         env FLIX_BACKEND=Compiler ./flix doctor
 
 # --- version grammar -------------------------------------------------------
 echo "version grammar"
@@ -230,6 +252,27 @@ t 0  "pin only rewrites [package].flix"                          sh -c '
   ./flix pin '"$version"' >/dev/null 2>&1
   grep -q "flix = \"9.9.9\"" flix.toml' sh "$work"
 cp "$work/flix.toml.good" flix.toml
+# pin used to run its own line scanner, which had never learned about multi-line strings.
+# The decoy below was correctly invisible to the reader and yet visible to the rewriter,
+# so pin saw two [package].flix keys and refused. Reader and writer now share tomlScan.
+t 0  "pin ignores a flix key inside a multi-line description"    sh -c '
+  { printf "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"; \
+    printf "description = \"\"\"\nflix = \"9.9.9\"\n\"\"\"\n"; \
+    printf "flix = \"0.75.1\"\nauthors = [\"n\"]\n"; } > flix.toml
+  ./flix pin '"$version"' >/dev/null 2>&1 || exit 1
+  grep -q "^flix = \"'"$version"'\"" flix.toml || exit 1
+  grep -q "^flix = \"9.9.9\"" flix.toml' sh "$work"
+cp "$work/flix.toml.good" flix.toml
+# The rewrite splits on \n and rejoins with \n so that a CRLF manifest keeps its endings;
+# splitting on \r?\n silently rewrote the whole file to LF on the first pin.
+t 0  "pin preserves CRLF line endings in the manifest"           sh -c '
+  printf "[package]\r\nname = \"x\"\r\nversion = \"0.1.0\"\r\nflix = \"0.75.1\"\r\n" > flix.toml
+  ./flix pin '"$version"' >/dev/null 2>&1 || exit 1
+  grep -q "flix = \"'"$version"'\"" flix.toml || exit 1
+  crs=$(tr -cd "\r" < flix.toml | wc -c | tr -d " ")
+  lns=$(wc -l < flix.toml | tr -d " ")
+  [ "$crs" = "$lns" ]' sh "$work"
+cp "$work/flix.toml.good" flix.toml
 
 # --- lock validation -------------------------------------------------------
 echo "lock validation"
@@ -273,9 +316,18 @@ t 87 "FLIX_DIST_URL must be https"                              env FLIX_DIST_UR
 # --- java selection --------------------------------------------------------
 echo "java selection"
 t 126 "broken FLIX_JAVA_HOME is caught by the shim"             env FLIX_JAVA_HOME=/nonexistent ./flix -- --version
-t 83  "explicit Java below the floor is fatal"                  env FLIX_JAVA_HOME="$work/jdk17" ./flix -- --version
-g 0   'FLIXW011' "above the ceiling warns and proceeds"         env FLIX_JAVA_HOME="$work/jdk99" ./flix -- --version
-t 83  "FLIXW_STRICT_JAVA makes the ceiling fatal"               env FLIX_JAVA_HOME="$work/jdk99" FLIXW_STRICT_JAVA=1 ./flix -- --version
+# The three cases below drive a fake JDK: a lying release file over a bin/java that
+# delegates to the real one. Windows would need that trampoline to be a genuine java.exe,
+# which cannot be faked by copying -- the JVM resolves java.home from its own path.
+if [ "$posix" = yes ]; then
+  t 83  "explicit Java below the floor is fatal"                env FLIX_JAVA_HOME="$work/jdk17" ./flix -- --version
+  g 0   'FLIXW011' "above the ceiling warns and proceeds"       env FLIX_JAVA_HOME="$work/jdk99" ./flix -- --version
+  t 83  "FLIXW_STRICT_JAVA makes the ceiling fatal"             env FLIX_JAVA_HOME="$work/jdk99" FLIXW_STRICT_JAVA=1 ./flix -- --version
+else
+  s "explicit Java below the floor is fatal"                    "needs a runnable fake bin/java.exe"
+  s "above the ceiling warns and proceeds"                      "needs a runnable fake bin/java.exe"
+  s "FLIXW_STRICT_JAVA makes the ceiling fatal"                 "needs a runnable fake bin/java.exe"
+fi
 
 # --- jvm options -----------------------------------------------------------
 echo "jvm options"
@@ -307,6 +359,9 @@ t 0  "a read-only verb cache stays silent"                      sh -c '
 # --- process behaviour -----------------------------------------------------
 echo "process behaviour"
 t 42 "the child exit status is propagated"                      sh -c 'cd nested && ../flix run'
+if [ "$posix" != yes ]; then
+  s "SIGTERM to stage 0 does not orphan the compiler"           "MSYS cannot signal a native JVM"
+else
 t 0  "SIGTERM to stage 0 does not orphan the compiler"          sh -c '
   FLIX_JAR="$1/sleeper/sleeper.jar" ./flix check >/dev/null 2>&1 &
   outer=$!
@@ -318,15 +373,45 @@ t 0  "SIGTERM to stage 0 does not orphan the compiler"          sh -c '
     [ -n "$inner" ] && break
     n=$((n + 1)); sleep 0.1
   done
-  [ -n "$inner" ] || exit 1
+  [ -n "$inner" ] || { echo "the compiler child never started"; exit 2; }
   kill -TERM "$outer" 2>/dev/null || true
   wait "$outer" 2>/dev/null || true
-  sleep 1
-  # The reaper must have taken the compiler with it.
-  ! kill -0 "$inner" 2>/dev/null' sh "$work"
+  # The reaper must take the compiler with it. Poll rather than sleeping a fixed
+  # interval: what is asserted is that the child dies, not that a loaded runner
+  # delivers the signal, runs a shutdown hook and reaps the process inside one second.
+  n=0
+  while [ $n -lt 100 ]; do
+    kill -0 "$inner" 2>/dev/null || exit 0
+    n=$((n + 1)); sleep 0.1
+  done
+  echo "the compiler child $inner outlived stage 0"
+  exit 1' sh "$work"
+fi
 t 0  "stdout carries only compiler output"                      sh -c '
   ./flix run > "$1/out.txt" 2>/dev/null
   grep -qx ok "$1/out.txt"' sh "$work"
+
+# --- diagnostics -----------------------------------------------------------
+echo "diagnostics"
+# doctor output is meant to be pasted into bug reports, so it must not carry the password
+# out of a proxy URL. Java's HttpClient ignores these variables; only doctor reads them.
+t 0  "doctor redacts credentials in proxy urls"                 sh -c '
+  out=$(HTTPS_PROXY="http://user:hunter2@proxy.example:3128" ./flix doctor 2>&1)
+  printf "%s" "$out" | grep -q "[*][*][*]@proxy.example" || exit 1
+  ! printf "%s" "$out" | grep -q hunter2'
+# stdout only: the JVM announces "Picked up JAVA_TOOL_OPTIONS: ..." on stderr itself, which
+# no wrapper can suppress. What flixw controls is its own report, and that must be clean.
+t 0  "doctor redacts secrets in JVM option variables"           sh -c '
+  out=$(JAVA_TOOL_OPTIONS="-Dhttps.proxyPassword=hunter2 -Xmx1g" ./flix doctor 2>/dev/null)
+  printf "%s" "$out" | grep -q "proxyPassword=[*][*][*]" || exit 1
+  ! printf "%s" "$out" | grep -q hunter2'
+# The stage-0 cache is keyed by source hash alone, so a class compiled by a newer JDK
+# would be handed to a Java 21 shim. 65 is the classfile version of the declared floor.
+t 0  "the cached stage 0 targets the Java floor"                sh -c '
+  d=$(ls -d "$FLIX_CACHE_HOME"/stage0/*/ 2>/dev/null | head -1)
+  [ -n "$d" ] || exit 1
+  major=$(od -An -tu1 -j7 -N1 "$d/flix.class" | tr -d " ")
+  [ "$major" = "65" ] || { echo "classfile major $major, want 65"; exit 1; }'
 
 # --- maintenance verbs -----------------------------------------------------
 echo "maintenance verbs"
@@ -354,5 +439,5 @@ g 88 'gitignore' "validate fails when the lock is ignored"      sh -c '
   rm -f .gitignore; exit $rc'
 
 echo
-echo "passed=$pass failed=$fail"
+echo "passed=$pass failed=$fail skipped=$skipped"
 [ "$fail" -eq 0 ]

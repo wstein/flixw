@@ -9,6 +9,7 @@
 //
 // The stock Flix compiler is never modified, patched, or linked against.  It is fetched
 // by URL, verified against a committed SHA-256, and executed as an opaque process.
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
@@ -41,6 +42,14 @@ public final class flix {
 
     /** The interval flixw is tested on.  Above the ceiling is a warning, not an error. */
     static final int TESTED_CEILING = 25;
+
+    /**
+     * Bounds for the two child processes stage 0 runs for information rather than for
+     * work.  Both are generous: exceeding one means the child is wedged, not slow.
+     */
+    static final Duration PROBE_TIMEOUT = Duration.ofSeconds(20);
+    static final Duration HELP_TIMEOUT = Duration.ofSeconds(30);
+    static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
         List.of("pin", "doctor", "setup", "validate", "update-wrapper");
@@ -124,33 +133,70 @@ public final class flix {
         return e.getClass().getSimpleName() + (m == null ? "" : ": " + m);
     }
 
+    /**
+     * Redacts credentials from a URL-shaped value before it is printed.
+     *
+     * `doctor` output exists to be pasted into bug reports, and a proxy URL is the one
+     * environment value that routinely carries a password. Host and port are what a reader
+     * needs; user-info and query string never are. Values that are not URLs at all -- a
+     * NO_PROXY host list, say -- have no '@' and pass through untouched.
+     */
+    static String redact(String v) {
+        String s = v.replaceAll("(?i)((?:[a-z][a-z0-9+.-]*://)?)[^/@\\s,]*@", "$1***@");
+        int i = s.indexOf('?');
+        return i < 0 ? s : s.substring(0, i) + "?***";
+    }
+
+    /** The same, for JVM option strings, which can carry -Dhttps.proxyPassword=secret. */
+    static String redactOpts(String v) {
+        return redact(v).replaceAll(
+            "(?i)(-D[^=\\s]*(?:pass|secret|token|credential)[^=\\s]*=)\\S+", "$1***");
+    }
+
     // ---- lock and manifest ------------------------------------------------
 
     record Lock(String version, String url, String sha256) {}
 
     /**
-     * Reads one key from one TOML table.
+     * One `key = value` occurrence, the table it was found in, and the line it sits on.
+     * `value` is the raw right-hand side; `multiline` marks a `"""` or `'''` opener, whose
+     * body this scanner deliberately does not reassemble -- no key flixw reads is one.
+     */
+    record TomlEntry(int line, String table, String key, String value, boolean multiline) {}
+
+    /** Every scalar entry in a document, plus every table header, in file order. */
+    record TomlScan(List<TomlEntry> entries, List<String> tables) {}
+
+    /**
+     * The single TOML line scanner in stage 0.
      *
      * This is not a TOML parser and does not try to be one -- stage 0 has no dependencies
      * by design. It is deliberately table-aware, comment-aware and multi-line-string-aware,
      * because the alternative that a plain regex gives you is reading `flix = "..."` out of
-     * some unrelated table, or out of the body of a description string. Anything it cannot
-     * classify inside the table it was asked about is rejected rather than guessed at.
+     * some unrelated table, or out of the body of a description string.
      *
-     * Accepts the key inside [table] and as a dotted key at the root (`package.flix`).
-     * Duplicate tables and duplicate keys are ambiguous, so they fail rather than resolve.
+     * There is exactly one of these because there used to be two: `pin`'s rewrite carried a
+     * second copy that had never learned about multi-line strings, so a `flix = "9.9.9"`
+     * inside a `"""` description was correctly invisible to the lookup and yet rewritable
+     * by pin. Any divergence here means the version flixw reads is not the one it writes,
+     * so the two readers share a scanner rather than a convention.
+     *
+     * Lines are split on \n alone, never on \r?\n: `pin` rejoins with \n to rewrite a
+     * single line in place, and a split that swallowed the \r would quietly convert a CRLF
+     * manifest to LF. The trailing \r survives into the raw line and is removed by trim().
      */
-    static String tomlLookup(String text, String table, String key, String where) {
+    static TomlScan tomlScan(String text, String where) {
+        List<TomlEntry> entries = new ArrayList<>();
+        List<String> tables = new ArrayList<>();
         String current = "";
-        String value = null;
-        int tables = 0, hits = 0;
         String mlDelim = null;
-        for (String raw : text.split("\r?\n", -1)) {
-            String line = raw;
+        String[] lines = text.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
             if (mlDelim != null) {                       // inside """ or ''': find the close
                 int e = line.indexOf(mlDelim);
                 if (e < 0) continue;
-                line = line.substring(e + 3);
+                line = line.substring(e + 3);            // both delimiters are three chars
                 mlDelim = null;
             }
             String t = stripComment(line).trim();
@@ -160,7 +206,7 @@ public final class flix {
                 int close = t.indexOf(']');
                 if (close < 0) throw w002(where + ": unterminated table header " + q(t));
                 current = unquote(t.substring(1, close).trim());
-                if (current.equals(table)) tables++;
+                tables.add(current);
                 continue;
             }
             int eq = t.indexOf('=');
@@ -168,21 +214,41 @@ public final class flix {
             String k = unquote(t.substring(0, eq).trim());
             String v = t.substring(eq + 1).trim();
             String delim = v.startsWith("\"\"\"") ? "\"\"\"" : v.startsWith("'''") ? "'''" : null;
-            boolean wanted = (current.equals(table) && k.equals(key))
-                          || (current.isEmpty() && k.equals(table + "." + key));
-            if (delim != null) {
-                if (!v.substring(3).contains(delim)) mlDelim = delim;
-                if (wanted) throw w002(where + ": " + q(key) + " must be a single-line string");
-                continue;
-            }
-            if (wanted) {
-                hits++;
-                if (v.length() < 2 || v.charAt(0) != v.charAt(v.length() - 1)
-                    || (v.charAt(0) != '"' && v.charAt(0) != '\''))
-                    throw w002(where + ": " + q(key) + " must be a quoted string, got " + q(v));
-                value = v.substring(1, v.length() - 1);
-            }
+            if (delim != null && !v.substring(3).contains(delim)) mlDelim = delim;
+            entries.add(new TomlEntry(i, current, k, v, delim != null));
         }
+        return new TomlScan(entries, tables);
+    }
+
+    /** True when an entry is `table.key`, written either inside [table] or as a dotted key. */
+    static boolean isKey(TomlEntry e, String table, String key) {
+        return (e.table().equals(table) && e.key().equals(key))
+            || (e.table().isEmpty() && e.key().equals(table + "." + key));
+    }
+
+    /**
+     * Reads one key from one TOML table.  Anything it cannot classify inside the table it
+     * was asked about is rejected rather than guessed at.  Duplicate tables and duplicate
+     * keys are ambiguous, so they fail rather than resolve.
+     *
+     * Accepts the key inside [table] and as a dotted key at the root (`package.flix`).
+     */
+    static String tomlLookup(String text, String table, String key, String where) {
+        TomlScan scan = tomlScan(text, where);
+        String value = null;
+        int hits = 0;
+        for (TomlEntry e : scan.entries()) {
+            if (!isKey(e, table, key)) continue;
+            if (e.multiline()) throw w002(where + ": " + q(key) + " must be a single-line string");
+            hits++;
+            String v = e.value();
+            if (v.length() < 2 || v.charAt(0) != v.charAt(v.length() - 1)
+                || (v.charAt(0) != '"' && v.charAt(0) != '\''))
+                throw w002(where + ": " + q(key) + " must be a quoted string, got " + q(v));
+            value = v.substring(1, v.length() - 1);
+        }
+        int tables = 0;
+        for (String t : scan.tables()) if (t.equals(table)) tables++;
         if (tables > 1) throw w002(where + ": duplicate [" + table + "] table");
         if (hits > 1) throw w002(where + ": duplicate " + q(key) + " key in [" + table + "]");
         return value;
@@ -241,31 +307,25 @@ public final class flix {
         return declared == null ? null : validateVersion(declared, manifest.toString());
     }
 
-    /** Rewrites [package].flix in place, leaving every other table and all formatting alone. */
+    /**
+     * Rewrites [package].flix in place, leaving every other table and all formatting alone.
+     * Shares tomlScan with the readers, so the key it rewrites is by construction the key
+     * manifestVersion reads -- including the multi-line-string body it must not rewrite.
+     */
     static String rewritePackageFlix(String text, String version, String where) {
-        String[] lines = text.split("\r?\n", -1);
-        String current = "";
         int target = -1;
-        for (int i = 0; i < lines.length; i++) {
-            String t = stripComment(lines[i]).trim();
-            if (t.isEmpty()) continue;
-            if (t.startsWith("[[")) { current = "\u0000array"; continue; }
-            if (t.startsWith("[")) {
-                int close = t.indexOf(']');
-                if (close > 0) current = unquote(t.substring(1, close).trim());
-                continue;
-            }
-            int eq = t.indexOf('=');
-            if (eq < 0) continue;
-            String k = unquote(t.substring(0, eq).trim());
-            if ((current.equals("package") && k.equals("flix"))
-                || (current.isEmpty() && k.equals("package.flix"))) {
-                if (target >= 0) throw w002(where + ": duplicate 'flix' key in [package]");
-                target = i;
-            }
+        for (TomlEntry e : tomlScan(text, where).entries()) {
+            if (!isKey(e, "package", "flix")) continue;
+            if (e.multiline()) throw w002(where + ": 'flix' must be a single-line string");
+            if (target >= 0) throw w002(where + ": duplicate 'flix' key in [package]");
+            target = e.line();
         }
         if (target < 0) return null;
-        lines[target] = lines[target].replaceFirst("(=\\s*[\"'])[^\"']*([\"'])", "$1" + version + "$2");
+        // The same split tomlScan indexed, rejoined with the same separator: a manifest
+        // with CRLF endings keeps them, and only the pinned line differs afterwards.
+        String[] lines = text.split("\n", -1);
+        lines[target] = lines[target].replaceFirst("(=\\s*[\"'])[^\"']*([\"'])",
+                                                   "$1" + Matcher.quoteReplacement(version) + "$2");
         return String.join("\n", lines);
     }
 
@@ -322,9 +382,9 @@ public final class flix {
     static void validateDistUrl() {
         String base = env("FLIX_DIST_URL");
         if (base == null) return;
-        if (!base.startsWith("https://")) throw w008("FLIX_DIST_URL must be https, got " + q(base));
+        if (!base.startsWith("https://")) throw w008("FLIX_DIST_URL must be https, got " + q(redact(base)));
         try { URI.create(base); }
-        catch (IllegalArgumentException e) { throw w008("FLIX_DIST_URL is not a valid URI: " + q(base)); }
+        catch (IllegalArgumentException e) { throw w008("FLIX_DIST_URL is not a valid URI: " + q(redact(base))); }
     }
 
     /**
@@ -356,7 +416,7 @@ public final class flix {
         if (!Files.isRegularFile(jar)) {
             Path dir = jar.getParent(), tmp;
             String url = rewriteBase(lock.url());          // validated before we announce
-            System.err.println("flixw: downloading Flix " + lock.version() + " from " + url);
+            System.err.println("flixw: downloading Flix " + lock.version() + " from " + redact(url));
             try {
                 Files.createDirectories(dir);
                 tmp = Files.createTempFile(dir, ".flix-", ".part");
@@ -367,7 +427,7 @@ public final class flix {
                 download(url, tmp);                              // exactly one attempt
                 String got = sha256(tmp);
                 if (!got.equals(lock.sha256()))
-                    throw w006("digest mismatch for " + lock.url()
+                    throw w006("digest mismatch for " + redact(lock.url())
                              + "\n       expected " + lock.sha256() + "\n       actual   " + got);
                 try { Files.move(tmp, jar, StandardCopyOption.ATOMIC_MOVE); }
                 catch (IOException e) {
@@ -385,7 +445,7 @@ public final class flix {
     }
 
     static void download(String url, Path dest) {
-        if (!url.startsWith("https://")) throw w005("refusing non-https url " + url);
+        if (!url.startsWith("https://")) throw w005("refusing non-https url " + redact(url));
         HttpClient client = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(30)).build();
@@ -395,15 +455,67 @@ public final class flix {
         try {
             HttpResponse<Path> res = client.send(req, HttpResponse.BodyHandlers.ofFile(dest));
             if (!"https".equals(res.uri().getScheme()))
-                throw w005("refusing a redirect off https: " + res.uri());
+                throw w005("refusing a redirect off https: " + redact(res.uri().toString()));
             if (res.statusCode() != 200)
-                throw w005("HTTP " + res.statusCode() + " for " + url
+                throw w005("HTTP " + res.statusCode() + " for " + redact(url)
                          + "\n       check that flix.toml names a published release.");
         } catch (IOException e) {
-            throw w005("download failed: " + url + "\n       " + e.getMessage());
+            throw w005("download failed: " + redact(url) + "\n       " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw w005("download interrupted");
+        }
+    }
+
+    // ---- bounded subprocess capture ---------------------------------------
+
+    /**
+     * Runs a child and returns its merged output, bounded in both bytes and wall clock.
+     * Returns null when the child did not finish in time, or its output could not be read.
+     *
+     * The obvious shape -- a read loop with a deadline test in its condition -- bounds
+     * nothing: the test runs *between* reads, and read() on a pipe blocks until the writer
+     * produces a byte or closes it. A child that starts and then answers nothing parks
+     * stage 0 inside that one call forever, which is precisely what a process run for
+     * information must never do. So the read runs on a daemon thread and the timeout is
+     * enforced on the process, which is the only handle that can actually be revoked.
+     * The byte cap is a separate bound: a chatty child would otherwise exhaust the heap.
+     */
+    static String runCapture(List<String> cmd, Duration timeout, int cap) throws IOException {
+        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        String[] box = new String[1];
+        try {
+            p.getOutputStream().close();
+            Thread reader = new Thread(() -> {
+                ByteArrayOutputStream sink = new ByteArrayOutputStream();
+                try (InputStream in = p.getInputStream()) {
+                    byte[] buf = new byte[1 << 16];
+                    int total = 0, n;
+                    while (total < cap && (n = in.read(buf)) > 0) {
+                        sink.write(buf, 0, Math.min(n, cap - total));
+                        total += n;
+                    }
+                } catch (IOException ignored) {
+                    // A broken or closed pipe is a truncated capture, not a failure;
+                    // whatever arrived before it is still worth parsing.
+                } finally {
+                    // Written once, read only after join(). String has final fields, so
+                    // it is safely published even if that join times out.
+                    box[0] = sink.toString(StandardCharsets.UTF_8);
+                }
+            }, "flixw-capture");
+            reader.setDaemon(true);
+            reader.start();
+            if (!p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) return null;
+            reader.join(2000);          // the child is gone; this is EOF, not a wait
+            return box[0];
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } finally {
+            // A probe must never outlive the probe. Without this, a child that does not
+            // answer leaves a JVM behind on every invocation.
+            if (p.isAlive()) p.destroyForcibly();
         }
     }
 
@@ -432,12 +544,14 @@ public final class flix {
             }
         }
         try {                                                     // one execution, no retry
-            Process p = new ProcessBuilder(exe.toString(), "-XshowSettings:properties", "-version")
-                    .redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            p.waitFor();
-            Matcher m = Pattern.compile("java\\.specification\\.version = ([0-9.]+)").matcher(out);
-            if (m.find()) { Integer f = feature(m.group(1)); if (f != null) return f; }
+            // Bounded: a candidate java that hangs on startup -- a broken installation, a
+            // stalled network filesystem -- must cost this probe a timeout, not the run.
+            String out = runCapture(List.of(exe.toString(), "-XshowSettings:properties", "-version"),
+                                    PROBE_TIMEOUT, 1 << 18);
+            if (out != null) {
+                Matcher m = Pattern.compile("java\\.specification\\.version = ([0-9.]+)").matcher(out);
+                if (m.find()) { Integer f = feature(m.group(1)); if (f != null) return f; }
+            }
         } catch (Exception ignored) { }
         return -1;
     }
@@ -678,34 +792,17 @@ public final class flix {
 
     static List<String> captureVerbs(Path javaExe, Path jar) {
         String out;
-        Process p = null;
         try {
-            p = new ProcessBuilder(javaExe.toString(), "-jar", jar.toString(), "--help")
-                    .redirectErrorStream(true).start();
-            p.getOutputStream().close();
-            // Bounded on both axes. readAllBytes on a pipe blocks until the writer closes
-            // it, so an unbounded read here would outlive the timeout below and a chatty
-            // JAR could exhaust the heap. Real help output is a few kilobytes.
-            byte[] buf = new byte[1 << 16];
-            int total = 0, n;
-            InputStream in = p.getInputStream();
-            StringBuilder sb = new StringBuilder();
-            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-            while (total < (1 << 20) && System.nanoTime() < deadline && (n = in.read(buf)) > 0) {
-                sb.append(new String(buf, 0, n, StandardCharsets.UTF_8));
-                total += n;
-            }
-            out = sb.toString();
-            if (!p.waitFor(5, TimeUnit.SECONDS))
-                throw w009("`flix --help` did not finish within 30s");
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            // Real help output is a few kilobytes and arrives in well under a second.
+            // Both bounds exist for JARs that are not the Flix compiler: FLIX_JAR points
+            // wherever the user says, and a JAR that never answers must not wedge the run.
+            out = runCapture(List.of(javaExe.toString(), "-jar", jar.toString(), "--help"),
+                             HELP_TIMEOUT, HELP_CAP);
+        } catch (IOException e) {
             throw w009("cannot run `flix --help`: " + e.getMessage());
-        } finally {
-            // A probe must never outlive the probe. Without this, a JAR that does not
-            // answer --help leaves a JVM behind on every invocation.
-            if (p != null && p.isAlive()) p.destroyForcibly();
         }
+        if (out == null)
+            throw w009("`flix --help` did not finish within " + HELP_TIMEOUT.toSeconds() + "s");
         // Two independent parses.  `Command: lsp-vscode port` carries an argument, so a
         // whole-line parse yields a phantom verb; take the first token only.
         Set<String> set = new LinkedHashSet<>();
@@ -752,9 +849,14 @@ public final class flix {
                   parent.toFile().setExecutable(false, false); parent.toFile().setExecutable(true, true);
             } catch (SecurityException ignored) { }
             tmp = Files.createTempDirectory(parent, ".stage0-");
+            // --release pins the classfile version to the floor flixw already requires.
+            // The cache is keyed by source hash alone, so without it a stage 0 compiled by
+            // a JDK 25 javac lands in a directory a later Java 21 shim will happily -cp
+            // into, and that run dies on UnsupportedClassVersionError with no fallback.
             int rc = jc.run(null, java.io.OutputStream.nullOutputStream(),
                             java.io.OutputStream.nullOutputStream(),
-                            "-d", tmp.toString(), "-nowarn", source.toString());
+                            "-d", tmp.toString(), "-nowarn",
+                            "--release", String.valueOf(MIN_JAVA), source.toString());
             if (rc != 0) { tr("self-compile failed rc=" + rc); return; }
             Files.writeString(tmp.resolve("source.path"), source.toAbsolutePath() + "\n");
             Files.move(tmp, dir, StandardCopyOption.ATOMIC_MOVE);
@@ -901,12 +1003,12 @@ public final class flix {
         System.out.println("java             " + (jvm == null ? "-" : jvm.exe() + "  (" + jvm.feature()
                                                   + ", via " + jvm.how() + ")"));
         System.out.println("cache            " + cacheHome());
-        System.out.println("dist url         " + (lock == null ? "-" : rewriteBase(lock.url())));
+        System.out.println("dist url         " + (lock == null ? "-" : redact(rewriteBase(lock.url()))));
         if (env("FLIX_DIST_URL") != null) System.out.println("mirror           FLIX_DIST_URL is set");
         for (String p : new String[] { "HTTPS_PROXY", "https_proxy", "NO_PROXY" })
-            if (env(p) != null) System.out.println("proxy            " + p + "=" + env(p));
+            if (env(p) != null) System.out.println("proxy            " + p + "=" + redact(env(p)));
         for (String p : new String[] { "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS" })
-            if (env(p) != null) System.out.println("note             " + p + "=" + env(p)
+            if (env(p) != null) System.out.println("note             " + p + "=" + redactOpts(env(p))
                                                  + "  (affects the JVM and stderr)");
         if (env("FLIX_JAR") != null) System.out.println("override         FLIX_JAR=" + env("FLIX_JAR")
                                      + "  (unverified; not stock-compatibility evidence)");
@@ -1199,6 +1301,15 @@ public final class flix {
         // setting it will never use.
         validateDistUrl();
 
+        // A misspelled backend used to read as unset, which silently returns the caller to
+        // ordinary dispatch -- the one outcome someone forcing a side is testing against.
+        String backend = env("FLIX_BACKEND");
+        if (backend != null && !backend.equals("wrapper") && !backend.equals("compiler"))
+            throw w008("FLIX_BACKEND=" + q(backend) + " is not a known backend;"
+                     + " use 'wrapper' or 'compiler'");
+        boolean forcedWrapper = "wrapper".equals(backend);
+        boolean forcedCompiler = "compiler".equals(backend);
+
         Path root = findRoot(anchor);
         tr("root " + root);
         Path lockFile = lockPath(root);
@@ -1211,9 +1322,6 @@ public final class flix {
             ? "flix.toml declares " + mv + " but " + WRAPPER_DIR + "/lock.toml pins "
               + lock.version() + "\n       run: ./flix pin " + mv
             : null;
-
-        boolean forcedWrapper = "wrapper".equals(env("FLIX_BACKEND"));
-        boolean forcedCompiler = "compiler".equals(env("FLIX_BACKEND"));
 
         // When the project cannot reach a compiler -- no lock yet, or a lock that
         // disagrees with the manifest -- the verbs that create and diagnose that state
@@ -1365,11 +1473,41 @@ public final class flix {
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
             pb.environment().put("FLIXW_RELAUNCHED", "1");
-            System.exit(pb.start().waitFor());
+            System.exit(awaitWithReaper(pb.start()));
         } catch (IOException | InterruptedException e) {
             throw w004("relaunch under " + jvm.exe() + " failed: " + e.getMessage());
         }
         return true;
+    }
+
+    /**
+     * Waits for a child that owns the terminal, and guarantees it dies with us.
+     *
+     * Java has no exec(2): stage 0 must stay resident for the child's whole life.  The
+     * child keeps the terminal, so SIGINT reaches it through the foreground process group.
+     * The hook covers the rest: without it, a SIGTERM to stage 0 orphans a compiler that
+     * then runs forever.  SIGKILL still orphans it -- no Java code can prevent that, and
+     * the README says so.
+     *
+     * The relaunch path shares this.  It used to wait bare, so terminating a stage 0 that
+     * had relaunched itself into another JVM orphaned the entire subtree beneath it --
+     * the same defect the compiler launch had a hook for, one process further down.
+     */
+    static int awaitWithReaper(Process p) throws InterruptedException {
+        Thread hook = new Thread(() -> {
+            if (p.isAlive()) {
+                p.destroy();
+                try { p.waitFor(10, TimeUnit.SECONDS); }
+                catch (InterruptedException ignored) { }
+            }
+        }, "flixw-reaper");
+        Runtime.getRuntime().addShutdownHook(hook);
+        try {
+            return p.waitFor();
+        } finally {
+            try { Runtime.getRuntime().removeShutdownHook(hook); }
+            catch (IllegalStateException ignored) { }   // already shutting down
+        }
     }
 
     /** Inherit cwd and the three streams; propagate the child's status. */
@@ -1381,23 +1519,7 @@ public final class flix {
         cmd.addAll(args);
         tr("exec " + String.join(" ", cmd));
         try {
-            Process p = new ProcessBuilder(cmd).inheritIO().start();
-            // Java has no exec(2): stage 0 must stay resident for the compiler's whole life.
-            // The child keeps the terminal, so SIGINT reaches it through the foreground
-            // process group.  The hook covers the rest: without it, a SIGTERM to stage 0
-            // orphans a compiler that then runs forever.  SIGKILL still orphans it -- no
-            // Java code can prevent that, and the README says so.
-            Thread hook = new Thread(() -> {
-                if (p.isAlive()) {
-                    p.destroy();
-                    try { p.waitFor(10, TimeUnit.SECONDS); }
-                    catch (InterruptedException ignored) { }
-                }
-            }, "flixw-reaper");
-            Runtime.getRuntime().addShutdownHook(hook);
-            int rc = p.waitFor();
-            try { Runtime.getRuntime().removeShutdownHook(hook); } catch (IllegalStateException ignored) {}
-            System.exit(rc);
+            System.exit(awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start()));
         } catch (IOException e) {
             throw w005("cannot launch " + jar + ": " + e.getMessage());
         } catch (InterruptedException e) {

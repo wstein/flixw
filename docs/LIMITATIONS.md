@@ -128,9 +128,17 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 67-case regression suite on one machine, one OS, and
-one compiler release. It has not been run across the real Flix release cadence, by anyone
-other than its author, or on any project but a scratch fixture and one game.
+This wrapper has been exercised by a 73-case regression suite against one compiler
+release, on Linux, macOS and Windows. It has not been run across the real Flix release
+cadence, by anyone other than its author, or on any project but a scratch fixture and one
+game.
+
+Four of those cases cannot run on Windows and are reported as skipped rather than
+quietly passing. Three drive a fake JDK — a lying `release` file over a `bin/java` that
+delegates to the real one — which Windows would need as a genuine `java.exe`; a copied
+`java.exe` resolves `java.home` from its own path and would find no `lib/modules`. The
+fourth signals stage 0 with `SIGTERM`, which MSYS cannot deliver to a native JVM. The
+behaviours themselves are OS-independent and are covered on the other two platforms.
 
 Every claim in [CONTRACT.md](CONTRACT.md) is tested. None of them is *proven in the
 field*, and the policy question the design paper raises — whether pinning helps or hurts

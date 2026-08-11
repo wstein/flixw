@@ -45,6 +45,12 @@ download, before the compiler is executed. `pin`, `doctor`, `validate` and
 `update-wrapper` still run, because otherwise the repair the diagnostic recommends is
 unreachable. `setup` does not, because it acquires the compiler.
 
+`pin` rewrites exactly one line of `flix.toml` — the `flix` key of `[package]` — and
+leaves every other table, comment, key order and line ending as it found them, including
+CRLF. The key it rewrites is by construction the key the reader reads: both go through
+the same table- and multi-line-string-aware scanner, so a `flix = "…"` sitting inside a
+`"""` description is invisible to each of them alike.
+
 ## Integrity
 
 The cached JAR is hashed on **every** invocation and compared with the lock. There is no
@@ -98,7 +104,10 @@ a time, with a deprecation notice and no edit to any project file.
 
 The verb set is captured once per compiler identity from `flix --help` and cached under
 `<cache>/verbs/`. That capture is an optimisation, never a precondition. Its only job is
-noticing that a pinned compiler has claimed a wrapper verb. If `--help` cannot be parsed,
+noticing that a pinned compiler has claimed a wrapper verb. It is bounded in both output
+size and wall clock — as is the one-shot probe of a candidate `java` — because a `FLIX_JAR`
+may point at any JAR at all, and a child that starts but never answers must cost a
+timeout rather than the session. If `--help` cannot be parsed,
 stage 0 warns once with `FLIXW010`, falls back to a built-in table, and carries on —
 otherwise one upstream help reformat would brick every project pinned to a compiler this
 wrapper has not seen, including for `check`, which never consults the verb set.
@@ -131,7 +140,9 @@ and the terminal inherited. Consequences, all tested:
   (`doctor`, `validate`, `--wrapper-help`) go to stdout, so they can be redirected and
   piped like any other command output.
 - Ctrl-C reaches the compiler through the foreground process group.
-- A `SIGTERM` to stage 0 destroys the compiler rather than orphaning it.
+- A `SIGTERM` to stage 0 destroys the compiler rather than orphaning it. This holds for a
+  stage 0 that has relaunched itself into another JVM too: every waiting stage 0 in the
+  chain carries the same reaper, so the whole subtree goes down together.
 
 Java has no `exec(2)`, so stage 0 stays resident for the compiler's whole life. See
 [LIMITATIONS.md](LIMITATIONS.md) for what that costs and the one signal it cannot handle.
@@ -168,7 +179,7 @@ printed, never fatal.
 | `FLIX_PROJECT_ROOT` | selects the project explicitly |
 | `FLIX_JAR` | run this JAR instead — **unverified**, announced, and not compatibility evidence |
 | `FLIX_JVM_OPTS` | options for the compiler JVM; a documented tokenizer, with a deny-list |
-| `FLIX_BACKEND` | `wrapper` or `compiler`, to force a side during a transition |
+| `FLIX_BACKEND` | `wrapper` or `compiler`, to force a side during a transition; any other value is fatal |
 | `FLIXW_STRICT_JAVA` | makes the tested ceiling fatal |
 | `FLIXW_UNSAFE_JVM_OPTS` | permits the denied JVM options |
 | `FLIXW_TRACE` | per-phase timings on stderr |
@@ -176,6 +187,12 @@ printed, never fatal.
 
 `JAVA_TOOL_OPTIONS` and `_JAVA_OPTIONS` are reported by `doctor` because they alter the
 JVM and prepend text to stderr, which otherwise looks like wrapper output.
+
+`doctor` output is meant to be pasted into bug reports, so every value it prints that can
+carry a credential is redacted: user-info and query string are stripped from proxy and
+distribution URLs, and `-D…password=`-shaped JVM options are masked. The JVM's own
+`Picked up JAVA_TOOL_OPTIONS: …` line is written by the JVM to stderr before stage 0
+runs, and no wrapper can suppress it.
 
 ## Cache layout
 
@@ -187,6 +204,11 @@ between shim and stage 0, not an implementation detail:
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
 ```
+
+The stage-0 class is compiled with `--release 21`, the same floor `MIN_JAVA` declares.
+The directory is keyed by source hash alone, so without that pin a stage 0 compiled by a
+newer JDK would be handed to an older shim, which would fail on classfile version with no
+route back to the source path.
 
 `<cache>` is `FLIX_CACHE_HOME`, else `%LOCALAPPDATA%\flixw`,
 `~/Library/Caches/flixw`, or `${XDG_CACHE_HOME:-~/.cache}/flixw`. Verb records live in

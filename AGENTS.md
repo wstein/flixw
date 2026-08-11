@@ -48,7 +48,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 67-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 73-case regression suite; one ~32MB download on a cold cache
 ```
 
 `helper/` holds a build definition and nothing else — no sources, reserved against the
