@@ -1,8 +1,10 @@
 # macOS
 .DS_Store
 
-# sbt specific
-dist/*
+# scratch space used by the regression suite
+tests/.work/
+
+# sbt (helper/, built only if the wrapper-verb surface outgrows stage 0)
 target/
 lib_managed/
 src_managed/
@@ -10,23 +12,14 @@ project/boot/
 project/plugins/project/
 project/local-plugins.sbt
 .history
-.ensime
-.ensime_cache/
 .sbt-scripted/
 local.sbt
 
-# Bloop
+# Bloop / Metals / IDEs
 .bsp
-
-# VS Code
-.vscode/
-
-# Metals
 .bloop/
 .metals/
 metals.sbt
-
-# IDEA
+.vscode/
 .idea
 .idea_modules
-/.worksheet/

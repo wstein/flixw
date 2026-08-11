@@ -1,0 +1,7 @@
+# The published wrapper artifacts are hashed, so their checked-out bytes must be
+# reproducible on every platform. These rules apply to this repository's own copies;
+# `flix install` writes the equivalent block into the consuming project.
+/src/flix        text eol=lf
+/src/flix.java   text eol=lf
+/src/flix.cmd    text eol=crlf
+/tests/*.sh      text eol=lf
