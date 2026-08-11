@@ -109,7 +109,7 @@ Three limits are worth knowing.
 **It cannot bootstrap from no Java at all — the first time.** Stage 0 is a Java program,
 so something must be able to run it before flixw can fetch anything. With no `java`
 anywhere, the shim exits before stage 0 starts, and what you get is its own message: how
-to install Temurin on this OS, and a note that `./flix --wrapper-install-jdk` will manage
+to install Temurin on this OS, and a note that `./flix wrapper --install-jdk` will manage
 one for you once any Java 21+ exists. The offer itself therefore only reaches you when a
 *too old* Java exists, not when none does.
 
@@ -134,7 +134,7 @@ way out.
 **It never prompts where nobody can answer.** In CI, in a pipe, or in a git hook a prompt
 is not a question, it is a hang; so a non-terminal stdin, or `CI` in the environment, gets
 the instructions and a failure instead. `FLIXW_INSTALL_JDK=1` opts in ahead of time for
-scripted setup, and `./flix --wrapper-install-jdk` does it on demand.
+scripted setup, and `./flix wrapper --install-jdk` does it on demand.
 
 **The Windows install has been reasoned about, not run.** Unpacking there is a zip read
 by `java.util.zip` inside stage 0 — not `tar`, `Expand-Archive` or any external tool, so it
@@ -184,7 +184,7 @@ have to be a second, older-syntax file — so it is stated instead.
 
 ## Wrapper verbs live in stage 0, and there is no second artifact
 
-Every wrapper verb — `pin`, `doctor`, `setup`, `validate`, `update-wrapper` — is
+Every wrapper verb — `pin`, `doctor`, `setup`, `validate` — is
 implemented inside `src/flix.java`. There is no helper JAR, no plugin, and no module
 reserved for one.
 
@@ -260,7 +260,7 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 101-case regression suite — one of those cases being
+This wrapper has been exercised by a 106-case regression suite — one of those cases being
 366 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 

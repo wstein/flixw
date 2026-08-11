@@ -32,7 +32,7 @@ for i in 1 2 3 4 5; do /usr/bin/time -p ./flix -- --version; done
 ```
 
 Stage 0 in isolation, doing everything except launching the compiler
-(`./flix --wrapper-version`, which resolves nothing and touches no network):
+(`./flix wrapper --version`, which resolves nothing and touches no network):
 
 | | |
 |---|---:|

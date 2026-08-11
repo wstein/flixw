@@ -62,7 +62,7 @@ git add flix flix.cmd .flix-wrapper .gitattributes
 ```
 
 Then `./flix check`, `./flix test`, `./flix run` — the pinned stock compiler, unmodified.
-`./flix --wrapper-help` prints the routing table: which verbs go to the compiler, which
+`./flix wrapper --help` prints the routing table: which verbs go to the compiler, which
 to the wrapper, and how to force either.
 
 ## Documentation

@@ -50,7 +50,7 @@ if [ -z "$java0" ]; then
   esac
   echo "            https://adoptium.net/temurin/releases/?version=21" >&2
   echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
-  echo "          With any Java 21+ present, ./flix --wrapper-install-jdk will" >&2
+  echo "          With any Java 21+ present, ./flix wrapper --install-jdk will" >&2
   echo "          fetch and verify one into the flixw cache for this project." >&2
   exit 127
 fi

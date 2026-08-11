@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.13.0";
+    static final String WRAPPER_VERSION = "0.14.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -52,7 +52,7 @@ public final class flix {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "doctor", "setup", "validate", "update-wrapper");
+        List.of("pin", "doctor", "setup", "validate");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -1194,7 +1194,7 @@ public final class flix {
         if (env("CI") != null || System.console() == null) {
             System.err.println("       or set FLIXW_INSTALL_JDK=1 to let flixw download a"
                              + " verified Temurin " + MIN_JAVA + " into its own cache,");
-            System.err.println("       or run: ./flix --wrapper-install-jdk");
+            System.err.println("       or run: ./flix wrapper --install-jdk");
             return false;
         }
         System.err.print("flixw: download Eclipse Temurin " + MIN_JAVA
@@ -1219,10 +1219,10 @@ public final class flix {
         return new Jvm(exe, f, "flixw-installed Temurin");
     }
 
-    /** `./flix --wrapper-install-jdk`, so the choice need not wait for a failure. */
+    /** `./flix wrapper --install-jdk`, so the choice need not wait for a failure. */
     static void installJdkVerb(List<String> argv) {
         if (argv.size() > 1)
-            throw w008("--wrapper-install-jdk takes no arguments");
+            throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
         Path exe = installJdk(resolveTemurin());
         int f = probe(exe);
         if (f < MIN_JAVA)
@@ -1542,7 +1542,7 @@ public final class flix {
           esac
           echo "            https://adoptium.net/temurin/releases/?version=21" >&2
           echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
-          echo "          With any Java 21+ present, ./flix --wrapper-install-jdk will" >&2
+          echo "          With any Java 21+ present, ./flix wrapper --install-jdk will" >&2
           echo "          fetch and verify one into the flixw cache for this project." >&2
           exit 127
         fi
@@ -1653,7 +1653,7 @@ public final class flix {
           echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
           echo             https://adoptium.net/temurin/releases/?version=21 1>&2
           echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
-          echo           With any Java 21+ present, flix.cmd --wrapper-install-jdk will 1>&2
+          echo           With any Java 21+ present, flix.cmd wrapper --install-jdk will 1>&2
           echo           fetch and verify one into the flixw cache for this project. 1>&2
           exit /b 127 )
         if not exist "%JAVA0%" (
@@ -1715,7 +1715,6 @@ public final class flix {
                 if (verb.equals("setup")) System.out.println("compiler ready.");
             }
             case "validate" -> validate(root, lock, jar);
-            case "update-wrapper" -> updateWrapper(root);
             default -> throw w009("no wrapper implementation for " + q(verb));
         }
     }
@@ -1758,7 +1757,7 @@ public final class flix {
                 return 0;
             }
             System.out.println("FAIL  " + label + " differs from flixw " + WRAPPER_VERSION
-                             + " (./flix update-wrapper)");
+                             + " (./flix wrapper upgrade)");
         } catch (IOException e) {
             System.out.println("FAIL  unreadable " + label + ": " + why(e));
         }
@@ -1803,7 +1802,7 @@ public final class flix {
         String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
         int opens = count(text, begin), closes = count(text, end);
         if (opens == 0 && closes == 0) {
-            System.out.println("warn  .gitattributes has no flixw block (./flix update-wrapper)");
+            System.out.println("warn  .gitattributes has no flixw block (./flix wrapper upgrade)");
             return 0;
         }
         int bad = 0;
@@ -1812,7 +1811,7 @@ public final class flix {
         if (opens != 1 || closes != 1) {
             System.out.println("FAIL  .gitattributes has " + opens + " flixw start and "
                              + closes + " end markers; expected one of each"
-                             + " (./flix update-wrapper)");
+                             + " (./flix wrapper upgrade)");
             bad++;
         }
         int after = text.lastIndexOf(end);
@@ -1868,7 +1867,7 @@ public final class flix {
         bad += checkCanonical(root.resolve("flix.cmd"), CMD.replace("\n", "\r\n"), "./flix.cmd");
         if (!isWindows() && Files.isRegularFile(root.resolve("flix"))
             && !Files.isExecutable(root.resolve("flix"))) {
-            System.out.println("FAIL  ./flix is not executable (./flix update-wrapper)"); bad++;
+            System.out.println("FAIL  ./flix is not executable (./flix wrapper upgrade)"); bad++;
         }
 
         // Stage 0 cannot know its own canonical hash -- it would have to contain it -- so
@@ -2101,7 +2100,7 @@ public final class flix {
             if (!before.equals(Files.readString(ga, StandardCharsets.UTF_8))) {
                 System.out.println("merged   ./.gitattributes"); changed++;
             }
-        } catch (IOException e) { throw w009("update-wrapper failed: " + why(e)); }
+        } catch (IOException e) { throw w009("wrapper upgrade failed: " + why(e)); }
         System.out.println(changed == 0
             ? "wrapper files already match flixw " + WRAPPER_VERSION
             : changed + " file(s) rewritten from flixw " + WRAPPER_VERSION);
@@ -2126,6 +2125,58 @@ public final class flix {
         Files.writeString(ga, next, StandardCharsets.UTF_8);
     }
 
+    /**
+     * flixw's own namespace: `./flix wrapper [--operation]`.
+     *
+     * One verb, and every flixw-only operation under it as a flag.  These are not
+     * stand-ins for anything Flix might one day ship, so they neither retire nor compete
+     * for a name with something that will: `pin`, `doctor`, `setup` and `validate`
+     * deliberately collide with names Flix could claim, and step aside the day it does.
+     * Rewriting flixw's own files, or reporting flixw's own version, never will.
+     *
+     * Answered before the project, the lock, the network and the compiler, for the same
+     * reason the flags it replaces were: a bare verb is subject to compiler-first
+     * dispatch, and a compiler that happened to claim `wrapper` would make these
+     * unreachable at exactly the moment someone needs them to repair the installation.
+     * FLIX_BACKEND does not reach them either.
+     */
+    static void wrapperNamespace(List<String> argv) {
+        String op = argv.size() > 1 ? argv.get(1) : "--help";
+        List<String> rest = argv.subList(Math.min(2, argv.size()), argv.size());
+        switch (op) {
+            case "--help" -> {
+                if (!rest.isEmpty()) throw w008(wrapperUsage("'--help' takes no arguments"));
+                wrapperHelp();
+            }
+            case "--version" -> {
+                if (!rest.isEmpty()) throw w008(wrapperUsage("'--version' takes no arguments"));
+                System.out.println("flixw " + WRAPPER_VERSION);
+                System.out.println("stage0 " + (env("FLIXW_SOURCE") != null ? "compiled" : "source")
+                                 + "  java " + Runtime.version());
+            }
+            case "--upgrade" -> {
+                if (!rest.isEmpty()) throw w008(wrapperUsage("'--upgrade' takes no arguments"));
+                // The only operation here that needs a project, and it resolves one itself
+                // rather than making the others depend on being inside one.
+                updateWrapper(findRoot(wrapperAnchor()));
+            }
+            case "--install-jdk" -> {
+                if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
+                installJdkVerb(argv.subList(1, argv.size()));
+            }
+            default -> throw w008(wrapperUsage("unknown operation " + q(op)));
+        }
+    }
+
+    static String wrapperUsage(String problem) {
+        return "./flix wrapper: " + problem
+             + "\n       usage: ./flix wrapper [--help | --version | --upgrade | --install-jdk]"
+             + "\n         --help         the routing table for this project"
+             + "\n         --version      the wrapper version and how stage 0 was launched"
+             + "\n         --upgrade      rewrite this project's wrapper files from this flixw"
+             + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache";
+    }
+
     // ---- main -------------------------------------------------------------
 
     public static void main(String[] args) {
@@ -2140,22 +2191,12 @@ public final class flix {
         tr("stage 0 entered");
         String first = argv.isEmpty() ? null : argv.get(0);
 
-        // Offline launcher flags, before project, lock, network or compiler work.
-        if ("--wrapper-version".equals(first) || "--wrapper-help".equals(first)) {
-            if (argv.size() > 1)
-                throw w008(q(first) + " takes no arguments; use ./flix -- " + String.join(" ", argv));
-            if (first.equals("--wrapper-version")) {
-                System.out.println("flixw " + WRAPPER_VERSION);
-                System.out.println("stage0 " + (env("FLIXW_SOURCE") != null ? "compiled" : "source")
-                                 + "  java " + Runtime.version());
-            } else wrapperHelp();
-            return;
-        }
-        if ("--wrapper-install-jdk".equals(first)) { installJdkVerb(argv); return; }
+        // flixw's own namespace, before project, lock, network or compiler work.
+        if ("wrapper".equals(first)) { wrapperNamespace(argv); return; }
         if (first != null && first.startsWith("--wrapper-"))
             throw w008("unknown launcher flag " + q(first)
-                     + "\n       known: --wrapper-version --wrapper-help"
-                     + " --wrapper-install-jdk");
+                     + "\n       flixw's own operations moved under one verb:"
+                     + "\n       ./flix wrapper [--help | --version | --upgrade | --install-jdk]");
 
         Path anchor = wrapperAnchor();
         if ("install".equals(first) && !Files.isRegularFile(lockPath(anchor))) {
@@ -2304,10 +2345,9 @@ public final class flix {
         System.out.println("  ./flix <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flix -- <args>                forced compiler pass-through");
         System.out.println("  ./flix pin [<owner>/<repo>] <version>   repin flix.toml and the lock");
-        System.out.println("  ./flix doctor | setup | validate | update-wrapper");
-        System.out.println("  ./flix --wrapper-version | --wrapper-help      (offline)");
-        System.out.println("  ./flix --wrapper-install-jdk    fetch a verified Temurin "
-                         + MIN_JAVA + " into the cache");
+        System.out.println("  ./flix doctor | setup | validate");
+        System.out.println("  ./flix wrapper [--help | --version | --upgrade | --install-jdk]");
+
         System.out.println();
         System.out.println("cache            " + cacheHome());
         System.out.println("java             " + System.getProperty("java.home")

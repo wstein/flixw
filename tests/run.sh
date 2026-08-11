@@ -192,7 +192,7 @@ echo
 echo "lock lifecycle"
 g 81 'no .*lock.toml'      "no lock blocks the compiler"        ./flix check
 t 0  "pin creates the lock"                                     ./flix pin "$version"
-t 0  "lock is reused"                                           ./flix --wrapper-version
+t 0  "lock is reused"                                           ./flix wrapper --version
 
 # pin now takes an optional owner/repository. These need no network: the repository is
 # rejected, or the arguments are, before any request is made.
@@ -209,13 +209,13 @@ t 0  "a bare re-pin keeps the recorded repository"              sh -c '
 # --- dispatch --------------------------------------------------------------
 echo "dispatch"
 t 0  "rule 1  -- pass-through"                                  ./flix -- --version
-t 0  "rule 2  --wrapper-version"                                ./flix --wrapper-version
-t 0  "rule 2  --wrapper-help"                                   ./flix --wrapper-help
-t 87 "rule 2  flag with trailing arguments"                     ./flix --wrapper-help check
-t 87 "unknown --wrapper- flag"                                  ./flix --wrapper-frobnicate
+t 0  "rule 2  wrapper --version"                                ./flix wrapper --version
+t 0  "rule 2  wrapper --help"                                   ./flix wrapper --help
+t 87 "an operation with trailing arguments"                     ./flix wrapper --help check
+t 87 "an unknown wrapper operation"                                  ./flix wrapper --frobnicate
 # The install itself is a 200MB download and is verified by hand; what the suite can
 # assert offline is that the flag exists and refuses arguments.
-t 87 "--wrapper-install-jdk takes no arguments"                 ./flix --wrapper-install-jdk temurin
+t 87 "wrapper --install-jdk takes no arguments"                 ./flix wrapper --install-jdk temurin
 t 0  "rule 3  compiler verb"                                    ./flix check
 g 0  'wrapper'   "rule 4  wrapper verb routes and says so"      ./flix doctor
 t 1  "rule 5  unknown verb reaches the compiler"                ./flix frobnicate
@@ -242,7 +242,7 @@ t 81 "reject empty prerelease suffix"                           ./flix pin '0.75
 # cache coordinate. If canonical() were applied inconsistently this would either fail to
 # resolve or produce a drift error that pin cannot repair.
 t 0  "accept and strip build metadata"                          ./flix pin "$version+build.4"
-g 0  "$version"  "stripped pin still resolves"                  ./flix --wrapper-help
+g 0  "$version"  "stripped pin still resolves"                  ./flix wrapper --help
 ./flix pin "$version" > /dev/null 2>&1
 
 # --- manifest reading ------------------------------------------------------
@@ -348,7 +348,7 @@ echo "drift"
 cp flix.toml "$work/flix.toml.bak"
 sed 's/^flix .*/flix        = "0.75.1"/' flix.toml > "$work/drifted" && cp "$work/drifted" flix.toml
 g 81 'declares 0.75.1' "drift blocks the compiler"              ./flix check
-t 0  "drift does not block --wrapper-version"                   ./flix --wrapper-version
+t 0  "drift does not block --wrapper-version"                   ./flix wrapper --version
 t 0  "drift does not block doctor"                              ./flix doctor
 t 88 "drift does not block validate (which reports it)"         ./flix validate
 cp "$work/flix.toml.bak" flix.toml
@@ -388,13 +388,13 @@ if [ "$posix" = yes ]; then
   # FLIXW code reached and no fallback. The shim must therefore decline the fast path
   # below the floor. Both fixtures' bin/java is really the host java, so the only
   # observable difference is which route the shim took -- which is exactly the bug.
-  g 0   'stage0 source'   "below the floor the shim declines the class"   env FLIX_JAVA_HOME="$work/jdk17" ./flix --wrapper-version
-  g 0   'stage0 compiled' "at the floor or above the shim uses it"        env FLIX_JAVA_HOME="$work/jdk99" ./flix --wrapper-version
+  g 0   'stage0 source'   "below the floor the shim declines the class"   env FLIX_JAVA_HOME="$work/jdk17" ./flix wrapper --version
+  g 0   'stage0 compiled' "at the floor or above the shim uses it"        env FLIX_JAVA_HOME="$work/jdk99" ./flix wrapper --version
   # asdf, mise and jenv install `java` as a shim script, not a symlink into a JDK, so
   # there is no release file beside it. Running the cached class blind under one of those
   # pointing at an old JVM died on class file version with no way back, so an
   # unidentifiable Java now earns the source path rather than the fast one.
-  g 0   'stage0 source' "an unidentifiable Java declines the class too"   env FLIX_JAVA_HOME="$work/jdkbare" ./flix --wrapper-version
+  g 0   'stage0 source' "an unidentifiable Java declines the class too"   env FLIX_JAVA_HOME="$work/jdkbare" ./flix wrapper --version
 
   # With no java on PATH at all the shim never reaches stage 0, so the only help a user
   # gets is the shim's own message -- and the only route back is a JDK flixw installed
@@ -405,7 +405,7 @@ if [ "$posix" = yes ]; then
     p=$(command -v "$u" 2>/dev/null) && ln -sf "$p" "$work/tools/$u"
   done
   g 127 'Temurin' "no java at all names a JDK to install"       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix check
-  g 127 'wrapper-install-jdk' "and says how flixw can fetch one" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix check
+  g 127 'install-jdk' "and says how flixw can fetch one" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix check
   # A recorded JDK is used when nothing else answers. The fixture stands in for a real
   # install so the suite stays offline; what is under test is the shim reading it.
   # A stand-in for an installed JDK, inside the cache where a real one lands: the marker
@@ -415,10 +415,10 @@ if [ "$posix" = yes ]; then
   chmod +x "$cache/jdks/fake/bin/java"
   printf 'JAVA_VERSION="21.0.1"\n' > "$cache/jdks/fake/release"
   printf '%s\n' "$cache/jdks/fake/bin/java" > "$cache/jdks/default"
-  g 0 'flixw' "a recorded JDK is used when PATH has none"       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix --wrapper-version
+  g 0 'flixw' "a recorded JDK is used when PATH has none"       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix wrapper --version
   # A java below the floor on PATH is worse than none: under 15 it cannot even compile
   # stage 0, so nothing flixw knows is ever reached. A recorded JDK outranks it.
-  g 0 'stage0' "a recorded JDK outranks a below-floor PATH java" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/jdk17/bin:$work/tools" ./flix --wrapper-version
+  g 0 'stage0' "a recorded JDK outranks a below-floor PATH java" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/jdk17/bin:$work/tools" ./flix wrapper --version
   # But never an explicitly named one: those fail loudly rather than being replaced by a
   # JVM the caller did not ask for.
   t 83 "an explicit below-floor JDK is not silently replaced"    env FLIX_JAVA_HOME="$work/jdk17" ./flix -- --version
@@ -578,10 +578,10 @@ g 88 'markers' "validate detects a second flixw block"      sh -c '
   printf "# >>> flixw >>>\n/flix text eol=crlf\n# <<< flixw <<<\n" >> .gitattributes
   ./flix validate; rc=$?
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
-t 0  "update-wrapper collapses duplicate blocks to one"          sh -c '
+t 0  "wrapper --upgrade collapses duplicate blocks to one"     sh -c '
   cp .gitattributes "$1/ga.keep"
   printf "# >>> flixw >>>\n/flix text eol=crlf\n# <<< flixw <<<\n" >> .gitattributes
-  ./flix update-wrapper >/dev/null 2>&1
+  ./flix wrapper --upgrade >/dev/null 2>&1
   n=$(grep -c ">>> flixw >>>" .gitattributes)
   cp "$1/ga.keep" .gitattributes
   [ "$n" = 1 ]' sh "$work"
@@ -597,10 +597,23 @@ g 88 'markers' "an unbalanced flixw marker is a failure"         sh -c '
   printf "# <<< flixw <<<\n" >> .gitattributes
   ./flix validate; rc=$?
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
-t 0  "update-wrapper is a no-op when files match"               ./flix update-wrapper
-g 0  'rewrote' "update-wrapper repairs a clobbered shim"        sh -c 'echo broken > flix.cmd; ./flix update-wrapper'
+t 0  "wrapper --upgrade is a no-op when files match"           ./flix wrapper --upgrade
+g 0  'rewrote' "wrapper --upgrade repairs a clobbered shim"        sh -c 'echo broken > flix.cmd; ./flix wrapper --upgrade'
 t 0  "the repaired shim matches the source of truth"            cmp flix.cmd "$root/src/flix.cmd"
-t 0  "update-wrapper restores the executable bit"               sh -c 'chmod -x flix; java .flix-wrapper/flix.java update-wrapper; test -x flix'
+t 0  "wrapper --upgrade restores the executable bit"           sh -c 'chmod -x flix; java .flix-wrapper/flix.java wrapper --upgrade; test -x flix'
+
+# flixw's own namespace is answered before dispatch, so nothing can take it away: not a
+# compiler that claimed the name, not FLIX_BACKEND, and not a lock too broken to read --
+# which is the state it exists to repair.
+t 0  "bare wrapper prints the routing table"                   ./flix wrapper
+t 87 "wrapper rejects an unknown operation"                    ./flix wrapper --frobnicate
+t 87 "wrapper --upgrade takes no arguments"                    ./flix wrapper --upgrade now
+t 0  "wrapper --upgrade survives FLIX_BACKEND=compiler"        env FLIX_BACKEND=compiler ./flix wrapper --upgrade
+t 0  "wrapper --upgrade survives an unreadable lock"           sh -c '
+  cp .flix-wrapper/lock.toml "$1/lock.keep"
+  printf "garbage\n" > .flix-wrapper/lock.toml
+  ./flix wrapper --upgrade >/dev/null 2>&1; rc=$?
+  cp "$1/lock.keep" .flix-wrapper/lock.toml; exit $rc' sh "$work"
 
 # --- git integration -------------------------------------------------------
 echo "git integration"

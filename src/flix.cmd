@@ -42,7 +42,7 @@ if not defined JAVA0 (
   echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
   echo             https://adoptium.net/temurin/releases/?version=21 1>&2
   echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
-  echo           With any Java 21+ present, flix.cmd --wrapper-install-jdk will 1>&2
+  echo           With any Java 21+ present, flix.cmd wrapper --install-jdk will 1>&2
   echo           fetch and verify one into the flixw cache for this project. 1>&2
   exit /b 127 )
 if not exist "%JAVA0%" (

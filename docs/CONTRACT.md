@@ -61,7 +61,7 @@ every comparison — otherwise `flix = "0.75.2+build.4"` produces a drift error 
 **Drift is fatal, and detected before the network.** If `flix.toml` and the lock
 disagree, the compiler path stops immediately — before Java selection, before any
 download, before the compiler is executed. `pin`, `doctor`, `validate` and
-`update-wrapper` still run, because otherwise the repair the diagnostic recommends is
+`wrapper upgrade` still run, because otherwise the repair the diagnostic recommends is
 unreachable. `setup` does not, because it acquires the compiler. The same holds for a lock
 that does not *parse*: `pin` replaces it, while everything needing a compiler still fails
 on it.
@@ -127,7 +127,7 @@ When nothing usable is found, stage 0 prints OS-specific installation instructio
 exits `FLIXW003`. If stdin is a terminal and `CI` is unset it first offers to download a
 JDK — Eclipse Temurin at `MIN_JAVA`, verified against Adoptium's published SHA-256 for
 that package and unpacked into `<cache>/jdks/` — and `FLIXW_INSTALL_JDK=1` accepts that
-offer in advance. `./flix --wrapper-install-jdk` performs it on demand and prints the
+offer in advance. `./flix wrapper --install-jdk` performs it on demand and prints the
 resulting `java` on stdout. Temurin is the only vendor fetched; any other already on the
 machine is found and used. It is never taken silently, and it cannot help when no Java exists at all, since
 stage 0 needs one to run.
@@ -142,13 +142,21 @@ reached only when no explicit setting exists and the running JVM is unusable.
 `./flix <verb>` is compiler-first. In order:
 
 1. `./flix -- <args>` forwards everything after `--` to the compiler.
-2. `--wrapper-version` and `--wrapper-help` are answered by stage 0, offline: no project,
-   no lock, no network, no compiler. They take no arguments. `--wrapper-install-jdk`
-   fetches a JDK and needs the network.
+2. `./flix wrapper [--operation]` is flixw's own namespace, answered by stage 0 before
+   anything else. `--version` and `--help` are offline: no project, no lock, no network,
+   no compiler. `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
+   a JDK and needs the network. A bare `wrapper` prints the routing table.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
-4. Otherwise, if it is `pin`, `doctor`, `setup`, `validate` or `update-wrapper`, the
+4. Otherwise, if it is `pin`, `doctor`, `setup` or `validate`, the
    wrapper implements it, and says so on stderr.
 5. Otherwise the compiler gets it.
+
+`./flix wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
+not a stand-in for anything Flix might ship, so it is not routed to the compiler, does not
+retire, and is unaffected by `FLIX_BACKEND` — and it is reachable with a lock too broken
+to parse, because `./flix wrapper upgrade` is what repairs the installation. The bare
+verbs above collide with names Flix could claim *on purpose*; rewriting flixw's own files
+never will, so it does not compete for one.
 
 `FLIX_BACKEND=wrapper` forces rule 4 during a transition; `FLIX_BACKEND=compiler` forces
 the compiler for every verb, including the wrapper's own.
@@ -192,7 +200,7 @@ and the terminal inherited. Consequences, all tested:
 - The REPL keeps raw-mode input, line editing and colour.
 - `./flix run > out.txt` contains only the program's stdout. Every wrapper *diagnostic* —
   routing notices, warnings, `FLIXWnnn` — goes to stderr. Wrapper *command results*
-  (`doctor`, `validate`, `--wrapper-help`) go to stdout, so they can be redirected and
+  (`doctor`, `validate`, `wrapper --help`) go to stdout, so they can be redirected and
   piped like any other command output.
 - Ctrl-C reaches the compiler through the foreground process group.
 - A `SIGTERM` to stage 0 destroys the compiler rather than orphaning it. This holds for a
@@ -278,7 +286,7 @@ them the fast path and is the deliberate trade. Below the floor
 the shim silently declines the cached class and launches the source instead, where stage 0
 produces the ordinary `FLIXW003`/`FLIXW004` diagnostic; `exec` is one-way, so a class the
 JVM refuses to load would otherwise surface as a bare `UnsupportedClassVersionError` with no
-wrapper code reached and no fallback — including for `--wrapper-help`.
+wrapper code reached and no fallback — including for `wrapper --help`.
 
 `<cache>` is `FLIX_CACHE_HOME`, else `%LOCALAPPDATA%\flixw`,
 `~/Library/Caches/flixw`, or `${XDG_CACHE_HOME:-~/.cache}/flixw`. Verb records live in

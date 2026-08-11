@@ -29,8 +29,8 @@ you are deliberately letting lead.
 The wrapper has no build system — it is one Java 21 source file, run via JEP 330.
 
 ```sh
-java src/flix.java --wrapper-version      # offline; no project, lock, or network needed
-java src/flix.java --wrapper-help         # routing table (enriched if run inside a project)
+java src/flix.java wrapper --version      # offline; no project, lock, or network needed
+java src/flix.java wrapper --help         # routing table (enriched if run inside a project)
 javac -d /tmp/flixw-out src/flix.java     # compile check
 FLIXW_TRACE=1 ./flix check                # per-phase timings on stderr
 ```
@@ -49,7 +49,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 101-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 106-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -113,7 +113,7 @@ the JAR — a content-addressed compiler directory may legitimately be read-only
 
 Order in `realMain` (paper §4.8): `--wrapper-*` flags → `install` (first contact only) →
 drift check → `./flix -- args` forced pass-through → verb in the captured compiler verb set →
-verb in `WRAPPER_VERBS` (`pin doctor setup validate update-wrapper`) → otherwise the compiler,
+verb in `WRAPPER_VERBS` (`pin doctor setup validate`) → otherwise the compiler,
 so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire *automatically*, one
 at a time, as Flix implements them; a displaced verb prints a deprecation notice.
 `FLIX_BACKEND=wrapper|compiler` forces a side during a transition.
