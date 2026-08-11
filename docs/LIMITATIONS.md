@@ -175,6 +175,27 @@ starting with `unclosed string literal`, because the file cannot be compiled bef
 report anything. Nothing in a single-file bootstrap can fix that — the diagnostic would
 have to be a second, older-syntax file — so it is stated instead.
 
+## Wrapper verbs live in stage 0, and there is no second artifact
+
+Every wrapper verb — `pin`, `doctor`, `setup`, `validate`, `update-wrapper` — is
+implemented inside `src/flix.java`. There is no helper JAR, no plugin, and no module
+reserved for one.
+
+The design paper describes an optional services JAR that could hold those verbs if the
+surface outgrew a single auditable file. A directory stood reserved for it for a while,
+holding a build definition and no sources. It is gone: it built nothing, shipped nothing,
+and its version pins would have been stale by the time anything needed them, while the
+sbt ignore rules it justified had already hidden a stale build tree at the repository root
+for the project's whole life.
+
+The reasoning it existed to preserve is worth keeping, so here it is. A second artifact
+becomes justified only when stage 0 can no longer be read end to end in one sitting, or
+when a verb needs a dependency the JDK does not provide. It is not free: it means a second
+release pipeline, a second digest to publish, a second security-response path and a second
+trust-on-first-use anchor — for exactly the class of artifact this project exists to
+verify. That cost is worth accepting deliberately and late, and reviving a three-file
+directory from this paragraph is ten minutes' work if the day comes.
+
 ## The manifest is not read by a TOML parser
 
 `flix.toml` and the lock are read by a small hand-written scanner, because stage 0 has no

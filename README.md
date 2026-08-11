@@ -81,8 +81,6 @@ src/flix        POSIX shim  — finds a Java, prefers the compiled stage 0
 src/flix.cmd    cmd.exe shim — same, for Windows without a POSIX shell
 tests/          regression suite, unit checks, and a corpus of 95 real flix.toml
                 files used to test the manifest scanner against a TOML oracle
-services/       placeholder sbt module; built only if the wrapper-verb surface
-                outgrows stage 0, which it has not
 docs/           contract, benchmarks, limitations, design paper
 ```
 

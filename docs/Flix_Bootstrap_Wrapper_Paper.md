@@ -16,9 +16,11 @@
 > it**; [`BENCHMARKS.md`](BENCHMARKS.md) has the measured numbers and
 > [`LIMITATIONS.md`](LIMITATIONS.md) the honest limits.
 >
-> Terminology has been aligned with the implementation since publication: the reserved,
-> still-unbuilt wrapper-verb artifact is `flixw-services.jar` throughout, and the module
-> reserving it is `services/`. No claim, measurement or argument was changed.
+> Terminology has been aligned with the implementation since publication: the optional
+> wrapper-verb artifact is `flixw-services.jar` throughout. No claim, measurement or
+> argument was changed. The directory that once reserved it has since been deleted — it
+> built nothing and shipped nothing; see `docs/LIMITATIONS.md` for the reasoning it held
+> and the condition that would bring it back.
 >
 > Known divergences: verb capture is advisory rather than fatal, falling back to a built-in
 > table with `FLIXW010`; the Java ceiling warns rather than fails unless

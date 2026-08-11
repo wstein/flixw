@@ -57,10 +57,6 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 manifests, and the bounds on `runCapture` — 347 assertions in total. Refresh the corpus
 with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
-`services/` holds a build definition and nothing else — no sources, reserved against the
-possibility that wrapper verbs outgrow stage 0. See `services/README.md` for the entry
-condition. It is **not** on any hot path and is not built by lint or CI.
-
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
 space: two JDK stand-ins, a JAR whose `--help` cannot be parsed, a JAR that sleeps, and a
 git-initialised scratch project. Nothing binary is committed. Four cases cannot exist on
