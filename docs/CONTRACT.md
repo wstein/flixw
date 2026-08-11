@@ -147,6 +147,7 @@ reached only when no explicit setting exists and the running JVM is unusable.
    no compiler. `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
    a JDK and needs the network. A bare `wrapper` prints the routing table.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
+   That includes `help`: it is a wrapper verb only until Flix ships one of its own.
 4. Otherwise, if it is `pin`, `doctor`, `setup` or `validate`, the
    wrapper implements it, and says so on stderr.
 5. Otherwise the compiler gets it.
@@ -157,6 +158,13 @@ retire, and is unaffected by `FLIX_BACKEND` — and it is reachable with a lock 
 to parse, because `./flix wrapper upgrade` is what repairs the installation. The bare
 verbs above collide with names Flix could claim *on purpose*; rewriting flixw's own files
 never will, so it does not compete for one.
+
+`./flix help` and `./flix --help` answer with both halves: flixw's routing table, then
+the pinned compiler's own help, unedited. `help` is a bare verb and retires under rule 3
+like any other; `--help` is a flag, can never be a compiler verb, and is intercepted
+outright. `./flix -- --help`, `FLIX_BACKEND=compiler`, and any `--help` carrying further
+arguments reach the compiler alone — which is what anyone parsing its output wants. The
+exit status is the compiler's.
 
 `FLIX_BACKEND=wrapper` forces rule 4 during a transition; `FLIX_BACKEND=compiler` forces
 the compiler for every verb, including the wrapper's own.

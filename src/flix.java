@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.14.0";
+    static final String WRAPPER_VERSION = "0.15.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -52,7 +52,7 @@ public final class flix {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "doctor", "setup", "validate");
+        List.of("pin", "doctor", "setup", "validate", "help");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -2317,6 +2317,26 @@ public final class flix {
             toCompiler = true;                       // unknown verbs, and no verb at all
         }
 
+        // `help` and `--help` answer with both halves: flixw's routing table, then the
+        // pinned compiler's own help, unedited and straight from the compiler.
+        //
+        // The two arrive here differently on purpose. `help` is a bare verb Flix could
+        // plausibly claim, so it sits in WRAPPER_VERBS and rule 3 above takes it away the
+        // day Flix implements one -- the same automatic retirement every wrapper verb
+        // gets. `--help` is a flag, can never be a compiler verb, and so is intercepted
+        // outright. Either way `./flix -- --help` and FLIX_BACKEND=compiler still reach
+        // the compiler alone, which is what someone parsing its output would want.
+        if (!toCompiler && "help".equals(first)
+            || (!forcedCompiler && "--help".equals(first) && argv.size() == 1)) {
+            wrapperHelp();
+            System.out.println();
+            System.out.println("---- Flix " + lock.version() + " ".repeat(3)
+                             + "(./flix -- --help for this alone) ----");
+            System.out.println();
+            launch(jvm.exe(), opts, jar, List.of("--help"));
+            return;                                  // launch exits; this is for the reader
+        }
+
         if (!toCompiler) {
             if (forcedWrapper && compilerVerbs.contains(first))
                 System.err.println("flix: " + q(first) + " \u2192 wrapper " + WRAPPER_VERSION
@@ -2342,6 +2362,7 @@ public final class flix {
     static void wrapperHelp() {
         System.out.println("flixw " + WRAPPER_VERSION + " -- repository-local Flix bootstrap");
         System.out.println();
+        System.out.println("  ./flix help | --help            this table, then the compiler's own help");
         System.out.println("  ./flix <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flix -- <args>                forced compiler pass-through");
         System.out.println("  ./flix pin [<owner>/<repo>] <version>   repin flix.toml and the lock");

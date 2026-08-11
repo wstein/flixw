@@ -229,6 +229,19 @@ t 1  "FLIX_BACKEND=compiler forces the compiler"                env FLIX_BACKEND
 # the one outcome someone forcing a side is trying to rule out.
 t 87 "an unknown FLIX_BACKEND is rejected, not ignored"         env FLIX_BACKEND=Compiler ./flix doctor
 
+# `help` and `--help` answer with both halves. The escape hatches must still reach the
+# compiler alone, because that is what anyone parsing its output is asking for.
+g 0 'repository-local Flix bootstrap' "help merges both halves"  ./flix help
+g 0 'The Flix Programming Language'   "help includes the compiler's own"  ./flix help
+g 0 'repository-local Flix bootstrap' "--help merges them too"    ./flix --help
+g 0 'The Flix Programming Language'   "-- --help is the compiler alone"  ./flix -- --help
+t 0 "-- --help does not merge"                                  sh -c '
+  ! ./flix -- --help 2>&1 | grep -q "repository-local Flix bootstrap"'
+t 0 "FLIX_BACKEND=compiler does not merge"                      sh -c '
+  ! FLIX_BACKEND=compiler ./flix --help 2>&1 | grep -q "repository-local"'
+t 0 "a flag with arguments is passed through untouched"         sh -c '
+  ! ./flix --help check 2>&1 | grep -q "repository-local"'
+
 # --- version grammar -------------------------------------------------------
 echo "version grammar"
 t 81 "reject 0.75"                                              ./flix pin 0.75
