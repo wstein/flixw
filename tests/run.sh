@@ -323,10 +323,19 @@ if [ "$posix" = yes ]; then
   t 83  "explicit Java below the floor is fatal"                env FLIX_JAVA_HOME="$work/jdk17" ./flix -- --version
   g 0   'FLIXW011' "above the ceiling warns and proceeds"       env FLIX_JAVA_HOME="$work/jdk99" ./flix -- --version
   t 83  "FLIXW_STRICT_JAVA makes the ceiling fatal"             env FLIX_JAVA_HOME="$work/jdk99" FLIXW_STRICT_JAVA=1 ./flix -- --version
+  # The compiled stage 0 is built for the floor and the shim execs it, which leaves no
+  # way back: handing it to an older JVM is an UnsupportedClassVersionError with no
+  # FLIXW code reached and no fallback. The shim must therefore decline the fast path
+  # below the floor. Both fixtures' bin/java is really the host java, so the only
+  # observable difference is which route the shim took -- which is exactly the bug.
+  g 0   'stage0 source'   "below the floor the shim declines the class"   env FLIX_JAVA_HOME="$work/jdk17" ./flix --wrapper-version
+  g 0   'stage0 compiled' "at the floor or above the shim uses it"        env FLIX_JAVA_HOME="$work/jdk99" ./flix --wrapper-version
 else
   s "explicit Java below the floor is fatal"                    "needs a runnable fake bin/java.exe"
   s "above the ceiling warns and proceeds"                      "needs a runnable fake bin/java.exe"
   s "FLIXW_STRICT_JAVA makes the ceiling fatal"                 "needs a runnable fake bin/java.exe"
+  s "below the floor the shim declines the class"               "needs a runnable fake bin/java.exe"
+  s "at the floor or above the shim uses it"                    "needs a runnable fake bin/java.exe"
 fi
 
 # --- jvm options -----------------------------------------------------------

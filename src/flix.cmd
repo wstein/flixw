@@ -18,13 +18,24 @@ if not exist "%SRC%" (
   echo FLIXW009: missing %SRC% 1>&2
   exit /b 88 )
 
+rem Feature version of the selected java, from the release file of its own JDK.
+rem Only used to decide whether the compiled class is loadable: a JVM below the
+rem floor cannot load it and exec leaves no way back.  Unknown changes nothing.
+set "JHOME=%JAVA0:\bin\java.exe=%"
+set "JFEATURE="
+if exist "%JHOME%\release" (
+  for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "%JHOME%\release" 2^>nul') do (
+    for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) )
+set "SLOWPATH="
+if defined JFEATURE if !JFEATURE! LSS 21 set "SLOWPATH=1"
+
 if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
   set "CACHE=%LOCALAPPDATA%\flixw" )
 set "H="
 for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
   if not defined H set "H=%%L" )
 if defined H set "H=!H: =!"
-if defined H if exist "!CACHE!\stage0\!H!\flix.class" (
+if not defined SLOWPATH if defined H if exist "!CACHE!\stage0\!H!\flix.class" (
   set "FLIXW_SOURCE=%SRC%"
   "%JAVA0%" -cp "!CACHE!\stage0\!H!" flix %*
   exit /b !ERRORLEVEL! )

@@ -67,6 +67,26 @@ else
   cat "$work/install.log"
 fi
 
+# --- 4. the Java floor is stated in three files ----------------------------
+# MIN_JAVA is the authority, but a shim cannot import a Java constant, so the floor is
+# written out in both of them -- in a message and in a numeric comparison. That is
+# exactly the "written twice" hazard the shims are supposed to avoid, so it is checked
+# rather than trusted: a MIN_JAVA bump that misses a shim would silently hand the
+# compiled stage 0 to a JVM that cannot load it.
+min=$(sed -n 's/.*static final int MIN_JAVA = \([0-9][0-9]*\).*/\1/p' "$root/src/flix.java")
+if [ -z "$min" ]; then
+  bad "cannot read MIN_JAVA from src/flix.java"
+else
+  floors=$( { grep -o 'Java [0-9][0-9]*+' "$root/src/flix" "$root/src/flix.cmd"
+              grep -o -- '-ge [0-9][0-9]*'  "$root/src/flix"
+              grep -o 'LSS [0-9][0-9]*'     "$root/src/flix.cmd"; } | grep -o '[0-9][0-9]*' | sort -u)
+  if [ "$floors" = "$min" ]; then
+    say "ok    the Java floor is $min in MIN_JAVA and in both shims"
+  else
+    bad "Java floor disagrees: MIN_JAVA=$min, shims say $(echo "$floors" | tr '\n' ' ')"
+  fi
+fi
+
 # CRLF is load-bearing for cmd.exe: a LF-only .cmd breaks multi-line if/for blocks.
 if od -c "$root/src/flix.cmd" | grep -q '\\r'; then
   say "ok    src/flix.cmd has CRLF line endings"

@@ -210,6 +210,14 @@ The directory is keyed by source hash alone, so without that pin a stage 0 compi
 newer JDK would be handed to an older shim, which would fail on classfile version with no
 route back to the source path.
 
+For the same reason the shims take the fast path only when the selected Java is known to be
+at or above the floor, read from that JDK's own `release` file — one file read, not a
+subprocess. A Java the shim cannot place stays unknown and changes nothing. Below the floor
+the shim silently declines the cached class and launches the source instead, where stage 0
+produces the ordinary `FLIXW003`/`FLIXW004` diagnostic; `exec` is one-way, so a class the
+JVM refuses to load would otherwise surface as a bare `UnsupportedClassVersionError` with no
+wrapper code reached and no fallback — including for `--wrapper-help`.
+
 `<cache>` is `FLIX_CACHE_HOME`, else `%LOCALAPPDATA%\flixw`,
 `~/Library/Caches/flixw`, or `${XDG_CACHE_HOME:-~/.cache}/flixw`. Verb records live in
 the cache and never beside the JAR: a content-addressed compiler directory may

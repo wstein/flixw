@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.3.0";
+    static final String WRAPPER_VERSION = "0.4.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -883,8 +883,15 @@ public final class flix {
     //
     // Both shims locate a Java, then prefer the content-keyed compiled stage 0 in the
     // user cache over a source launch.  Measured: ~131ms of wrapper overhead instead of
-    // ~532ms.  Any failure in the cache lookup falls through to the source path, so the
-    // fast route can never be the reason a command does not run.
+    // ~532ms.
+    //
+    // The fast path is taken only when the cache lookup succeeds *and* the selected Java
+    // is known to be able to load the class.  exec leaves no way back: a class built for
+    // the floor and handed to an older JVM is an UnsupportedClassVersionError printed by
+    // the JVM, with no FLIXW code reached, no diagnostic, and no fallback -- and it takes
+    // `--wrapper-help` down with it, which is the command someone would run to find out
+    // why.  Whatever a shim cannot determine, it does not act on; it falls through to the
+    // source path, where stage 0 owns every Java decision and every message.
 
     static final String SHIM = """
         #!/bin/sh
@@ -920,6 +927,22 @@ public final class flix {
           exit 88
         fi
 
+        # Feature version of the selected java, read from the release file of the JDK it
+        # lives in -- the same source stage 0 prefers, and it costs one file read.  The
+        # shim does not decide anything with this beyond whether the compiled class is
+        # loadable; below-floor Java stays stage 0's diagnostic to give.  A java that does
+        # not resolve into a JDK layout leaves this unknown, and unknown changes nothing.
+        jhome=$java0
+        while [ -L "$jhome" ]; do
+          link=$(readlink "$jhome")
+          case $link in /*) jhome=$link ;; *) jhome=$(dirname "$jhome")/$link ;; esac
+        done
+        jhome=${jhome%/bin/java}
+        jfeature=
+        if [ -r "$jhome/release" ]; then
+          jfeature=$(sed -n 's/^JAVA_VERSION="\\([0-9][0-9]*\\).*/\\1/p' "$jhome/release" 2>/dev/null)
+        fi
+
         # Content-keyed compiled stage 0.  Versioned interface with stage 0; see README.
         if [ -n "${FLIX_CACHE_HOME:-}" ]; then cache=$FLIX_CACHE_HOME
         else
@@ -933,7 +956,9 @@ public final class flix {
         elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$src" 2>/dev/null | cut -d' ' -f1)
         elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 -r "$src" 2>/dev/null | cut -d' ' -f1)
         fi
-        if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ]; then
+        # The class is built for the floor, so only a Java below the floor cannot load it.
+        if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ] \\
+           && { [ -z "$jfeature" ] || [ "$jfeature" -ge 21 ]; }; then
           FLIXW_SOURCE=$src; export FLIXW_SOURCE
           exec "$java0" -cp "$cache/stage0/$h" flix "$@"
         fi
@@ -961,13 +986,24 @@ public final class flix {
           echo FLIXW009: missing %SRC% 1>&2
           exit /b 88 )
 
+        rem Feature version of the selected java, from the release file of its own JDK.
+        rem Only used to decide whether the compiled class is loadable: a JVM below the
+        rem floor cannot load it and exec leaves no way back.  Unknown changes nothing.
+        set "JHOME=%JAVA0:\\bin\\java.exe=%"
+        set "JFEATURE="
+        if exist "%JHOME%\\release" (
+          for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "%JHOME%\\release" 2^>nul') do (
+            for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) )
+        set "SLOWPATH="
+        if defined JFEATURE if !JFEATURE! LSS 21 set "SLOWPATH=1"
+
         if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
           set "CACHE=%LOCALAPPDATA%\\flixw" )
         set "H="
         for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
           if not defined H set "H=%%L" )
         if defined H set "H=!H: =!"
-        if defined H if exist "!CACHE!\\stage0\\!H!\\flix.class" (
+        if not defined SLOWPATH if defined H if exist "!CACHE!\\stage0\\!H!\\flix.class" (
           set "FLIXW_SOURCE=%SRC%"
           "%JAVA0%" -cp "!CACHE!\\stage0\\!H!" flix %*
           exit /b !ERRORLEVEL! )

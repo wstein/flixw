@@ -48,7 +48,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 74-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 76-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -83,6 +83,12 @@ selection, compiler acquisition, unconditional SHA-256 verification, verb dispat
 verbs, and process launch. The shims own exactly one decision each (which `java`) plus one
 cache lookup; keep it that way — logic added to a shim has to be written twice and cannot be
 unit-tested.
+
+The one thing a shim also reads is the selected JDK's `release` file, and it uses that for
+nothing except declining the compiled stage 0 when the JVM is below `MIN_JAVA`. That is not
+a Java *policy* decision — stage 0 still owns every diagnostic — it is the shim refusing to
+`exec` a class the JVM cannot load, because `exec` leaves no way back. The floor therefore
+appears in `MIN_JAVA` and in both shims, and `tests/lint.sh` fails if the three disagree.
 
 ### The shims exist twice
 

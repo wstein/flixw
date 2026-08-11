@@ -43,9 +43,14 @@ signal reaches the compiler directly.
 
 `flix.cmd` is written, lint-checked, and covered by a CI job that installs into a scratch
 project and runs `pin`, `check`, `run` and `validate` through it under `cmd.exe`, plus the
-full suite under Git Bash and the shim once from PowerShell. That job has never run: this
-repository has no remote yet, so no CI has executed. Until it does, treat Windows as
-unverified. Specific risks:
+full suite under Git Bash and the shim once from PowerShell. That job now runs on every
+push and passes. `flix-invaders` also runs the POSIX shim under Git Bash on
+`windows-latest`, launching the game in a real window.
+
+Two gaps remain behind that green tick. Four suite cases cannot exist on Windows and are
+reported as skipped, not passed. And the `cmd.exe` trampoline has no *field* coverage: the
+one real project using flixw drives it from Git Bash, so `flix.cmd` is exercised only by
+flixw's own smoke job. Specific risks:
 
 - `cmd.exe` transforms arguments before any script sees them. `%VAR%` is expanded at
   parse time and cannot be recovered, `!` is destroyed under delayed expansion, and `^`
@@ -58,8 +63,7 @@ unverified. Specific risks:
 
 `java .flix-wrapper\flix.java <args>` is the lossless fallback on Windows: it needs no
 shim, no shell, and no execution policy. Git Bash also works, and is present on every
-GitHub Windows runner; the reference project `wstein/flix-invaders` has run its POSIX
-wrapper there for months, which is the only Windows evidence that exists today.
+GitHub Windows runner, which is how `wstein/flix-invaders` exercises the wrapper there.
 
 There is deliberately no PowerShell script. A Group-Policy `MachinePolicy` execution
 policy cannot be overridden by `-ExecutionPolicy Bypass`, so a `.ps1` can be
@@ -135,7 +139,7 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 74-case regression suite — one of those cases being
+This wrapper has been exercised by a 76-case regression suite — one of those cases being
 327 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 

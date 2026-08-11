@@ -31,6 +31,22 @@ if [ ! -f "$src" ]; then
   exit 88
 fi
 
+# Feature version of the selected java, read from the release file of the JDK it
+# lives in -- the same source stage 0 prefers, and it costs one file read.  The
+# shim does not decide anything with this beyond whether the compiled class is
+# loadable; below-floor Java stays stage 0's diagnostic to give.  A java that does
+# not resolve into a JDK layout leaves this unknown, and unknown changes nothing.
+jhome=$java0
+while [ -L "$jhome" ]; do
+  link=$(readlink "$jhome")
+  case $link in /*) jhome=$link ;; *) jhome=$(dirname "$jhome")/$link ;; esac
+done
+jhome=${jhome%/bin/java}
+jfeature=
+if [ -r "$jhome/release" ]; then
+  jfeature=$(sed -n 's/^JAVA_VERSION="\([0-9][0-9]*\).*/\1/p' "$jhome/release" 2>/dev/null)
+fi
+
 # Content-keyed compiled stage 0.  Versioned interface with stage 0; see README.
 if [ -n "${FLIX_CACHE_HOME:-}" ]; then cache=$FLIX_CACHE_HOME
 else
@@ -44,7 +60,9 @@ if command -v shasum >/dev/null 2>&1; then h=$(shasum -a 256 "$src" 2>/dev/null 
 elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$src" 2>/dev/null | cut -d' ' -f1)
 elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 -r "$src" 2>/dev/null | cut -d' ' -f1)
 fi
-if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ]; then
+# The class is built for the floor, so only a Java below the floor cannot load it.
+if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ] \
+   && { [ -z "$jfeature" ] || [ "$jfeature" -ge 21 ]; }; then
   FLIXW_SOURCE=$src; export FLIXW_SOURCE
   exec "$java0" -cp "$cache/stage0/$h" flix "$@"
 fi
