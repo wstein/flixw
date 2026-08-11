@@ -86,15 +86,16 @@ A machine-readable command list from upstream would remove this entirely.
 ## JDK provisioning is opt-in, and cannot bootstrap from nothing
 
 `flixw` finds a Java. When it finds none it prints what to type on your OS, and — only if
-you say yes — downloads one: Azul Zulu, the JDK matching `MIN_JAVA`, verified against the
-SHA-256 Azul publishes for that exact package, unpacked into `<cache>/jdks/`.
+you say yes — downloads one: Eclipse Temurin at `MIN_JAVA`, verified against the SHA-256
+Adoptium publishes for that exact package, unpacked into `<cache>/jdks/`.
 
-Zulu is chosen for one reason: its metadata API carries a per-package SHA-256, so the JDK
-can be verified the way the compiler is. An unverified JDK download inside a tool built
-around digest verification would be absurd. That is not a recommendation over Eclipse
-Temurin, Amazon Corretto, Microsoft Build or Red Hat's build — the printed instructions
-point at Temurin, which is the vendor-neutral default — and all of them are TCK-verified
-under GPLv2 with the Classpath Exception, so all are fine commercially.
+Temurin is the only vendor flixw fetches, and the instructions it prints name the same
+one. It is vendor-neutral rather than tied to a single cloud's ecosystem, TCK-verified
+under GPLv2 with the Classpath Exception so it is usable commercially without further
+conditions, and its API publishes a per-package SHA-256 — which is the part that decides
+it, because it lets a JDK be verified the way the compiler is. Other TCK-verified builds
+are equally legitimate; flixw simply does not choose between them for you, and will happily
+*use* any of them that is already installed.
 
 Three limits are worth knowing.
 
@@ -106,12 +107,12 @@ and all you get is the message and a link. The offer therefore only reaches you 
 **It never prompts where nobody can answer.** In CI, in a pipe, or in a git hook a prompt
 is not a question, it is a hang; so a non-terminal stdin, or `CI` in the environment, gets
 the instructions and a failure instead. `FLIXW_INSTALL_JDK=1` opts in ahead of time for
-scripted setup.
+scripted setup, and `./flix --wrapper-install-jdk` does it on demand.
 
-**The digest is Azul's, over Azul's TLS.** Same shape as the compiler pin: it defends
-against a corrupted or truncated download and against a mirror substituting bytes, not
-against Azul itself. It is trust-on-first-use, and it is one more supply chain than this
-tool had yesterday — which is why it happens only when asked.
+**The digest is Adoptium's, over Adoptium's TLS.** Same shape as the compiler pin: it
+defends against a corrupted or truncated download and against a mirror substituting bytes,
+not against Adoptium itself. It is trust-on-first-use, and it is one more supply chain than
+this tool had yesterday — which is why it happens only when asked.
 
 Delegating instead to Coursier (`cs java`) or JBang remains the alternative, and both do
 more than this does.
@@ -189,8 +190,8 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 79-case regression suite — one of those cases being
-341 unit assertions over a corpus of real manifests — against one compiler release, on
+This wrapper has been exercised by a 80-case regression suite — one of those cases being
+344 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.

@@ -324,32 +324,46 @@ public final class UnitCheck {
      * every value below arrives as JSON from a third party.
      */
     static void provisioning() {
-        String body = "[{\"name\":\"zulu21.52.15-ca-jdk21.0.12-linux_x64.tar.gz\","
-                    + "\"download_url\":\"https://cdn.azul.com/zulu/bin/z.tar.gz\","
-                    + "\"sha256_hash\":\"" + "a".repeat(64) + "\"}]";
-        eq("metadata: name", "zulu21.52.15-ca-jdk21.0.12-linux_x64.tar.gz",
-           flix.jsonField(body, "name"));
-        eq("metadata: url", "https://cdn.azul.com/zulu/bin/z.tar.gz",
-           flix.jsonField(body, "download_url"));
-        eq("metadata: sha256", "a".repeat(64), flix.jsonField(body, "sha256_hash"));
-        eq("metadata: an absent field is absent", null, flix.jsonField(body, "nope"));
+        // Shaped like a real Adoptium reply, which describes the .pkg installer *before*
+        // the archive and gives both a checksum and a link. Reading the first match in
+        // the document fetches the installer and verifies it against its own digest --
+        // consistently, and uselessly. This is the case that catches that.
+        String body = "[{\"binary\":{\"installer\":{"
+                    + "\"name\":\"OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.pkg\","
+                    + "\"link\":\"https://github.com/adoptium/x.pkg\","
+                    + "\"checksum\":\"" + "b".repeat(64) + "\"},"
+                    + "\"package\":{"
+                    + "\"name\":\"OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.tar.gz\","
+                    + "\"link\":\"https://github.com/adoptium/x.tar.gz\","
+                    + "\"checksum\":\"" + "a".repeat(64) + "\"}}}]";
+
+        eq("metadata: the installer is not the package",
+           "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.pkg", flix.jsonField(body, "name"));
+        String pkg = flix.jsonObject(body, "package");
+        eq("metadata: package name", "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.tar.gz",
+           flix.jsonField(pkg, "name"));
+        eq("metadata: package checksum, not the installer's", "a".repeat(64),
+           flix.jsonField(pkg, "checksum"));
+        eq("metadata: package link", "https://github.com/adoptium/x.tar.gz",
+           flix.jsonField(pkg, "link"));
+        eq("metadata: an absent field is absent", null, flix.jsonField(pkg, "nope"));
         // The key is quoted into the pattern, so a key containing regex metacharacters
         // must not become one.
-        eq("metadata: a key is not a pattern", null, flix.jsonField(body, "na.e"));
+        eq("metadata: a key is not a pattern", null, flix.jsonField(pkg, "na.e"));
+        eq("metadata: an absent object is absent", null, flix.jsonObject(body, "nope"));
 
-        // Azul publishes no tar.gz for Windows and a musl build as `latest` for Linux
-        // aarch64, so the coordinates are not interchangeable and are pinned here.
-        String[] c = flix.zuluCoords();
-        if (c == null) {
-            System.out.println("  skip provisioning: no Zulu coordinates for this platform");
-            return;
-        }
-        boolean win = c[0].equals("windows");
-        eq("coords: archive type follows the platform", win ? "zip" : "tar.gz", c[2]);
-        if (c[0].startsWith("linux"))
-            eq("coords: linux asks for glibc, never musl", "linux_glibc", c[0]);
-        if (!"aarch64".equals(c[1]) && !"x64".equals(c[1]))
-            bad("coords: architecture", "unexpected " + c[1]);
+        // Nested braces have to balance, or the object ends at the first inner close.
+        eq("metadata: nested objects balance", "x",
+           flix.jsonField(flix.jsonObject("{\"a\":{\"b\":{\"c\":1},\"d\":\"x\"}}", "a"), "d"));
+
+        // Windows is published as a zip and nothing else; the rest as tar.gz.
+        eq("coords: archive type follows the platform",
+           System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
+                 .startsWith("windows") ? "zip" : "tar.gz",
+           flix.jdkArchiveType());
+        String arch = flix.jdkArch();
+        if (arch != null && !arch.equals("aarch64") && !arch.equals("x64"))
+            bad("coords: architecture", "unexpected " + arch);
         else ok();
 
         System.out.println("  ok   provisioning: metadata parsing and platform coordinates");

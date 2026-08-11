@@ -97,9 +97,11 @@ exactly-tested JDK one entry away.
 
 When nothing usable is found, stage 0 prints OS-specific installation instructions and
 exits `FLIXW003`. If stdin is a terminal and `CI` is unset it first offers to download a
-JDK — Azul Zulu at `MIN_JAVA`, verified against Azul's published SHA-256 for that package
-and unpacked into `<cache>/jdks/` — and `FLIXW_INSTALL_JDK=1` accepts that offer in
-advance. It is never taken silently, and it cannot help when no Java exists at all, since
+JDK — Eclipse Temurin at `MIN_JAVA`, verified against Adoptium's published SHA-256 for
+that package and unpacked into `<cache>/jdks/` — and `FLIXW_INSTALL_JDK=1` accepts that
+offer in advance. `./flix --wrapper-install-jdk` performs it on demand and prints the
+resulting `java` on stdout. Temurin is the only vendor fetched; any other already on the
+machine is found and used. It is never taken silently, and it cannot help when no Java exists at all, since
 stage 0 needs one to run.
 
 Discovery covers the directories JDKs are unpacked into, including version managers the
@@ -113,7 +115,8 @@ reached only when no explicit setting exists and the running JVM is unusable.
 
 1. `./flix -- <args>` forwards everything after `--` to the compiler.
 2. `--wrapper-version` and `--wrapper-help` are answered by stage 0, offline: no project,
-   no lock, no network, no compiler. They take no arguments.
+   no lock, no network, no compiler. They take no arguments. `--wrapper-install-jdk`
+   fetches a JDK and needs the network.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
 4. Otherwise, if it is `pin`, `doctor`, `setup`, `validate` or `update-wrapper`, the
    wrapper implements it, and says so on stderr.
@@ -207,7 +210,7 @@ printed, never fatal.
 | `FLIXW_STRICT_JAVA` | makes the tested ceiling fatal |
 | `FLIXW_UNSAFE_JVM_OPTS` | permits the denied JVM options |
 | `FLIXW_TRACE` | per-phase timings on stderr |
-| `FLIXW_INSTALL_JDK` | accept the Zulu download offer without being asked |
+| `FLIXW_INSTALL_JDK` | accept the Temurin download offer without being asked |
 | `HTTPS_PROXY`, `https_proxy`, `NO_PROXY` | honoured for downloads |
 
 `JAVA_TOOL_OPTIONS` and `_JAVA_OPTIONS` are reported by `doctor` because they alter the
@@ -228,7 +231,7 @@ between shim and stage 0, not an implementation detail:
 <cache>/stage0/<sha256 of flix.java>/flix.class
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
-<cache>/jdks/<zulu package name>/     # only if you accepted the JDK offer
+<cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
 ```
 
 The stage-0 class is compiled with `--release 21`, the same floor `MIN_JAVA` declares.

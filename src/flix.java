@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.7.0";
+    static final String WRAPPER_VERSION = "0.8.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -721,36 +721,30 @@ public final class flix {
     // owning a licensing story; what follows accepts that for exactly one vendor, only
     // when asked, and never silently.
     //
-    // Azul Zulu, because it publishes a metadata API that carries a SHA-256 per package.
-    // That is the whole reason: it lets a JDK be verified the same way the compiler is,
-    // and an unverified JDK download in a tool built around digest verification would be
-    // absurd.  Zulu is GPLv2 with the Classpath Exception and TCK-verified, so it is
-    // usable commercially without further conditions, and it builds for every platform
-    // this wrapper runs on.  None of that makes it better than Temurin or Corretto -- the
-    // printed instructions point at Temurin -- it is the one that fits the verification
-    // story in a single HTTPS call.
+    // Eclipse Temurin, from Adoptium.  It is vendor-neutral rather than tied to one
+    // cloud's ecosystem, it is TCK-verified under GPLv2 with the Classpath Exception so it
+    // is usable commercially without further conditions, and its API publishes a SHA-256
+    // per package -- which is the part that matters here, because it lets a JDK be
+    // verified the same way the compiler is.  An unverified JDK download inside a tool
+    // built around digest verification would be absurd.  One vendor, named in one place,
+    // is also one fewer thing for a reader to check.
 
-    static final String ZULU_API = "https://api.azul.com/metadata/v1/zulu/packages/";
-    static final String ZULU_CDN = "https://cdn.azul.com/";
+    static final String ADOPTIUM_API = "https://api.adoptium.net/v3/assets/latest/";
+    static final String ADOPTIUM_RELEASES = "https://github.com/adoptium/";
 
     record JdkPackage(String name, String url, String sha256) {}
 
-    /** Azul's spelling of this platform, or null where it publishes nothing. */
-    static String[] zuluCoords() {
-        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-        String a = switch (arch) {
+    /** aarch64 or x64 as Adoptium spells it, or null where it publishes nothing for us. */
+    static String jdkArch() {
+        return switch (System.getProperty("os.arch", "").toLowerCase(Locale.ROOT)) {
             case "aarch64", "arm64" -> "aarch64";
             case "x86_64", "amd64" -> "x64";
             default -> null;
         };
-        if (a == null) return null;
-        if (isWindows()) return new String[] { "windows", a, "zip" };   // no tar.gz is published
-        if (isMac()) return new String[] { "macos", a, "tar.gz" };
-        // linux_glibc, never linux: `os=linux` also matches the musl builds, and for
-        // aarch64 the API returns a musl package as `latest` -- which does not run on an
-        // ordinary glibc system, and fails in a way that looks like a corrupt download.
-        return new String[] { "linux_glibc", a, "tar.gz" };
     }
+
+    /** Windows gets a zip; nobody publishes a tar.gz for it. */
+    static String jdkArchiveType() { return isWindows() ? "zip" : "tar.gz"; }
 
     /** One bounded HTTPS GET returning text.  Metadata only; bytes go through download(). */
     static String httpGet(String url) {
@@ -780,38 +774,67 @@ public final class flix {
         return m.find() ? m.group(1) : null;
     }
 
-    static JdkPackage resolveZulu() {
-        String[] c = zuluCoords();
-        if (c == null)
-            throw w003("no Zulu build is published for " + System.getProperty("os.name")
+    /**
+     * The first brace-balanced object under `"key":`.  Enough for this one response, whose
+     * values are URLs, digests and filenames and contain no braces of their own.
+     */
+    static String jsonObject(String json, String key) {
+        int i = json.indexOf("\"" + key + "\"");
+        if (i < 0) return null;
+        int open = json.indexOf('{', i);
+        if (open < 0) return null;
+        int depth = 0;
+        for (int j = open; j < json.length(); j++) {
+            char c = json.charAt(j);
+            if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) return json.substring(open, j + 1);
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the current Temurin release for this platform.
+     *
+     * The response describes an `installer` -- a .pkg or .msi -- *before* the `package`
+     * that is the archive, and both carry a `checksum` and a `link`.  Reading the first
+     * match in the document would fetch a macOS installer package and verify it against
+     * its own digest: consistently, and uselessly.  The fields are read out of the
+     * `package` object for that reason.
+     */
+    static JdkPackage resolveTemurin() {
+        String arch = jdkArch();
+        if (arch == null)
+            throw w003("no Temurin build is published for " + System.getProperty("os.name")
                      + " " + System.getProperty("os.arch") + "; install a JDK by hand");
-        String body = httpGet(ZULU_API + "?java_version=" + MIN_JAVA + "&os=" + c[0]
-                            + "&arch=" + c[1] + "&archive_type=" + c[2]
-                            + "&java_package_type=jdk&javafx_bundled=false&latest=true"
-                            + "&release_status=ga&page_size=1&include_fields=sha256_hash");
-        String name = jsonField(body, "name");
-        String url = jsonField(body, "download_url");
-        String sha = jsonField(body, "sha256_hash");
+        String os = isWindows() ? "windows" : isMac() ? "mac" : "linux";
+        String body = httpGet(ADOPTIUM_API + MIN_JAVA + "/hotspot?architecture=" + arch
+                            + "&image_type=jdk&os=" + os + "&vendor=eclipse");
+        String pkg = jsonObject(body, "package");
+        if (pkg == null)
+            throw w005("Adoptium published no JDK " + MIN_JAVA + " for " + os + "/" + arch);
+        String name = jsonField(pkg, "name");
+        String url = jsonField(pkg, "link");
+        String sha = jsonField(pkg, "checksum");
         if (name == null || url == null || sha == null)
-            throw w005("Azul published no " + c[2] + " JDK " + MIN_JAVA
-                     + " for " + c[0] + "/" + c[1]);
-        // Everything above came from a third party's JSON.  None of it is used as a URL, a
-        // filename or a digest until it has been checked to be one.
-        if (!url.startsWith(ZULU_CDN))
-            throw w005("refusing a Zulu download outside " + ZULU_CDN + ": " + redact(url));
+            throw w005("Adoptium metadata was missing name, link or checksum for "
+                     + os + "/" + arch);
+        // All three came out of a third party's JSON.  None is used as a URL, a filename
+        // or a digest until it has been checked to be one.
+        if (!url.startsWith(ADOPTIUM_RELEASES))
+            throw w005("refusing a download outside " + ADOPTIUM_RELEASES + ": " + redact(url));
         if (!sha.matches("[0-9a-f]{64}"))
-            throw w005("Zulu metadata carried no usable sha256 for " + name);
+            throw w005("Adoptium metadata carried no usable checksum for " + name);
         if (!name.matches("[A-Za-z0-9._+-]{1,120}"))
-            throw w005("refusing an unexpected Zulu package name: " + q(name));
+            throw w005("refusing an unexpected package name: " + q(name));
         return new JdkPackage(name, url, sha);
     }
 
     /**
      * Downloads, verifies and unpacks one JDK into the wrapper cache, and returns its
-     * `java`.  Content is addressed by the archive name, which carries the exact build, so
-     * a second project on the same machine reuses it and a re-run is a no-op.
+     * `java`.  The directory is named for the archive, which carries the exact build, so a
+     * second project on the same machine reuses it and a re-run is a no-op.
      */
-    static Path installZulu(JdkPackage p) {
+    static Path installJdk(JdkPackage p) {
         Path dir = cacheHome().resolve("jdks");
         Path dest = dir.resolve(p.name().replaceAll("\\.(tar\\.gz|zip)$", ""));
         if (!Files.isDirectory(dest)) {
@@ -829,7 +852,7 @@ public final class flix {
                              + "\n       actual   " + got);
                 staging = Files.createTempDirectory(dir, ".unpack-");
                 String log = unpack(tmp, staging);
-                // Unpacking is judged by its result rather than its exit status: the only
+                // Unpacking is judged by its result rather than an exit status: the only
                 // thing that matters is whether a runnable java came out of it.
                 if (findJavaUnder(staging) == null)
                     throw w007("no bin/java after unpacking " + p.name()
@@ -886,17 +909,17 @@ public final class flix {
         } catch (IOException e) { return null; }
     }
 
-    /** What to type on this OS.  Points at Temurin: vendor-neutral, and what most people run. */
+    /** What to type on this OS, pointing at the same vendor flixw would fetch. */
     static void jdkInstructions() {
         System.err.println("       install a JDK " + MIN_JAVA + "+ and re-run, for example:");
         if (isMac()) {
-            System.err.println("         brew install openjdk@" + MIN_JAVA);
+            System.err.println("         brew install temurin@" + MIN_JAVA);
         } else if (isWindows()) {
             System.err.println("         winget install EclipseAdoptium.Temurin." + MIN_JAVA + ".JDK");
             System.err.println("         scoop install temurin" + MIN_JAVA + "-jdk");
         } else {
-            System.err.println("         apt install openjdk-" + MIN_JAVA + "-jdk        (Debian, Ubuntu)");
-            System.err.println("         dnf install java-" + MIN_JAVA + "-openjdk-devel  (Fedora, RHEL)");
+            System.err.println("         apt install temurin-" + MIN_JAVA + "-jdk         (Debian, Ubuntu)");
+            System.err.println("         dnf install temurin-" + MIN_JAVA + "-jdk         (Fedora, RHEL)");
             System.err.println("         pacman -S jdk" + MIN_JAVA + "-openjdk           (Arch)");
         }
         System.err.println("         or https://adoptium.net/temurin/releases/?version=" + MIN_JAVA);
@@ -912,10 +935,11 @@ public final class flix {
         if (env("FLIXW_INSTALL_JDK") != null) return true;
         if (env("CI") != null || System.console() == null) {
             System.err.println("       or set FLIXW_INSTALL_JDK=1 to let flixw download a"
-                             + " verified Azul Zulu " + MIN_JAVA + " into its own cache.");
+                             + " verified Temurin " + MIN_JAVA + " into its own cache,");
+            System.err.println("       or run: ./flix --wrapper-install-jdk");
             return false;
         }
-        System.err.print("flixw: download Azul Zulu OpenJDK " + MIN_JAVA
+        System.err.print("flixw: download Eclipse Temurin " + MIN_JAVA
                        + " into the flixw cache instead? [y/N] ");
         String line = System.console().readLine();
         return line != null && line.strip().toLowerCase(Locale.ROOT).startsWith("y");
@@ -927,15 +951,28 @@ public final class flix {
                          + "] found; this JVM is " + self);
         jdkInstructions();
         if (!offerJdk()) throw w003("no usable Java; see the instructions above");
-        JdkPackage p = resolveZulu();
-        Path exe = installZulu(p);
+        Path exe = installJdk(resolveTemurin());
         int f = probe(exe);
         if (f < MIN_JAVA)
             throw w003("the JDK just installed reports Java " + f + ", which is below "
                      + MIN_JAVA + "; install one by hand");
         System.err.println("flixw: using " + exe);
         System.err.println("       flixw owns this JDK; set JAVA_HOME to it to use it elsewhere.");
-        return new Jvm(exe, f, "flixw-installed Zulu");
+        return new Jvm(exe, f, "flixw-installed Temurin");
+    }
+
+    /** `./flix --wrapper-install-jdk`, so the choice need not wait for a failure. */
+    static void installJdkVerb(List<String> argv) {
+        if (argv.size() > 1)
+            throw w008("--wrapper-install-jdk takes no arguments");
+        Path exe = installJdk(resolveTemurin());
+        int f = probe(exe);
+        if (f < MIN_JAVA)
+            throw w003("the JDK just installed reports Java " + f + ", below " + MIN_JAVA);
+        System.out.println(exe);
+        System.err.println("flixw: Temurin Java " + f + " is installed.");
+        System.err.println("       flixw will find it from now on; export JAVA_HOME="
+                         + exe.getParent().getParent() + " to use it elsewhere.");
     }
 
     // ---- FLIX_JVM_OPTS ----------------------------------------------------
@@ -1679,9 +1716,11 @@ public final class flix {
             } else wrapperHelp();
             return;
         }
+        if ("--wrapper-install-jdk".equals(first)) { installJdkVerb(argv); return; }
         if (first != null && first.startsWith("--wrapper-"))
             throw w008("unknown launcher flag " + q(first)
-                     + "\n       known: --wrapper-version --wrapper-help");
+                     + "\n       known: --wrapper-version --wrapper-help"
+                     + " --wrapper-install-jdk");
 
         Path anchor = wrapperAnchor();
         if ("install".equals(first) && !Files.isRegularFile(lockPath(anchor))) {
@@ -1807,6 +1846,8 @@ public final class flix {
         System.out.println("  ./flix pin <version>            repin flix.toml and the lock");
         System.out.println("  ./flix doctor | setup | validate | update-wrapper");
         System.out.println("  ./flix --wrapper-version | --wrapper-help      (offline)");
+        System.out.println("  ./flix --wrapper-install-jdk    fetch a verified Temurin "
+                         + MIN_JAVA + " into the cache");
         System.out.println();
         System.out.println("cache            " + cacheHome());
         System.out.println("java             " + System.getProperty("java.home")

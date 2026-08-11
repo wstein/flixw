@@ -48,13 +48,13 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 79-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 80-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 17 adversarial
-manifests, and the bounds on `runCapture` — 341 assertions in total. Refresh the corpus
+manifests, and the bounds on `runCapture` — 344 assertions in total. Refresh the corpus
 with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `services/` holds a build definition and nothing else — no sources, reserved against the

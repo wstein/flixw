@@ -201,6 +201,9 @@ t 0  "rule 2  --wrapper-version"                                ./flix --wrapper
 t 0  "rule 2  --wrapper-help"                                   ./flix --wrapper-help
 t 87 "rule 2  flag with trailing arguments"                     ./flix --wrapper-help check
 t 87 "unknown --wrapper- flag"                                  ./flix --wrapper-frobnicate
+# The install itself is a 200MB download and is verified by hand; what the suite can
+# assert offline is that the flag exists and refuses arguments.
+t 87 "--wrapper-install-jdk takes no arguments"                 ./flix --wrapper-install-jdk temurin
 t 0  "rule 3  compiler verb"                                    ./flix check
 g 0  'wrapper'   "rule 4  wrapper verb routes and says so"      ./flix doctor
 t 1  "rule 5  unknown verb reaches the compiler"                ./flix frobnicate
