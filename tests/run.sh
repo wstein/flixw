@@ -106,6 +106,13 @@ fakejdk() {
 fakejdk 17
 fakejdk 99
 
+# A JDK stand-in with no release file at all: the shape asdf, mise and jenv install,
+# where `java` is a shim script rather than a symlink into a JDK layout. The wrapper
+# cannot tell what version this is, which is the whole point of the fixture.
+mkdir -p "$work/jdkbare/bin"
+printf '#!/bin/sh\nexec %s "$@"\n' "$realjava" > "$work/jdkbare/bin/java"
+chmod +x "$work/jdkbare/bin/java"
+
 # A JAR that answers --help in a format flixw cannot parse, and exits 0 for anything
 # else. Used to prove that unparseable help degrades instead of bricking the wrapper.
 mkdir -p "$work/impostor"
@@ -197,7 +204,10 @@ t 87 "unknown --wrapper- flag"                                  ./flix --wrapper
 t 0  "rule 3  compiler verb"                                    ./flix check
 g 0  'wrapper'   "rule 4  wrapper verb routes and says so"      ./flix doctor
 t 1  "rule 5  unknown verb reaches the compiler"                ./flix frobnicate
-t 0  "no arguments reaches the compiler"                        ./flix
+# No verb starts the REPL, which reads stdin until EOF. The case must supply that EOF
+# itself: inheriting a terminal -- or any stdin that stays open -- hangs the suite forever
+# rather than failing it, which is exactly what it did once.
+t 0  "no arguments reaches the compiler"                        sh -c './flix < /dev/null'
 t 0  "FLIX_BACKEND=wrapper forces the wrapper"                  env FLIX_BACKEND=wrapper ./flix validate
 t 1  "FLIX_BACKEND=compiler forces the compiler"                env FLIX_BACKEND=compiler ./flix doctor
 # An unrecognised value used to read as unset, which silently restores ordinary dispatch --
@@ -312,6 +322,10 @@ t 85 "wrong digest in the lock is refused"                      sh -c '
   ./flix -- --version; rc=$?
   cp /tmp/flixw-lock.keep .flix-wrapper/lock.toml; exit $rc'
 t 87 "FLIX_DIST_URL must be https"                              env FLIX_DIST_URL=http://x/y ./flix -- --version
+# URI.create accepts a hostless URL, so the scheme test alone let `https:///mirror`
+# through and it resurfaced as an uncaught IllegalArgumentException mid-download.
+t 87 "FLIX_DIST_URL without a host is a diagnostic, not a crash" env FLIX_DIST_URL='https:///mirror' ./flix -- --version
+t 87 "FLIX_DIST_URL with traversal is refused"                  env FLIX_DIST_URL='https://m.example/../x' ./flix -- --version
 
 # --- java selection --------------------------------------------------------
 echo "java selection"
@@ -330,12 +344,18 @@ if [ "$posix" = yes ]; then
   # observable difference is which route the shim took -- which is exactly the bug.
   g 0   'stage0 source'   "below the floor the shim declines the class"   env FLIX_JAVA_HOME="$work/jdk17" ./flix --wrapper-version
   g 0   'stage0 compiled' "at the floor or above the shim uses it"        env FLIX_JAVA_HOME="$work/jdk99" ./flix --wrapper-version
+  # asdf, mise and jenv install `java` as a shim script, not a symlink into a JDK, so
+  # there is no release file beside it. Running the cached class blind under one of those
+  # pointing at an old JVM died on class file version with no way back, so an
+  # unidentifiable Java now earns the source path rather than the fast one.
+  g 0   'stage0 source' "an unidentifiable Java declines the class too"   env FLIX_JAVA_HOME="$work/jdkbare" ./flix --wrapper-version
 else
   s "explicit Java below the floor is fatal"                    "needs a runnable fake bin/java.exe"
   s "above the ceiling warns and proceeds"                      "needs a runnable fake bin/java.exe"
   s "FLIXW_STRICT_JAVA makes the ceiling fatal"                 "needs a runnable fake bin/java.exe"
   s "below the floor the shim declines the class"               "needs a runnable fake bin/java.exe"
   s "at the floor or above the shim uses it"                    "needs a runnable fake bin/java.exe"
+  s "an unidentifiable Java declines the class too"              "needs a runnable fake bin/java.exe"
 fi
 
 # --- jvm options -----------------------------------------------------------

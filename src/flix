@@ -60,9 +60,14 @@ if command -v shasum >/dev/null 2>&1; then h=$(shasum -a 256 "$src" 2>/dev/null 
 elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$src" 2>/dev/null | cut -d' ' -f1)
 elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 -r "$src" 2>/dev/null | cut -d' ' -f1)
 fi
-# The class is built for the floor, so only a Java below the floor cannot load it.
+# The class is built for the floor, and the version has to be *known* to be at or
+# above it.  Unknown used to be treated as fine, which is wrong in the one case it
+# matters: asdf, mise and jenv install `java` as a shim script rather than a
+# symlink into a JDK, so there is no release file to read, and a shim pointing at
+# Java 17 loaded the class and died on class file version.  The cost of being
+# careful is that such setups always take the source path.
 if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ] \
-   && { [ -z "$jfeature" ] || [ "$jfeature" -ge 21 ]; }; then
+   && [ -n "$jfeature" ] && [ "$jfeature" -ge 21 ]; then
   FLIXW_SOURCE=$src; export FLIXW_SOURCE
   exec "$java0" -cp "$cache/stage0/$h" flix "$@"
 fi

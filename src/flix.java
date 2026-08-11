@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.5.0";
+    static final String WRAPPER_VERSION = "0.6.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -382,9 +382,22 @@ public final class flix {
     static void validateDistUrl() {
         String base = env("FLIX_DIST_URL");
         if (base == null) return;
-        if (!base.startsWith("https://")) throw w008("FLIX_DIST_URL must be https, got " + q(redact(base)));
-        try { URI.create(base); }
-        catch (IllegalArgumentException e) { throw w008("FLIX_DIST_URL is not a valid URI: " + q(redact(base))); }
+        if (!base.startsWith("https://"))
+            throw w008("FLIX_DIST_URL must be https, got " + q(redact(base)));
+        URI u;
+        try { u = URI.create(base); }
+        catch (IllegalArgumentException e) {
+            throw w008("FLIX_DIST_URL is not a valid URI: " + q(redact(base)));
+        }
+        // URI.create happily accepts `https:///mirror`, which names no host at all.  The
+        // scheme test alone let that through, and it resurfaced as an uncaught
+        // IllegalArgumentException out of HttpRequest.newBuilder in the middle of the
+        // download -- a stack trace, at the point where the setting could no longer be
+        // blamed.  A base URL may legitimately have no path, so only the host is required.
+        if (u.getHost() == null || u.getHost().isBlank())
+            throw w008("FLIX_DIST_URL has no host: " + q(redact(base)));
+        if (u.getPath() != null && u.getPath().contains(".."))
+            throw w008("FLIX_DIST_URL path must not contain '..': " + q(redact(base)));
     }
 
     /**
@@ -495,6 +508,10 @@ public final class flix {
                         sink.write(buf, 0, Math.min(n, cap - total));
                         total += n;
                     }
+                    // Reaching the cap ends the child now.  Closing the pipe alone does
+                    // not: a writer that ignores the error keeps going and still costs
+                    // the whole timeout, for output already being discarded.
+                    if (total >= cap) p.destroy();
                 } catch (IOException ignored) {
                     // A broken or closed pipe is a truncated capture, not a failure;
                     // whatever arrived before it is still worth parsing.
@@ -672,6 +689,8 @@ public final class flix {
             roots.add(Paths.get("C:\\Program Files\\Zulu"));
             roots.add(Paths.get("C:\\Program Files (x86)\\Java"));
             roots.add(Paths.get(home, "scoop", "apps"));          // scoop
+            String localApp = env("LOCALAPPDATA");                // per-user installers
+            if (localApp != null) roots.add(Paths.get(localApp, "Programs"));
         }
         // Version managers hold the JDKs of anyone who keeps more than one, and none of
         // them registers with the OS -- which is exactly the case this search exists for.
@@ -1015,9 +1034,14 @@ public final class flix {
         elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$src" 2>/dev/null | cut -d' ' -f1)
         elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 -r "$src" 2>/dev/null | cut -d' ' -f1)
         fi
-        # The class is built for the floor, so only a Java below the floor cannot load it.
+        # The class is built for the floor, and the version has to be *known* to be at or
+        # above it.  Unknown used to be treated as fine, which is wrong in the one case it
+        # matters: asdf, mise and jenv install `java` as a shim script rather than a
+        # symlink into a JDK, so there is no release file to read, and a shim pointing at
+        # Java 17 loaded the class and died on class file version.  The cost of being
+        # careful is that such setups always take the source path.
         if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ] \\
-           && { [ -z "$jfeature" ] || [ "$jfeature" -ge 21 ]; }; then
+           && [ -n "$jfeature" ] && [ "$jfeature" -ge 21 ]; then
           FLIXW_SOURCE=$src; export FLIXW_SOURCE
           exec "$java0" -cp "$cache/stage0/$h" flix "$@"
         fi
@@ -1053,8 +1077,11 @@ public final class flix {
         if exist "%JHOME%\\release" (
           for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "%JHOME%\\release" 2^>nul') do (
             for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) )
-        set "SLOWPATH="
-        if defined JFEATURE if !JFEATURE! LSS 21 set "SLOWPATH=1"
+        rem Unknown is not good enough: a java that is a shim script rather than a JDK
+        rem layout has no release file, and running the class blind fails on class file
+        rem version with no way back.  Default to the source path; earn the fast one.
+        set "SLOWPATH=1"
+        if defined JFEATURE if !JFEATURE! GEQ 21 set "SLOWPATH="
 
         if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
           set "CACHE=%LOCALAPPDATA%\\flixw" )
@@ -1166,12 +1193,19 @@ public final class flix {
     static Integer git(Path root, String... args) {
         List<String> cmd = new ArrayList<>(List.of("git"));
         cmd.addAll(Arrays.asList(args));
+        Process p = null;
         try {
-            Process p = new ProcessBuilder(cmd).directory(root.toFile())
+            p = new ProcessBuilder(cmd).directory(root.toFile())
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .redirectError(ProcessBuilder.Redirect.DISCARD).start();
             return p.waitFor(30, TimeUnit.SECONDS) ? p.exitValue() : null;
-        } catch (IOException | InterruptedException e) { return null; }
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            return null;
+        } finally {
+            // A timed-out git is still running; validate must not leave one behind.
+            if (p != null && p.isAlive()) p.destroyForcibly();
+        }
     }
 
     static void validate(Path root, Lock lock, Path jar) {
@@ -1206,6 +1240,25 @@ public final class flix {
         } else System.out.println("ok    lock agrees with flix.toml");
 
         if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
+
+        // The shims execute whatever class sits in the stage-0 cache, on path alone, so a
+        // directory anyone else can write to is a way to run code as this user.  Stage 0
+        // narrows the permissions it creates; this reports one it did not create.
+        Path stage0 = cacheHome().resolve("stage0");
+        if (Files.isDirectory(stage0)) {
+            try {
+                var perms = Files.getPosixFilePermissions(stage0);
+                if (perms.contains(java.nio.file.attribute.PosixFilePermission.GROUP_WRITE)
+                 || perms.contains(java.nio.file.attribute.PosixFilePermission.OTHERS_WRITE)) {
+                    System.out.println("warn  " + stage0 + " is writable by others;"
+                                     + " the shims execute what is in it (set FLIX_CACHE_HOME)");
+                } else {
+                    System.out.println("ok    stage 0 cache is private to you");
+                }
+            } catch (IOException | UnsupportedOperationException ignored) {
+                // Not a POSIX filesystem; there is nothing portable to check.
+            }
+        }
         bad += checkGitattributes(root.resolve(".gitattributes"));
 
         // Generated wrapper files are only reproducible for a collaborator if git actually
@@ -1232,6 +1285,14 @@ public final class flix {
         if (bad > 0) throw w009(bad + " validation failure(s)");
     }
 
+    /** Best-effort rollback; a failed restore must not mask the failure being reported. */
+    static void restore(Path file, String previous) {
+        try {
+            if (previous == null) Files.deleteIfExists(file);
+            else Files.writeString(file, previous, StandardCharsets.UTF_8);
+        } catch (IOException ignored) { }
+    }
+
     static void pin(Path root, String version) {
         String url = "https://github.com/flix/flix/releases/download/v"
                    + canonical(version) + "/flix.jar";
@@ -1243,7 +1304,8 @@ public final class flix {
         }
         catch (IOException e) { throw w009("cannot write in " + wrapperDir + ": " + e.getMessage()); }
         Path manifest = root.resolve("flix.toml"), lockFile = lockPath(root);
-        String oldManifest = null;
+        boolean hadLock = Files.isRegularFile(lockFile);
+        String oldManifest = null, oldLock = null;
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
@@ -1256,29 +1318,40 @@ public final class flix {
                 url     = "%s"
                 sha256  = "%s"
                 """.formatted(WRAPPER_VERSION, version, url, digest);
-            // recoverable transaction: manifest first, lock second, manifest restored on failure
-            if (Files.isRegularFile(manifest)) {
+
+            // The cache is filled first and every failure in it is discarded, which keeps
+            // it out of the transaction below.  It is an optimisation -- the next run
+            // downloads again -- but it used to run *after* the lock was written, so a
+            // cache directory that could not be created rolled the manifest back and left
+            // the new lock in place: exactly the drift the rollback exists to prevent.
+            Path jar = cacheHome().resolve("compilers")
+                         .resolve("flix-" + canonical(version) + "-" + digest + ".jar");
+            if (!Files.isRegularFile(jar)) {
+                try {
+                    Files.createDirectories(jar.getParent());
+                    Files.move(tmp, jar, StandardCopyOption.ATOMIC_MOVE);
+                } catch (IOException ignored) { }
+            }
+
+            // Both previous states are captured before either file is touched, so a
+            // failure part-way puts the pair back as it was rather than half of it.
+            if (Files.isRegularFile(manifest))
                 oldManifest = Files.readString(manifest, StandardCharsets.UTF_8);
+            if (hadLock) oldLock = Files.readString(lockFile, StandardCharsets.UTF_8);
+
+            if (oldManifest != null) {
                 String updated = rewritePackageFlix(oldManifest, version, manifest.toString());
                 if (updated != null && !updated.equals(oldManifest))
                     Files.writeString(manifest, updated);
             }
             Files.writeString(lockFile, lock, StandardCharsets.UTF_8);
-            Path jar = cacheHome().resolve("compilers")
-                         .resolve("flix-" + canonical(version) + "-" + digest + ".jar");
-            if (!Files.isRegularFile(jar)) {
-                Files.createDirectories(jar.getParent());
-                try { Files.move(tmp, jar, StandardCopyOption.ATOMIC_MOVE); } catch (IOException ignored) {}
-            }
             System.err.println("flixw: pinned Flix " + version + " (" + digest.substring(0, 16) + "...)");
         } catch (IOException e) {
-            if (oldManifest != null) {
-                try { Files.writeString(manifest, oldManifest); } catch (IOException ignored) {}
-            }
+            if (oldManifest != null) restore(manifest, oldManifest);
+            if (hadLock || Files.isRegularFile(lockFile)) restore(lockFile, oldLock);
             throw w009("pin failed: " + why(e));
         } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
     }
-
     static void install(Path target, Path source) {
         try {
             Path fw = target.resolve(WRAPPER_DIR);

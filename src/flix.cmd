@@ -26,8 +26,11 @@ set "JFEATURE="
 if exist "%JHOME%\release" (
   for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "%JHOME%\release" 2^>nul') do (
     for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) )
-set "SLOWPATH="
-if defined JFEATURE if !JFEATURE! LSS 21 set "SLOWPATH=1"
+rem Unknown is not good enough: a java that is a shim script rather than a JDK
+rem layout has no release file, and running the class blind fails on class file
+rem version with no way back.  Default to the source path; earn the fast one.
+set "SLOWPATH=1"
+if defined JFEATURE if !JFEATURE! GEQ 21 set "SLOWPATH="
 
 if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
   set "CACHE=%LOCALAPPDATA%\flixw" )

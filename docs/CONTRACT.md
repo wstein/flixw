@@ -45,6 +45,12 @@ download, before the compiler is executed. `pin`, `doctor`, `validate` and
 `update-wrapper` still run, because otherwise the repair the diagnostic recommends is
 unreachable. `setup` does not, because it acquires the compiler.
 
+`pin` fills the compiler cache before it touches either committed file, and treats every
+failure there as nothing — the cache is an optimisation and the next run refills it. Both
+previous states are captured before either file is written, so a failure part-way restores
+the pair rather than half of it: an earlier ordering rolled the manifest back and left the
+new lock in place, which is the drift the rollback exists to prevent.
+
 `pin` rewrites exactly one line of `flix.toml` — the `flix` key of `[package]` — and
 leaves every other table, comment, key order and line ending as it found them, including
 CRLF. The key it rewrites is by construction the key the reader reads: both go through
@@ -221,9 +227,13 @@ The directory is keyed by source hash alone, so without that pin a stage 0 compi
 newer JDK would be handed to an older shim, which would fail on classfile version with no
 route back to the source path.
 
-For the same reason the shims take the fast path only when the selected Java is known to be
-at or above the floor, read from that JDK's own `release` file — one file read, not a
-subprocess. A Java the shim cannot place stays unknown and changes nothing. Below the floor
+For the same reason the shims take the fast path only when the selected Java is *known* to
+be at or above the floor, read from that JDK's own `release` file — one file read, not a
+subprocess. A Java the shim cannot place is not good enough: `asdf`, `mise` and `jenv`
+install `java` as a shim script rather than a symlink into a JDK, so no `release` file sits
+beside it, and running the class blind under one of those pointing at an old JVM fails on
+class file version with no way back. Such setups always take the source path, which costs
+them the fast path and is the deliberate trade. Below the floor
 the shim silently declines the cached class and launches the source instead, where stage 0
 produces the ordinary `FLIXW003`/`FLIXW004` diagnostic; `exec` is one-way, so a class the
 JVM refuses to load would otherwise surface as a bare `UnsupportedClassVersionError` with no

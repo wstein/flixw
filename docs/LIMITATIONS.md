@@ -106,7 +106,16 @@ answer with package names rather than paths.
 
 Discovery only runs when neither `FLIX_JAVA_HOME` nor `JAVA_HOME` is set and the JVM
 already running is unusable; an explicit setting is always obeyed and fails loudly rather
-than being quietly improved upon.
+than being quietly improved upon. It also does not shell out to `update-alternatives
+--list`, which unlike `--config` is non-interactive and needs no root: what it returns on
+Debian already lives under `/usr/lib/jvm`, so it would add a subprocess to a path that is
+deliberately free of them for candidates that are already found.
+
+**A `java` that is a shim script costs you the fast path.** `asdf`, `mise` and `jenv`
+install `java` as a script rather than a symlink into a JDK, so there is no `release` file
+beside it and the shim cannot tell which version it is. Since it cannot tell, it declines
+the compiled stage 0 and launches the source instead — correct, and about 400 ms slower
+per command. Setting `JAVA_HOME` to the real JDK restores it.
 
 **Below Java 15 the diagnostic degrades badly.** Stage 0 is a single source file compiled
 at launch by whatever JVM the shim found, and it uses text blocks and records. On Java 17
@@ -159,7 +168,7 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 76-case regression suite — one of those cases being
+This wrapper has been exercised by a 79-case regression suite — one of those cases being
 334 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
