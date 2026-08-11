@@ -1495,11 +1495,17 @@ public final class flix {
      */
     static int awaitWithReaper(Process p) throws InterruptedException {
         Thread hook = new Thread(() -> {
-            if (p.isAlive()) {
-                p.destroy();
-                try { p.waitFor(10, TimeUnit.SECONDS); }
-                catch (InterruptedException ignored) { }
-            }
+            if (!p.isAlive()) return;
+            // Descendants are collected before anything is destroyed, and destroyed too.
+            // Stage 0 may have relaunched itself under a different JVM, which puts a
+            // process between this one and the compiler; relying on that middle JVM to
+            // run its own hook in time is a race, and destroying p first would reparent
+            // whatever it started, at which point it is no longer in p.descendants().
+            List<ProcessHandle> below = p.descendants().toList();
+            p.destroy();
+            below.forEach(ProcessHandle::destroy);
+            try { p.waitFor(10, TimeUnit.SECONDS); }
+            catch (InterruptedException ignored) { }
         }, "flixw-reaper");
         Runtime.getRuntime().addShutdownHook(hook);
         try {

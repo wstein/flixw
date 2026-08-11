@@ -60,7 +60,7 @@ t() {
   else
     fail=$((fail + 1))
     printf '  FAIL %-52s rc=%s want=%s\n' "$label" "$rc" "$want"
-    printf '       %s\n' "$(printf '%s' "$out" | head -3 | tr '\n' '|')"
+    printf '       %s\n' "$(printf '%s' "$out" | head -6 | tr '\n' '|')"
   fi
 }
 
@@ -86,7 +86,7 @@ g() {
   else
     fail=$((fail + 1))
     printf '  FAIL %-52s rc=%s want=%s /%s/\n' "$label" "$rc" "$want" "$pat"
-    printf '       %s\n' "$(printf '%s' "$out" | head -3 | tr '\n' '|')"
+    printf '       %s\n' "$(printf '%s' "$out" | head -6 | tr '\n' '|')"
   fi
 }
 
@@ -374,6 +374,9 @@ t 0  "SIGTERM to stage 0 does not orphan the compiler"          sh -c '
     n=$((n + 1)); sleep 0.1
   done
   [ -n "$inner" ] || { echo "the compiler child never started"; exit 2; }
+  # Captured on every run, shown only when the case fails: an inner_ppid that is not
+  # outer means stage 0 relaunched itself, and the signal has one more JVM to cross.
+  echo "outer=$outer inner=$inner ppid=$(ps -o ppid= -p "$inner" 2>/dev/null | tr -d " ")"
   kill -TERM "$outer" 2>/dev/null || true
   wait "$outer" 2>/dev/null || true
   # The reaper must take the compiler with it. Poll rather than sleeping a fixed
@@ -385,6 +388,7 @@ t 0  "SIGTERM to stage 0 does not orphan the compiler"          sh -c '
     n=$((n + 1)); sleep 0.1
   done
   echo "the compiler child $inner outlived stage 0"
+  ps -o pid,ppid,stat,args -p "$inner" 2>/dev/null || true
   exit 1' sh "$work"
 fi
 t 0  "stdout carries only compiler output"                      sh -c '
