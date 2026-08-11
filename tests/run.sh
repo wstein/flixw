@@ -194,6 +194,18 @@ g 81 'no .*lock.toml'      "no lock blocks the compiler"        ./flix check
 t 0  "pin creates the lock"                                     ./flix pin "$version"
 t 0  "lock is reused"                                           ./flix --wrapper-version
 
+# pin now takes an optional owner/repository. These need no network: the repository is
+# rejected, or the arguments are, before any request is made.
+t 81 "pin rejects a malformed repository"                       ./flix pin not/a/repo "$version"
+t 88 "pin rejects two repositories"                             ./flix pin a/b c/d "$version"
+t 88 "pin rejects two versions"                                 ./flix pin 0.75.1 "$version"
+# The source is recorded so a bare re-pin cannot silently move the project elsewhere.
+t 0  "pin records the repository it fetched from"               sh -c '
+  grep -q "^repo    = \"flix/flix\"" .flix-wrapper/lock.toml'
+t 0  "a bare re-pin keeps the recorded repository"              sh -c '
+  ./flix pin '"$version"' >/dev/null 2>&1
+  grep -q "^repo    = \"flix/flix\"" .flix-wrapper/lock.toml'
+
 # --- dispatch --------------------------------------------------------------
 echo "dispatch"
 t 0  "rule 1  -- pass-through"                                  ./flix -- --version

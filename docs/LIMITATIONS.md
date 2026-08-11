@@ -19,6 +19,13 @@ release, or a signed build-provenance attestation. Until then, review the digest
 lock the way you would review any other dependency pin — it is a committed, diffable,
 git-blameable line, which is the most this design can offer.
 
+Pinning a fork is supported and verified the same way, and means something different.
+`./flix pin <owner>/<repo> <version>` records the repository in the lock, so the source is
+visible in review and a later bare re-pin cannot quietly move the project back to stock.
+What it cannot do is make a fork build evidence about the stock compiler: this project's
+compatibility claims are about unmodified releases from `flix/flix`, and a run against
+anything else says nothing about those. `doctor` labels it, and `pin` says so once.
+
 The wrapper files have the same shape of problem one level up: published hashes protect a
 release you already have, not the first copy you obtained.
 
@@ -253,8 +260,8 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 96-case regression suite — one of those cases being
-352 unit assertions over a corpus of real manifests — against one compiler release, on
+This wrapper has been exercised by a 101-case regression suite — one of those cases being
+366 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.

@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.12.0";
+    static final String WRAPPER_VERSION = "0.13.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -155,7 +155,7 @@ public final class flix {
 
     // ---- lock and manifest ------------------------------------------------
 
-    record Lock(String version, String url, String sha256) {}
+    record Lock(String version, String url, String sha256, String repo) {}
 
     /**
      * One `key = value` occurrence, the table it was found in, and the line it sits on.
@@ -314,7 +314,10 @@ public final class flix {
         validateVersion(v, w);
         if (!s.matches("[0-9a-f]{64}")) throw w002(w + ": sha256 is not 64 lowercase hex digits");
         validateUrl(u, w);
-        return new Lock(v, u, s);
+        // Optional: locks written before forks were supported do not carry it, and a
+        // missing repository simply means the stock one.
+        String r = tomlLookup(text, "compiler", "repo", w);
+        return new Lock(v, u, s, r == null ? null : checkRepo(r, w));
     }
 
     /**
@@ -395,6 +398,125 @@ public final class flix {
             return String.format("%064x",
                 new BigInteger(1, MessageDigest.getInstance("SHA-256").digest(b)));
         } catch (Exception e) { throw w007("cannot hash: " + e.getMessage()); }
+    }
+
+    /** Where the stock compiler comes from when nothing says otherwise. */
+    static final String UPSTREAM_REPO = "flix/flix";
+
+    /** One release asset: what to fetch, and what the publisher says it hashes to. */
+    record Asset(String name, String url, String sha256) {}
+
+    static String checkRepo(String repo, String where) {
+        if (!repo.matches("[A-Za-z0-9._-]{1,64}/[A-Za-z0-9._-]{1,100}"))
+            throw w002(where + ": " + q(repo) + " is not an owner/repository");
+        return repo;
+    }
+
+    /** A release tag in a URL path. Only '+' needs it; the rest of a version is path-safe. */
+    static String encodeTag(String tag) { return tag.replace("+", "%2B"); }
+
+    /**
+     * Resolves the compiler artifact for one repository and version.
+     *
+     * The upstream layout is constructed rather than queried.  It has been stable for
+     * every release this wrapper has seen, and `pin` against it must not start depending
+     * on an API -- or on a rate limit -- for the case that is almost all of them.
+     *
+     * A fork is a different matter: nothing says its asset is called flix.jar, and the
+     * example this was built for publishes `flix-0.75.2+fork.wstein.260807.1.jar` under a
+     * tag carrying the same build metadata.  Guessing that is worse than asking, so forks
+     * are resolved from the release itself, which also hands back the digest GitHub holds.
+     */
+    static Asset resolveRelease(String repo, String version) {
+        if (repo.equals(UPSTREAM_REPO))
+            return new Asset("flix.jar",
+                "https://github.com/" + UPSTREAM_REPO + "/releases/download/v"
+                    + canonical(version) + "/flix.jar", null);
+
+        String tag = "v" + version;
+        String body;
+        try {
+            body = httpGet("https://api.github.com/repos/" + repo + "/releases/tags/"
+                         + encodeTag(tag));
+        } catch (Fail f) {
+            // The overwhelmingly likely cause is a tag that is not there, and the bare
+            // HTTP status says nothing about which of the two arguments was wrong.
+            throw w005(f.getMessage() + "\n       " + repo + " has no release tagged "
+                     + q(tag) + "; the version must match the tag exactly,"
+                     + " build metadata included");
+        }
+        List<String> jars = new ArrayList<>();
+        String name = null, url = null, sha = null;
+        for (String a : jsonObjects(body, "assets")) {
+            String n = jsonField(a, "name");
+            if (n == null || !n.endsWith(".jar")) continue;
+            jars.add(n);
+            // A repository that ships several jars has to be told apart somehow, and the
+            // stock name is the only convention there is; otherwise a lone jar is it.
+            if (name == null || n.equals("flix.jar")) {
+                name = n;
+                url = jsonField(a, "browser_download_url");
+                String d = jsonField(a, "digest");
+                sha = d != null && d.startsWith("sha256:") ? d.substring(7) : null;
+            }
+        }
+        if (name == null)
+            throw w005("no .jar asset on " + repo + " release " + tag
+                     + "\n       check that the tag exists and publishes a compiler jar");
+        if (jars.size() > 1 && !name.equals("flix.jar"))
+            throw w005(repo + " release " + tag + " publishes several jars and none is"
+                     + " flix.jar: " + String.join(", ", jars));
+        if (url == null || !url.startsWith("https://"))
+            throw w005("release asset " + q(name) + " has no https download url");
+        validateUrl(url, repo + " release " + tag);
+        if (sha != null && !sha.matches("[0-9a-f]{64}")) sha = null;
+        return new Asset(name, url, sha);
+    }
+
+    /** Every brace-balanced object inside the array under `"key":`. */
+    static List<String> jsonObjects(String json, String key) {
+        List<String> out = new ArrayList<>();
+        int i = json.indexOf("\"" + key + "\"");
+        if (i < 0) return out;
+        int open = json.indexOf('[', i);
+        if (open < 0) return out;
+        int depth = 0, start = -1;
+        for (int j = open; j < json.length(); j++) {
+            char c = json.charAt(j);
+            if (c == '{') { if (depth++ == 0) start = j; }
+            else if (c == '}') { if (--depth == 0 && start >= 0) out.add(json.substring(start, j + 1)); }
+            else if (c == ']' && depth == 0) break;
+        }
+        return out;
+    }
+
+    /**
+     * `./flix pin [<owner>/<repo>] <version>`.
+     *
+     * The two are told apart by the slash, which a version can never contain -- the
+     * grammar rejects it -- so the order does not matter and neither does a flag.  An
+     * omitted repository means the one already in the lock, so re-pinning a project that
+     * tracks a fork stays on that fork: rebuilding the upstream URL every time silently
+     * moved such a project back to stock, and because both are honestly version 0.75.2,
+     * nothing about it looked wrong.
+     */
+    static String[] parsePin(List<String> args, Lock existing) {
+        String repo = null, version = null;
+        for (String a : args) {
+            if (a.contains("/")) {
+                if (repo != null) throw w009("pin: two repositories given");
+                repo = checkRepo(a, "pin");
+            } else {
+                if (version != null) throw w009("pin: two versions given");
+                version = a;
+            }
+        }
+        if (version == null)
+            throw w002("pin: no version\n       usage: ./flix pin [<owner>/<repo>] <version>");
+        validateVersion(version, "pin");
+        if (repo == null) repo = existing != null && existing.repo() != null
+                               ? existing.repo() : UPSTREAM_REPO;
+        return new String[] { repo, version };
     }
 
     // ---- acquisition ------------------------------------------------------
@@ -1583,8 +1705,10 @@ public final class flix {
                             Jvm jvm, List<String> compilerVerbs) {
         switch (verb) {
             case "pin" -> {
-                if (rest.isEmpty()) throw w009("usage: ./flix pin <version>");
-                pin(root, validateVersion(rest.get(0), "pin"));
+                if (rest.isEmpty())
+                    throw w009("usage: ./flix pin [<owner>/<repo>] <version>");
+                String[] t = parsePin(rest, lock);
+                pin(root, t[0], t[1]);
             }
             case "doctor", "setup" -> {
                 report(root, lock, jar, jvm, compilerVerbs);
@@ -1600,6 +1724,10 @@ public final class flix {
         System.out.println("flixw            " + WRAPPER_VERSION);
         System.out.println("project root     " + root);
         System.out.println("compiler         " + (lock == null ? "-" : lock.version()));
+        System.out.println("source           " + (lock == null ? "-"
+            : (lock.repo() == null ? UPSTREAM_REPO : lock.repo())
+              + (lock.repo() != null && !lock.repo().equals(UPSTREAM_REPO)
+                 ? "  (a fork; not stock-compatibility evidence)" : "")));
         System.out.println("digest           " + (lock == null ? "-" : lock.sha256()));
         System.out.println("jar              " + (jar == null ? "-" : jar));
         System.out.println("java             " + (jvm == null ? "-" : jvm.exe() + "  (" + jvm.feature()
@@ -1847,9 +1975,9 @@ public final class flix {
         } catch (IOException ignored) { }
     }
 
-    static void pin(Path root, String version) {
-        String url = "https://github.com/flix/flix/releases/download/v"
-                   + canonical(version) + "/flix.jar";
+    static void pin(Path root, String repo, String version) {
+        Asset asset = resolveRelease(repo, version);
+        String url = asset.url();
         Path wrapperDir = root.resolve(WRAPPER_DIR);
         Path tmp;
         try {
@@ -1863,15 +1991,23 @@ public final class flix {
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
+            // When the publisher states a digest, agreeing with it is free evidence: the
+            // bytes and the claim then came down two different paths, and a mirror or a
+            // truncation that altered one of them is caught here rather than at first use.
+            if (asset.sha256() != null && !asset.sha256().equals(digest))
+                throw w006("digest mismatch for " + asset.name()
+                         + "\n       " + repo + " publishes " + asset.sha256()
+                         + "\n       the download hashes to " + digest);
             String lock = """
                 # Generated by ./flix pin. Do not edit by hand; commit this file.
                 wrapperVersion = "%s"
 
                 [compiler]
+                repo    = "%s"
                 version = "%s"
                 url     = "%s"
                 sha256  = "%s"
-                """.formatted(WRAPPER_VERSION, version, url, digest);
+                """.formatted(WRAPPER_VERSION, repo, version, url, digest);
 
             // The cache is filled first and every failure in it is discarded, which keeps
             // it out of the transaction below.  It is an optimisation -- the next run
@@ -1899,7 +2035,11 @@ public final class flix {
                     writeAtomic(manifest, updated);
             }
             writeAtomic(lockFile, lock);
-            System.err.println("flixw: pinned Flix " + version + " (" + digest.substring(0, 16) + "...)");
+            System.err.println("flixw: pinned Flix " + version + " from " + repo
+                             + " (" + digest.substring(0, 16) + "...)");
+            if (!repo.equals(UPSTREAM_REPO))
+                System.err.println("       a fork is not stock-compatibility evidence;"
+                                 + " see docs/LIMITATIONS.md");
         } catch (IOException e) {
             if (oldManifest != null) restore(manifest, oldManifest);
             if (hadLock || Files.isRegularFile(lockFile)) restore(lockFile, oldLock);
@@ -2078,8 +2218,10 @@ public final class flix {
                 System.err.println("flixw: warning: " + manifestError.getMessage().split("\n")[0]);
             if (drift != null) System.err.println("flixw: warning: " + drift.split("\n")[0]);
             routingNotice(first, lock == null ? "none" : lock.version());
-            if (first.equals("pin"))
-                pin(root, validateVersion(argv.size() > 1 ? argv.get(1) : null, "pin"));
+            if (first.equals("pin")) {
+                String[] t = parsePin(argv.subList(1, argv.size()), lock);
+                pin(root, t[0], t[1]);
+            }
             else
                 wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null);
             return;
@@ -2093,7 +2235,8 @@ public final class flix {
         // pin is the documented repair and never needs the compiler.
         if ("pin".equals(first) && !forcedCompiler) {
             routingNotice("pin", lock.version());
-            pin(root, validateVersion(argv.size() > 1 ? argv.get(1) : null, "pin"));
+            String[] t = parsePin(argv.subList(1, argv.size()), lock);
+            pin(root, t[0], t[1]);
             return;
         }
 
@@ -2160,7 +2303,7 @@ public final class flix {
         System.out.println();
         System.out.println("  ./flix <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flix -- <args>                forced compiler pass-through");
-        System.out.println("  ./flix pin <version>            repin flix.toml and the lock");
+        System.out.println("  ./flix pin [<owner>/<repo>] <version>   repin flix.toml and the lock");
         System.out.println("  ./flix doctor | setup | validate | update-wrapper");
         System.out.println("  ./flix --wrapper-version | --wrapper-help      (offline)");
         System.out.println("  ./flix --wrapper-install-jdk    fetch a verified Temurin "

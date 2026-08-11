@@ -436,6 +436,55 @@ public final class UnitCheck {
         System.out.println("  ok   provisioning: metadata parsing and platform coordinates");
     }
 
+    // ---- 7: pin targets ---------------------------------------------------
+
+    /**
+     * `pin` takes an owner/repository and a version in either order, told apart by the
+     * slash a version can never contain. None of this needs the network.
+     */
+    static void pinTargets() {
+        flix.Lock forked = new flix.Lock("0.75.2+f.1", "https://x/y.jar", "a".repeat(64),
+                                         "wstein/flix-fork");
+        String[] t = flix.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);
+        eq("pin: repository then version", "wstein/flix-fork", t[0]);
+        eq("pin: version survives its build metadata", "0.75.2+f.1", t[1]);
+
+        t = flix.parsePin(java.util.List.of("0.75.2+f.1", "wstein/flix-fork"), null);
+        eq("pin: order does not matter", "wstein/flix-fork", t[0]);
+
+        // The trap this exists to close: a bare re-pin used to rebuild the upstream URL
+        // and move a fork-tracking project back to stock, silently, because both are
+        // honestly the same version.
+        t = flix.parsePin(java.util.List.of("0.75.2+f.1"), forked);
+        eq("pin: a bare re-pin stays on the fork", "wstein/flix-fork", t[0]);
+        t = flix.parsePin(java.util.List.of("0.75.2"), null);
+        eq("pin: with no lock and no repository it is upstream", "flix/flix", t[0]);
+        t = flix.parsePin(java.util.List.of("flix/flix", "0.75.2"), forked);
+        eq("pin: naming upstream leaves the fork", "flix/flix", t[0]);
+
+        for (java.util.List<String> bad : java.util.List.of(
+                java.util.List.<String>of(),
+                java.util.List.of("a/b", "c/d", "1.0.0"),
+                java.util.List.of("1.0.0", "2.0.0"),
+                java.util.List.of("not/a/repo", "1.0.0"),
+                java.util.List.of("a/b", "not-a-version"))) {
+            try { flix.parsePin(bad, null); bad("pin: " + bad, "accepted"); }
+            catch (flix.Fail e) { ok(); }
+        }
+
+        // Assets come out of a JSON array, so the object walker has to handle more than one.
+        String body = "{\"assets\":[{\"name\":\"a.txt\",\"browser_download_url\":\"u1\"},"
+                    + "{\"name\":\"flix.jar\",\"browser_download_url\":\"u2\","
+                    + "\"digest\":\"sha256:" + "b".repeat(64) + "\"}]}";
+        java.util.List<String> objs = flix.jsonObjects(body, "assets");
+        eq("assets: every object in the array", "2", "" + objs.size());
+        eq("assets: the second one is the jar", "flix.jar", flix.jsonField(objs.get(1), "name"));
+        eq("assets: an empty array yields nothing", "0",
+           "" + flix.jsonObjects("{\"assets\":[]}", "assets").size());
+
+        System.out.println("  ok   pin targets: repository and version parsing");
+    }
+
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         List<Row> rows = rows(dir);
@@ -445,6 +494,7 @@ public final class UnitCheck {
         crlf();
         chooser();
         provisioning();
+        pinTargets();
         bounded();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);

@@ -40,6 +40,7 @@ Exercising it end to end means installing into a scratch project:
 ```sh
 java src/flix.java install /tmp/proj      # writes flix, flix.cmd, .flix-wrapper/flix.java, .gitattributes
 cd /tmp/proj && ./flix pin 0.75.2         # writes flix.toml + .flix-wrapper/lock.toml, downloads the JAR
+./flix pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flix doctor                             # java, compiler, cache, mirror, proxy, routing state
 ./flix validate                           # wrapper files, lock/manifest agreement, git tracked status
 ```
@@ -48,13 +49,13 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 96-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 101-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 17 adversarial
-manifests, and the bounds on `runCapture` — 352 assertions in total. Refresh the corpus
+manifests, and the bounds on `runCapture` — 366 assertions in total. Refresh the corpus
 with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch

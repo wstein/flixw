@@ -29,7 +29,24 @@ swallows one, because a collaborator would then get a project that cannot bootst
 ## The pin
 
 `flix.toml` is the human authority for the compiler version. `.flix-wrapper/lock.toml`
-is generated and binds the tuple *(version, distribution URL, SHA-256)*.
+is generated and binds the tuple *(repository, version, distribution URL, SHA-256)*.
+
+```console
+./flix pin 0.75.2                                    # the stock compiler
+./flix pin wstein/flix-fork 0.75.2+fork.wstein.1     # a fork build
+```
+
+The two arguments are told apart by the slash, which a version can never contain, so their
+order does not matter. An omitted repository means the one already in the lock, so a bare
+re-pin stays where the project already is; naming one changes it. Upstream is resolved by
+constructing the release URL, which has been stable for every release this wrapper has
+seen and keeps `pin` independent of an API for the common case. Any other repository is
+resolved from its GitHub release, because nothing says a fork's asset is called
+`flix.jar` — and where that release publishes a digest, it must agree with what the
+download hashes to, which is two independent paths for one claim.
+
+A fork is verified exactly as the stock compiler is, and is **not** stock-compatibility
+evidence. `doctor` names the source for that reason.
 
 Only exact versions are accepted — no ranges, no wildcards, no `latest`. This is not a
 temporary limitation. A digest identifies one immutable byte sequence, so a floating
