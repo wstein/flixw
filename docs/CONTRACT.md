@@ -19,7 +19,9 @@ flix.cmd                    cmd.exe shim
 `flix install` also merges a marked block into `.gitattributes`, preserving unrelated
 rules. `flix validate` compares the two shims byte for byte against the bytes this
 release ships, reports stage 0's digest for comparison against the published release, and
-fails if a later `.gitattributes` rule overrides the block — gitattributes resolves by
+fails if a later `.gitattributes` rule overrides the block — any rule matching one of the
+four shipped paths, whether by wildcard or by naming it outright — or if more than one
+flixw block exists, since git honours the last — gitattributes resolves by
 last matching pattern, so an override silently un-pins the line endings the block exists
 to fix. All four files must be committed; `flix validate` fails if a gitignore rule
 swallows one, because a collaborator would then get a project that cannot bootstrap.
@@ -43,7 +45,12 @@ every comparison — otherwise `flix = "0.75.2+build.4"` produces a drift error 
 disagree, the compiler path stops immediately — before Java selection, before any
 download, before the compiler is executed. `pin`, `doctor`, `validate` and
 `update-wrapper` still run, because otherwise the repair the diagnostic recommends is
-unreachable. `setup` does not, because it acquires the compiler.
+unreachable. `setup` does not, because it acquires the compiler. The same holds for a lock
+that does not *parse*: `pin` replaces it, while everything needing a compiler still fails
+on it.
+
+Both files are written through a same-directory temporary and an atomic rename, so a
+termination or power loss mid-write leaves the previous file rather than half of a new one.
 
 `pin` fills the compiler cache before it touches either committed file, and treats every
 failure there as nothing — the cache is an optimisation and the next run refills it. Both

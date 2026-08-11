@@ -112,6 +112,12 @@ Afterwards it is no longer true. A JDK flixw installed is recorded in
 compiles and runs, on flixw's own JDK. That is verified: with `PATH` stripped of every
 `java`, `./flix run` builds and runs the program.
 
+A `java` below the floor no longer hides it either: when `PATH` resolves one under Java
+21 and flixw has a JDK of its own recorded, the shim prefers the recorded one, because
+below Java 15 stage 0 cannot be compiled at all and nothing it knows would ever be
+reached. An *explicitly* set `FLIX_JAVA_HOME` or `JAVA_HOME` is never substituted this
+way — those fail loudly, as the contract says.
+
 **A `java` that is not a JVM still defeats it.** macOS ships `/usr/bin/java` as a stub that
 exists, is executable, and only prints *"Unable to locate a Java Runtime"*. The shim
 cannot distinguish that from a real one without running it, so it is used and the stub's
@@ -213,7 +219,7 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 83-case regression suite — one of those cases being
+This wrapper has been exercised by a 90-case regression suite — one of those cases being
 347 unit assertions over a corpus of real manifests — against one compiler release, on
 Linux, macOS and Windows.
 

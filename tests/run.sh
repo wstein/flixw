@@ -249,6 +249,19 @@ t 0  "a decoy inside a multi-line string is ignored"             sh -c '
 t 0  "a trailing comment on the version is ignored"              sh -c '
   sed "s/^flix .*/flix        = \"'"$version"'\"  # pinned/" "$1/flix.toml.good" > flix.toml
   ./flix -- --version' sh "$work"
+# The one command documented as the repair has to work in the state it repairs. A lock
+# that does not parse used to throw before routing ever reached pin.
+t 0  "pin repairs a lock that does not parse"                    sh -c '
+  cp .flix-wrapper/lock.toml "$1/lock.keep"
+  sed "s/^sha256.*/sha256  = \"not-a-digest\"/" "$1/lock.keep" > .flix-wrapper/lock.toml
+  ./flix pin '"$version"' >/dev/null 2>&1
+  grep -q "^sha256" .flix-wrapper/lock.toml' sh "$work"
+t 81 "a lock that does not parse still blocks the compiler"      sh -c '
+  cp .flix-wrapper/lock.toml "$1/lock.keep"
+  sed "s/^sha256.*/sha256  = \"not-a-digest\"/" "$1/lock.keep" > .flix-wrapper/lock.toml
+  ./flix check; rc=$?
+  cp "$1/lock.keep" .flix-wrapper/lock.toml; exit $rc' sh "$work"
+
 t 81 "a duplicate [package] table is ambiguous"                  sh -c '
   { cat "$1/flix.toml.good"; printf "\n[package]\nflix = \"9.9.9\"\n"; } > flix.toml
   ./flix -- --version' sh "$work"
@@ -368,6 +381,12 @@ if [ "$posix" = yes ]; then
   mkdir -p "$cache/jdks"
   printf '%s\n' "$realjava" > "$cache/jdks/default"
   g 0 'flixw' "a recorded JDK is used when PATH has none"       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix --wrapper-version
+  # A java below the floor on PATH is worse than none: under 15 it cannot even compile
+  # stage 0, so nothing flixw knows is ever reached. A recorded JDK outranks it.
+  g 0 'stage0' "a recorded JDK outranks a below-floor PATH java" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/jdk17/bin:$work/tools" ./flix --wrapper-version
+  # But never an explicitly named one: those fail loudly rather than being replaced by a
+  # JVM the caller did not ask for.
+  t 83 "an explicit below-floor JDK is not silently replaced"    env FLIX_JAVA_HOME="$work/jdk17" ./flix -- --version
   rm -f "$cache/jdks/default"
 else
   s "explicit Java below the floor is fatal"                    "needs a runnable fake bin/java.exe"
@@ -379,6 +398,8 @@ else
   s "no java at all names a JDK to install"                     "PATH cannot be stripped the same way"
   s "and says how flixw can fetch one"                          "PATH cannot be stripped the same way"
   s "a recorded JDK is used when PATH has none"                 "PATH cannot be stripped the same way"
+  s "a recorded JDK outranks a below-floor PATH java"           "PATH cannot be stripped the same way"
+  s "an explicit below-floor JDK is not silently replaced"      "needs a runnable fake bin/java.exe"
 fi
 
 # --- jvm options -----------------------------------------------------------
@@ -504,6 +525,26 @@ g 88 'overrides it' "validate detects a gitattributes override" sh -c '
   printf "* text=auto eol=crlf\n" >> .gitattributes
   ./flix validate; rc=$?
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# The most direct override of all names the file outright, and a wildcard-only check
+# read it as healthy -- while CRLF on the POSIX shim makes it unrunnable.
+g 88 'overrides it' "an exact later rule is an override too"     sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "/flix text eol=crlf\n" >> .gitattributes
+  ./flix validate; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# Two blocks means the last one wins, and rewriting each in place left two.
+g 88 'flixw blocks' "validate detects a second flixw block"      sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "# >>> flixw >>>\n/flix text eol=crlf\n# <<< flixw <<<\n" >> .gitattributes
+  ./flix validate; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+t 0  "update-wrapper collapses duplicate blocks to one"          sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "# >>> flixw >>>\n/flix text eol=crlf\n# <<< flixw <<<\n" >> .gitattributes
+  ./flix update-wrapper >/dev/null 2>&1
+  n=$(grep -c ">>> flixw >>>" .gitattributes)
+  cp "$1/ga.keep" .gitattributes
+  [ "$n" = 1 ]' sh "$work"
 t 0  "update-wrapper is a no-op when files match"               ./flix update-wrapper
 g 0  'rewrote' "update-wrapper repairs a clobbered shim"        sh -c 'echo broken > flix.cmd; ./flix update-wrapper'
 t 0  "the repaired shim matches the source of truth"            cmp flix.cmd "$root/src/flix.cmd"

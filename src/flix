@@ -23,9 +23,13 @@ else
   esac
 fi
 
+# `chosen` marks an explicitly named JDK. Those are obeyed exactly as given, right
+# down to failing: stage 0's contract is that an explicit setting fails loudly
+# rather than being quietly replaced by a JVM the caller did not ask for.
+chosen=yes
 if [ -n "${FLIX_JAVA_HOME:-}" ]; then java0=$FLIX_JAVA_HOME/bin/java
 elif [ -n "${JAVA_HOME:-}" ]; then java0=$JAVA_HOME/bin/java
-else java0=$(command -v java 2>/dev/null || true); fi
+else java0=$(command -v java 2>/dev/null || true); chosen=no; fi
 
 # Nothing on PATH: fall back to the JDK flixw installed, if there is one. Its path
 # is read from a file rather than guessed, because every vendor nests differently.
@@ -70,6 +74,22 @@ jhome=${jhome%/bin/java}
 jfeature=
 if [ -r "$jhome/release" ]; then
   jfeature=$(sed -n 's/^JAVA_VERSION="\([0-9][0-9]*\).*/\1/p' "$jhome/release" 2>/dev/null)
+fi
+
+# A java below the floor is worse than none: below 15 it cannot even compile stage
+# 0, so nothing flixw knows -- its own installed JDK included -- is ever reached.
+# When one is recorded, prefer it and let stage 0 speak.
+if [ "$chosen" = no ] && [ -n "$jfeature" ] && [ "$jfeature" -lt 21 ] \
+   && [ -r "$cache/jdks/default" ]; then
+  mine=$(cat "$cache/jdks/default" 2>/dev/null || true)
+  if [ -x "$mine" ]; then
+    java0=$mine
+    jhome=${mine%/bin/java}
+    jfeature=
+    if [ -r "$jhome/release" ]; then
+      jfeature=$(sed -n 's/^JAVA_VERSION="\([0-9][0-9]*\).*/\1/p' "$jhome/release" 2>/dev/null)
+    fi
+  fi
 fi
 
 # Content-keyed compiled stage 0.  Versioned interface with stage 0; see README.

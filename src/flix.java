@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.9.0";
+    static final String WRAPPER_VERSION = "0.10.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -511,7 +511,7 @@ public final class flix {
                     // Reaching the cap ends the child now.  Closing the pipe alone does
                     // not: a writer that ignores the error keeps going and still costs
                     // the whole timeout, for output already being discarded.
-                    if (total >= cap) p.destroy();
+                    if (total >= cap) { p.destroy(); p.destroyForcibly(); }
                 } catch (IOException ignored) {
                     // A broken or closed pipe is a truncated capture, not a failure;
                     // whatever arrived before it is still worth parsing.
@@ -827,6 +827,17 @@ public final class flix {
         // or a digest until it has been checked to be one.
         if (!url.startsWith(ADOPTIUM_RELEASES))
             throw w005("refusing a download outside " + ADOPTIUM_RELEASES + ": " + redact(url));
+        // A prefix test still admits text that is not a URI, and URI.create would then
+        // throw out of HttpRequest.newBuilder with no FLIXW code attached -- the same way
+        // `https:///mirror` once did for FLIX_DIST_URL.
+        try {
+            URI u = URI.create(url);
+            if (u.getHost() == null || u.getHost().isBlank() || u.getPath() == null
+                || u.getPath().isBlank() || u.getPath().contains(".."))
+                throw w005("refusing a malformed download url: " + redact(url));
+        } catch (IllegalArgumentException e) {
+            throw w005("Adoptium metadata carried an unparseable url: " + redact(url));
+        }
         if (!sha.matches("[0-9a-f]{64}"))
             throw w005("Adoptium metadata carried no usable checksum for " + name);
         if (!name.matches("[A-Za-z0-9._+-]{1,120}"))
@@ -1291,9 +1302,13 @@ public final class flix {
           esac
         fi
 
+        # `chosen` marks an explicitly named JDK. Those are obeyed exactly as given, right
+        # down to failing: stage 0's contract is that an explicit setting fails loudly
+        # rather than being quietly replaced by a JVM the caller did not ask for.
+        chosen=yes
         if [ -n "${FLIX_JAVA_HOME:-}" ]; then java0=$FLIX_JAVA_HOME/bin/java
         elif [ -n "${JAVA_HOME:-}" ]; then java0=$JAVA_HOME/bin/java
-        else java0=$(command -v java 2>/dev/null || true); fi
+        else java0=$(command -v java 2>/dev/null || true); chosen=no; fi
 
         # Nothing on PATH: fall back to the JDK flixw installed, if there is one. Its path
         # is read from a file rather than guessed, because every vendor nests differently.
@@ -1338,6 +1353,22 @@ public final class flix {
         jfeature=
         if [ -r "$jhome/release" ]; then
           jfeature=$(sed -n 's/^JAVA_VERSION="\\([0-9][0-9]*\\).*/\\1/p' "$jhome/release" 2>/dev/null)
+        fi
+
+        # A java below the floor is worse than none: below 15 it cannot even compile stage
+        # 0, so nothing flixw knows -- its own installed JDK included -- is ever reached.
+        # When one is recorded, prefer it and let stage 0 speak.
+        if [ "$chosen" = no ] && [ -n "$jfeature" ] && [ "$jfeature" -lt 21 ] \\
+           && [ -r "$cache/jdks/default" ]; then
+          mine=$(cat "$cache/jdks/default" 2>/dev/null || true)
+          if [ -x "$mine" ]; then
+            java0=$mine
+            jhome=${mine%/bin/java}
+            jfeature=
+            if [ -r "$jhome/release" ]; then
+              jfeature=$(sed -n 's/^JAVA_VERSION="\\([0-9][0-9]*\\).*/\\1/p' "$jhome/release" 2>/dev/null)
+            fi
+          fi
         fi
 
         # Content-keyed compiled stage 0.  Versioned interface with stage 0; see README.
@@ -1483,6 +1514,25 @@ public final class flix {
     }
 
     /**
+     * Does a .gitattributes pattern affect one of the four files flixw ships?
+     *
+     * The earlier check only looked for `*`, `*.` and `**`, so the most direct override
+     * of all -- `/flix text eol=crlf`, naming the file outright -- passed as healthy. On a
+     * POSIX shim that is not a cosmetic problem: CRLF makes it unrunnable.
+     */
+    static boolean affectsShipped(String pattern) {
+        String p = pattern.startsWith("/") ? pattern.substring(1) : pattern;
+        for (String f : List.of("flix", "flix.cmd",
+                                WRAPPER_DIR + "/flix.java", WRAPPER_DIR + "/lock.toml")) {
+            if (p.equals("*") || p.equals("**") || p.equals(f)) return true;
+            if (p.startsWith("*.") && f.endsWith(p.substring(1))) return true;
+            // A pattern without a slash matches that name at any depth, per gitattributes.
+            if (!p.contains("/") && (f.equals(p) || f.endsWith("/" + p))) return true;
+        }
+        return false;
+    }
+
+    /**
      * gitattributes resolves by *last* matching pattern, so a rule after the wrapper block
      * silently overrides it -- and a checked-out shim with the wrong line endings is exactly
      * the failure the block exists to prevent.
@@ -1500,18 +1550,28 @@ public final class flix {
             System.out.println("warn  .gitattributes has no flixw block (./flix update-wrapper)");
             return 0;
         }
-        for (String line : text.substring(end).split("\r?\n")) {
+        int bad = 0;
+        // More than one block is its own problem: the last one wins, and update-wrapper
+        // used to rewrite them all in place rather than leaving exactly one.
+        int blocks = 0, at = 0;
+        while ((at = text.indexOf("# >>> flixw >>>", at)) >= 0) { blocks++; at += 1; }
+        if (blocks > 1) {
+            System.out.println("FAIL  .gitattributes has " + blocks + " flixw blocks"
+                             + " (./flix update-wrapper)");
+            bad++;
+        }
+        for (String line : text.substring(text.lastIndexOf("# <<< flixw <<<")).split("\r?\n")) {
             String t = line.trim();
             if (t.isEmpty() || t.startsWith("#")) continue;
             String pattern = t.split("\\s+")[0];
-            if (pattern.equals("*") || pattern.startsWith("*.") || pattern.equals("**")) {
+            if (affectsShipped(pattern)) {
                 System.out.println("FAIL  .gitattributes rule " + q(t)
                                  + " comes after the flixw block and overrides it");
-                return 1;
+                bad++;
             }
         }
-        System.out.println("ok    .gitattributes block is not overridden");
-        return 0;
+        if (bad == 0) System.out.println("ok    .gitattributes block is not overridden");
+        return bad;
     }
 
     /** Runs `git <args>` in root; null when git is absent or the command fails to start. */
@@ -1569,16 +1629,17 @@ public final class flix {
         // The shims execute whatever class sits in the stage-0 cache, on path alone, so a
         // directory anyone else can write to is a way to run code as this user.  Stage 0
         // narrows the permissions it creates; this reports one it did not create.
-        Path stage0 = cacheHome().resolve("stage0");
-        if (Files.isDirectory(stage0)) {
+        for (String kind : List.of("stage0", "jdks")) {
+            Path dir = cacheHome().resolve(kind);
+            if (!Files.isDirectory(dir)) continue;
             try {
-                var perms = Files.getPosixFilePermissions(stage0);
+                var perms = Files.getPosixFilePermissions(dir);
                 if (perms.contains(java.nio.file.attribute.PosixFilePermission.GROUP_WRITE)
                  || perms.contains(java.nio.file.attribute.PosixFilePermission.OTHERS_WRITE)) {
-                    System.out.println("warn  " + stage0 + " is writable by others;"
+                    System.out.println("warn  " + dir + " is writable by others;"
                                      + " the shims execute what is in it (set FLIX_CACHE_HOME)");
                 } else {
-                    System.out.println("ok    stage 0 cache is private to you");
+                    System.out.println("ok    " + kind + " cache is private to you");
                 }
             } catch (IOException | UnsupportedOperationException ignored) {
                 // Not a POSIX filesystem; there is nothing portable to check.
@@ -1610,11 +1671,33 @@ public final class flix {
         if (bad > 0) throw w009(bad + " validation failure(s)");
     }
 
+    /**
+     * Same-directory temp plus an atomic move.  A direct write is not a single event: a
+     * termination or a power loss in the middle of one leaves a truncated manifest or a
+     * half-written lock, and the rollback that was supposed to cover that cannot run
+     * either.  Renaming a complete file over the old one has no such window.
+     */
+    static void writeAtomic(Path file, String text) throws IOException {
+        Path dir = file.getParent();
+        Path tmp = Files.createTempFile(dir, "." + file.getFileName() + "-", ".part");
+        try {
+            Files.writeString(tmp, text, StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+            tmp = null;
+        } finally {
+            if (tmp != null) { try { Files.deleteIfExists(tmp); } catch (IOException ignored) { } }
+        }
+    }
+
     /** Best-effort rollback; a failed restore must not mask the failure being reported. */
     static void restore(Path file, String previous) {
         try {
             if (previous == null) Files.deleteIfExists(file);
-            else Files.writeString(file, previous, StandardCharsets.UTF_8);
+            else writeAtomic(file, previous);
         } catch (IOException ignored) { }
     }
 
@@ -1667,9 +1750,9 @@ public final class flix {
             if (oldManifest != null) {
                 String updated = rewritePackageFlix(oldManifest, version, manifest.toString());
                 if (updated != null && !updated.equals(oldManifest))
-                    Files.writeString(manifest, updated);
+                    writeAtomic(manifest, updated);
             }
-            Files.writeString(lockFile, lock, StandardCharsets.UTF_8);
+            writeAtomic(lockFile, lock);
             System.err.println("flixw: pinned Flix " + version + " (" + digest.substring(0, 16) + "...)");
         } catch (IOException e) {
             if (oldManifest != null) restore(manifest, oldManifest);
@@ -1747,10 +1830,13 @@ public final class flix {
                      + "/" + WRAPPER_DIR + "/lock.toml text eol=lf\n"
                      + "/flix.cmd text eol=crlf\n" + end + "\n";
         String cur = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
-        String next = cur.contains(begin)
-            ? cur.replaceAll("(?s)" + Pattern.quote(begin) + ".*?" + Pattern.quote(end) + "\\R?",
-                             Matcher.quoteReplacement(block))
-            : (cur.isEmpty() || cur.endsWith("\n") ? cur : cur + "\n") + block;
+        // Every existing block is removed and one is appended, rather than each being
+        // rewritten where it sits: two blocks rewritten in place stay two blocks, and the
+        // last one is the one git honours.
+        String stripped = cur.replaceAll("(?s)" + Pattern.quote(begin) + ".*?"
+                                       + Pattern.quote(end) + "\\R?", "");
+        String next = (stripped.isEmpty() || stripped.endsWith("\n") ? stripped : stripped + "\n")
+                    + block;
         Files.writeString(ga, next, StandardCharsets.UTF_8);
     }
 
@@ -1808,7 +1894,17 @@ public final class flix {
         Path root = findRoot(anchor);
         tr("root " + root);
         Path lockFile = lockPath(root);
-        Lock lock = Files.isRegularFile(lockFile) ? readLock(lockFile) : null;
+        // A lock that does not parse must not stop `pin` from replacing it. Parsing used
+        // to happen here and throw, so the one command documented as the repair was
+        // unreachable in precisely the state it repairs -- the same trap as a missing
+        // lock, one step further in. The error is carried instead of thrown, and raised
+        // below for everything that actually needs a compiler.
+        Lock lock = null;
+        Fail lockError = null;
+        if (Files.isRegularFile(lockFile)) {
+            try { lock = readLock(lockFile); }
+            catch (Fail f) { lockError = f; }
+        }
         String mv = manifestVersion(root.resolve("flix.toml"));
 
         // Drift is detected here -- immediately after the manifest and the lock are read,
@@ -1824,6 +1920,8 @@ public final class flix {
         // route on the built-in wrapper list alone, so no compiler is consulted.
         if ((lock == null || drift != null) && first != null && !forcedCompiler
             && WRAPPER_VERBS.contains(first) && !first.equals("setup")) {
+            if (lockError != null)
+                System.err.println("flixw: warning: " + lockError.getMessage().split("\n")[0]);
             if (drift != null) System.err.println("flixw: warning: " + drift.split("\n")[0]);
             routingNotice(first, lock == null ? "none" : lock.version());
             if (first.equals("pin"))
@@ -1832,6 +1930,7 @@ public final class flix {
                 wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null);
             return;
         }
+        if (lockError != null) throw lockError;      // unreadable, and the repair declined it
         if (lock == null)
             throw w002("no " + lockFile + "\n       run: ./flix pin <version>");
         if (drift != null) throw w002(drift);
@@ -2001,8 +2100,18 @@ public final class flix {
             List<ProcessHandle> below = p.descendants().toList();
             p.destroy();
             below.forEach(ProcessHandle::destroy);
-            try { p.waitFor(10, TimeUnit.SECONDS); }
-            catch (InterruptedException ignored) { }
+            try {
+                // Asking is not the same as making it happen. A compiler that traps or
+                // ignores TERM would otherwise outlive the wrapper that started it, which
+                // is the whole failure this hook exists to prevent.
+                if (!p.waitFor(10, TimeUnit.SECONDS)) {
+                    p.destroyForcibly();
+                    p.waitFor(5, TimeUnit.SECONDS);
+                }
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            below.forEach(h -> { if (h.isAlive()) h.destroyForcibly(); });
         }, "flixw-reaper");
         Runtime.getRuntime().addShutdownHook(hook);
         try {
