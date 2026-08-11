@@ -1,12 +1,12 @@
-val scala3Version = "3.8.4"
+val scala2Version = "2.13.18"
 
 lazy val root = project
   .in(file("."))
   .settings(
-    name := "scala/scala3.g8",
+    name := "flixw",
     version := "0.1.0-SNAPSHOT",
 
-    scalaVersion := scala3Version,
+    scalaVersion := scala2Version,
 
-    libraryDependencies += "org.scalameta" %% "munit" % "1.3.4" % Test
+    libraryDependencies += "org.scalameta" %% "munit" % "1.3.5" % Test
   )
