@@ -39,10 +39,13 @@ whole life, which has three consequences:
 Ctrl-C is fine: both processes are in the terminal's foreground process group, so the
 signal reaches the compiler directly.
 
-## Windows is untested
+## Windows has coverage but no results yet
 
-`flix.cmd` is written and lint-checked but has never been executed — there is no Windows
-machine in this project's loop yet. Specific risks:
+`flix.cmd` is written, lint-checked, and covered by a CI job that installs into a scratch
+project and runs `pin`, `check`, `run` and `validate` through it under `cmd.exe`, plus the
+full suite under Git Bash and the shim once from PowerShell. That job has never run: this
+repository has no remote yet, so no CI has executed. Until it does, treat Windows as
+unverified. Specific risks:
 
 - `cmd.exe` transforms arguments before any script sees them. `%VAR%` is expanded at
   parse time and cannot be recovered, `!` is destroyed under delayed expansion, and `^`
@@ -54,8 +57,9 @@ machine in this project's loop yet. Specific risks:
   shim falls back to the source launch, which is slower but correct.
 
 `java .flix-wrapper\flix.java <args>` is the lossless fallback on Windows: it needs no
-shim, no shell, and no execution policy. Git Bash also works, and is what this project's
-own CI has used.
+shim, no shell, and no execution policy. Git Bash also works, and is present on every
+GitHub Windows runner; the reference project `wstein/flix-invaders` has run its POSIX
+wrapper there for months, which is the only Windows evidence that exists today.
 
 There is deliberately no PowerShell script. A Group-Policy `MachinePolicy` execution
 policy cannot be overridden by `-ExecutionPolicy Bypass`, so a `.ps1` can be
@@ -124,7 +128,7 @@ shim also has to trust, which moves the problem rather than solving it.
 
 ## No field evidence
 
-This wrapper has been exercised by a 55-case regression suite on one machine, one OS, and
+This wrapper has been exercised by a 67-case regression suite on one machine, one OS, and
 one compiler release. It has not been run across the real Flix release cadence, by anyone
 other than its author, or on any project but a scratch fixture and one game.
 

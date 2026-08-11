@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLIXW_TEST_VERSION: "0.75.2"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: sh tests/lint.sh
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      # The suite downloads one compiler; everything after that is cache hits.
+      - uses: actions/cache@v4
+        with:
+          path: tests/.work/run/cache/compilers
+          key: flix-${{ runner.os }}-${{ env.FLIXW_TEST_VERSION }}
+      - run: sh tests/run.sh
+
+  windows:
+    name: windows smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Git Bash is present on every windows runner, and this project's reference
+      # repository has used the POSIX shim there for months. Run the full suite.
+      - name: full suite under Git Bash
+        shell: bash
+        run: sh tests/run.sh
+
+      # The cmd.exe shim is the path with no POSIX shell at all. It has no automated
+      # coverage anywhere else, so exercise it end to end as a user would.
+      # The project comes from a committed fixture rather than cmd.exe heredocs, whose
+      # escaping rules for parentheses and backslashes would be the thing under test.
+      - name: install into a scratch project
+        shell: cmd
+        run: |
+          xcopy /E /I /Q tests\fixtures\smoke scratch || exit /b 1
+          java src\flix.java install scratch || exit /b 1
+
+      - name: pin, check and run through flix.cmd
+        shell: cmd
+        working-directory: scratch
+        run: |
+          call flix.cmd pin %FLIXW_TEST_VERSION% || exit /b 1
+          call flix.cmd --wrapper-version || exit /b 1
+          call flix.cmd check || exit /b 1
+          call flix.cmd run || exit /b 1
+          call flix.cmd validate || exit /b 1
+
+      - name: the lossless fallback needs no shim
+        shell: cmd
+        working-directory: scratch
+        run: java .flix-wrapper\flix.java -- --version || exit /b 1
+
+      # PowerShell can call flix.cmd, which is why there is no .ps1: a Group Policy
+      # execution policy cannot block a .cmd. Prove the path works.
+      - name: flix.cmd from PowerShell
+        shell: pwsh
+        working-directory: scratch
+        run: |
+          .\flix.cmd --wrapper-version
+          if ($LASTEXITCODE -ne 0) { exit 1 }

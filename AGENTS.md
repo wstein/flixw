@@ -48,7 +48,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 55-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 67-case regression suite; one ~32MB download on a cold cache
 ```
 
 `helper/` holds a build definition and nothing else — no sources, reserved against the
@@ -140,8 +140,9 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   but Flix has no unknown-command diagnostic: `flix doctro` answers
   `Unrecognized file extension: 'doctro'.` on **stdout**, exit 1. The routing is right; the
   resulting message is not good, and improving it is an open UX question.
-- `flix.cmd` has never been executed — there is no Windows machine in the loop. Argument
-  parity with the POSIX shim is not achievable and is not claimed; see `docs/LIMITATIONS.md`.
+- `flix.cmd` has a CI job but no results: the repository has no remote, so no workflow has
+  ever run. Argument parity with the POSIX shim is not achievable and is not claimed; see
+  `docs/LIMITATIONS.md`.
 - The design paper is Revision 6 and now trails the implementation in places. `docs/CONTRACT.md`
   is the accurate description of what ships; the paper is kept as historical evidence.
 

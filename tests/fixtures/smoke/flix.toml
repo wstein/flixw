@@ -1,0 +1,7 @@
+# Minimal project used by the Windows smoke job. `flix pin` rewrites the version.
+[package]
+name        = "flixw-smoke"
+description = "smoke-test project for the cmd.exe shim"
+version     = "0.1.0"
+flix        = "0.75.2"
+authors     = ["nobody"]
