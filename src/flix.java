@@ -207,10 +207,20 @@ public final class flix {
                  .resolve("flix-" + canonical(lock.version()) + "-" + lock.sha256() + ".jar");
     }
 
+    /**
+     * Validated on every run, not only when a download happens: a warm cache would
+     * otherwise hide a malformed mirror setting until the day it is actually needed.
+     */
+    static void validateDistUrl() {
+        String base = env("FLIX_DIST_URL");
+        if (base != null && !base.startsWith("https://"))
+            throw w008("FLIX_DIST_URL must be https, got " + q(base));
+    }
+
     static String rewriteBase(String url) {
         String base = env("FLIX_DIST_URL");
         if (base == null) return url;
-        if (!base.startsWith("https://")) throw w008("FLIX_DIST_URL must be https");
+        validateDistUrl();
         int slash = url.indexOf('/', "https://".length());
         String tail = slash < 0 ? "" : url.substring(slash);
         return base.replaceAll("/+$", "") + tail;
@@ -543,17 +553,21 @@ public final class flix {
 
     static List<String> captureVerbs(Path javaExe, Path jar) {
         String out;
+        Process p = null;
         try {
-            Process p = new ProcessBuilder(javaExe.toString(), "-jar", jar.toString(), "--help")
+            p = new ProcessBuilder(javaExe.toString(), "-jar", jar.toString(), "--help")
                     .redirectErrorStream(true).start();
             p.getOutputStream().close();
             out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!p.waitFor(60, TimeUnit.SECONDS)) {
-                p.destroyForcibly();
-                throw w009("`flix --help` did not finish within 60s");
-            }
+            if (!p.waitFor(30, TimeUnit.SECONDS))
+                throw w009("`flix --help` did not finish within 30s");
         } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw w009("cannot run `flix --help`: " + e.getMessage());
+        } finally {
+            // A probe must never outlive the probe. Without this, a JAR that does not
+            // answer --help leaves a JVM behind on every invocation.
+            if (p != null && p.isAlive()) p.destroyForcibly();
         }
         // Two independent parses.  `Command: lsp-vscode port` carries an argument, so a
         // whole-line parse yields a phantom verb; take the first token only.
@@ -975,6 +989,8 @@ public final class flix {
         if (first != null && first.startsWith("--wrapper-"))
             throw w008("unknown launcher flag " + q(first)
                      + "\n       known: --wrapper-version --wrapper-help");
+
+        validateDistUrl();
 
         Path anchor = wrapperAnchor();
         if ("install".equals(first) && !Files.isRegularFile(lockPath(anchor))) {
