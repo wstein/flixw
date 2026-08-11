@@ -11,14 +11,14 @@
 >
 > The experiment's central question — *can stage 0 verify, install, and execute an exact
 > unmodified stock Flix release without a helper JAR or compiler changes?* — has been
-> answered yes, by a working implementation with a 55-case regression suite. Where this
+> answered yes, by a working implementation with a 74-case regression suite. Where this
 > paper and the code disagree, **the code is right and [`CONTRACT.md`](CONTRACT.md) describes
 > it**; [`BENCHMARKS.md`](BENCHMARKS.md) has the measured numbers and
 > [`LIMITATIONS.md`](LIMITATIONS.md) the honest limits.
 >
-> Known divergences: the wrapper directory is `.flix-wrapper/`, not `.flix-wrapper/` (updated
-> below); verb capture is advisory rather than fatal, falling back to a built-in table with
-> `FLIXW010`; the Java ceiling warns rather than fails unless `FLIXW_STRICT_JAVA` is set;
+> Known divergences: verb capture is advisory rather than fatal, falling back to a built-in
+> table with `FLIXW010`; the Java ceiling warns rather than fails unless
+> `FLIXW_STRICT_JAVA` is set;
 > `pin`, `doctor`, `validate` and `update-wrapper` run without a lock, because otherwise the
 > repair a diagnostic recommends is unreachable; and `update-wrapper` rewrites the invariant
 > files rather than fetching a release that does not exist yet.

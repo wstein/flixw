@@ -1,5 +1,12 @@
 # flixw
 
+[![CI](https://github.com/wstein/flixw/actions/workflows/ci.yaml/badge.svg)](https://github.com/wstein/flixw/actions/workflows/ci.yaml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Java 21+](https://img.shields.io/badge/java-21%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
+[![Flix 0.75.2](https://img.shields.io/badge/flix-0.75.2-6a4c93.svg)](https://github.com/flix/flix/releases/tag/v0.75.2)
+[![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/flix.java)
+[![platforms: linux | macOS | windows](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](.github/workflows/ci.yaml)
+
 An **experimental, third-party, opt-in** repository bootstrapper for
 [Flix](https://flix.dev). It pins a Flix compiler version in your project, verifies the
 official release JAR against a committed SHA-256, and runs it — with no Flix
@@ -60,7 +67,8 @@ to the wrapper, and how to force either.
 src/flix.java   stage 0 — the whole bootstrap, one dependency-free Java file
 src/flix        POSIX shim  — finds a Java, prefers the compiled stage 0
 src/flix.cmd    cmd.exe shim — same, for Windows without a POSIX shell
-tests/          regression suite and fixtures
+tests/          regression suite, unit checks, and a corpus of 95 real flix.toml
+                files used to test the manifest scanner against a TOML oracle
 helper/         placeholder sbt module; built only if the wrapper-verb surface
                 outgrows stage 0, which it has not
 docs/           contract, benchmarks, limitations, design paper
@@ -72,6 +80,11 @@ docs/           contract, benchmarks, limitations, design paper
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity
 sh tests/run.sh     # regression suite (needs network on first run)
 ```
+
+Both are required before a commit, and both run in CI on Linux, macOS and Windows.
+`sh tests/fetch-corpus.sh` refreshes the manifest corpus; it is a maintenance tool rather
+than a test, and needs `gh`, `curl` and python3. See
+[`tests/corpus/README.md`](tests/corpus/README.md).
 
 ## License
 
