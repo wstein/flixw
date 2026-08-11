@@ -1,6 +1,16 @@
 # AGENTS.md
 
-Guidance for AI coding agents (Claude Code, Codex, …) working in this repository.
+Guidance for AI coding agents working in this repository. **This file is the single source.**
+The others are pointers, and carry only the constraints that are most expensive to violate:
+
+| File | Read by |
+|---|---|
+| `AGENTS.md` | Codex, Antigravity, Jules, Cursor, and anything else honouring the convention |
+| `CLAUDE.md` | Claude Code — imports this file with `@AGENTS.md` |
+| `.github/copilot-instructions.md` | GitHub Copilot |
+| `.agents/rules/flixw.md` | Google Antigravity workspace rules (max 12,000 chars per rule file) |
+
+Change guidance here first; update the pointers only when a constraint in them is affected.
 
 ## What this is
 
