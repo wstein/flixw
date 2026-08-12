@@ -36,7 +36,7 @@ you your first Java. Java 21+ is what the compiler needs — see
 
 ```console
 git init hello && cd hello
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.1/flixw.java
 java flixw.java install .
 rm flixw.java
 ```
@@ -47,7 +47,7 @@ rm flixw.java
 ```powershell
 git init hello; cd hello
 Invoke-WebRequest -OutFile flixw.java `
-  https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
+  https://github.com/wstein/flixw/releases/download/v0.20.1/flixw.java
 java flixw.java install .
 Remove-Item flixw.java
 ```
@@ -95,8 +95,8 @@ $ ./flixw test
 Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 
 $ ./flixw validate
-ok    ./flixw matches flixw 0.20.0
-ok    ./flixw.cmd matches flixw 0.20.0
+ok    ./flixw matches flixw 0.20.1
+ok    ./flixw.cmd matches flixw 0.20.1
 ok    .flixw/flixw.java  sha256=11854c8776a6885d...
 ok    the lock satisfies flix.toml
 ```
@@ -183,18 +183,18 @@ The archive is the alternative, for when you would rather not run a downloaded p
 install a program:
 
 ```console
-base=https://github.com/wstein/flixw/releases/download/v0.20.0
-curl -fsSLO $base/flixw-0.20.0.tar.gz
-curl -fsSL  $base/SHA256SUMS | grep flixw-0.20.0.tar.gz | shasum -a 256 -c -
-tar -xzf flixw-0.20.0.tar.gz        # writes flixw, flixw.cmd, .flixw/flixw.java
-rm flixw-0.20.0.tar.gz
+base=https://github.com/wstein/flixw/releases/download/v0.20.1
+curl -fsSLO $base/flixw-0.20.1.tar.gz
+curl -fsSL  $base/SHA256SUMS | grep flixw-0.20.1.tar.gz | shasum -a 256 -c -
+tar -xzf flixw-0.20.1.tar.gz        # writes flixw, flixw.cmd, .flixw/flixw.java
+rm flixw-0.20.1.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
 ./flixw doctor --fix                # merges the .gitattributes block
 git add flixw flixw.cmd .flixw .gitattributes
 ```
 
 The digest line is a check you run, not a comparison you eyeball: it prints `OK` or fails.
-On Windows, `Get-FileHash flixw-0.20.0.tar.gz` and `Expand-Archive` are the equivalents.
+On Windows, `Get-FileHash flixw-0.20.1.tar.gz` and `Expand-Archive` are the equivalents.
 
 Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
 own field and flixw reads it as a **minimum**, so the same version or anything newer is
