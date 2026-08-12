@@ -2956,7 +2956,7 @@ public final class flixw {
         // outright. Either way `./flixw -- --help` and FLIX_BACKEND=compiler still reach
         // the compiler alone, which is what someone parsing its output would want.
         if (!toCompiler && "help".equals(first)
-            || (!forcedCompiler && "--help".equals(first) && argv.size() == 1)) {
+            || (!forcedCompiler && ("--help".equals(first) || "-h".equals(first)) && argv.size() == 1)) {
             wrapperHelp();
             System.out.println();
             System.out.println("---- Flix " + lock.version() + " ".repeat(3)
@@ -3001,7 +3001,7 @@ public final class flixw {
     static void wrapperHelp() {
         System.out.println("flixw " + WRAPPER_VERSION + " -- repository-local Flix bootstrap");
         System.out.println();
-        System.out.println("  ./flixw help | --help            this table, then the compiler's own help");
+        System.out.println("  ./flixw help | --help | -h       this table, then the compiler's own help");
         System.out.println("  ./flixw <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flixw -- <args>                forced compiler pass-through");
         System.out.println("  ./flixw pin [<owner>/<repo>] [<version>] [--java <v>]  write the lock");
