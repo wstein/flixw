@@ -61,8 +61,8 @@ jobs:
             printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-%s.tar.gz\n' \
                    "$GITHUB_REPOSITORY" "$TAG" "$version"
             printf 'tar -xzf flixw-%s.tar.gz     # writes flix, flix.cmd, .flix-wrapper/flix.java\n' "$version"
-            printf './flix doctor --fix           # merges the .gitattributes block\n'
-            printf './flix pin <flix-version>     # writes the lock and fetches the compiler\n```\n\n'
+            printf './flix pin <flix-version>     # writes the lock and fetches the compiler\n'
+            printf './flix doctor --fix           # merges the .gitattributes block\n```\n\n'
             printf 'A `.zip` with the same contents is attached for machines without `tar`, and '
             printf '`flix.java` on its own for the `java flix.java install .` route.\n\n'
             printf 'Verify before you run it -- these digests are the ones this workflow built:\n\n'

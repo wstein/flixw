@@ -58,14 +58,16 @@ curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.0/flixw-0.19
 shasum -a 256 flixw-0.19.0.tar.gz   # compare with the release notes before extracting it
 tar -xzf flixw-0.19.0.tar.gz        # writes flix, flix.cmd, .flix-wrapper/flix.java
 rm flixw-0.19.0.tar.gz
-./flix doctor --fix                 # merges the .gitattributes block
 ./flix pin 0.75.2                   # writes the lock, fetches and verifies the compiler
+./flix doctor --fix                 # merges the .gitattributes block
 git add flix flix.cmd .flix-wrapper .gitattributes
 ```
 
 A `.zip` with the same contents is attached to every release for machines without `tar`.
 The archives leave `.gitattributes` alone rather than overwriting the one your project
 already has, which is why `doctor --fix` — which *merges* the block — is a step of its own.
+It comes after `pin` because it reports on the whole installation, and until there is a
+lock the honest report is that one is missing.
 
 `flix.java` is published on its own as well, for the equivalent route through the installer:
 
