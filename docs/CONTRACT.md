@@ -5,9 +5,10 @@ promised. Every statement below is covered by a case in `tests/run.sh`.
 
 ## Files
 
-Four files are committed into a consuming project. Three are byte-identical across every
-project using a given `flixw` release, so a single published hash validates them; only
-the lock differs per project.
+Five files are committed into a consuming project, plus a block inside one the project
+already owns. Four of the five are byte-identical across every project using a given
+`flixw` release, so a single published hash validates them; only the lock differs per
+project.
 
 ```text
 flixw                 POSIX shim
@@ -18,23 +19,25 @@ flixw.cmd             cmd.exe shim
 .flixw/local/java     the JDK this machine resolved to; NOT committed
 ```
 
-`flixw install` also merges a marked block into `.gitattributes`, preserving unrelated
-rules. `flixw validate` compares the two shims byte for byte against the bytes this
+`flixw install` also merges a marked block into `.gitattributes` — the sixth file, and the
+only one flixw shares rather than owns — preserving unrelated rules. `flixw validate` compares the two shims byte for byte against the bytes this
 release ships, reports stage 0's digest for comparison against the published release, and
 fails if a later `.gitattributes` rule overrides the block — any rule matching one of the
-four shipped paths, whether by wildcard or by naming it outright — or if more than one
+five shipped paths, whether by wildcard or by naming it outright — or if more than one
 flixw block exists, since git honours the last — gitattributes resolves by
 last matching pattern, so an override silently un-pins the line endings the block exists
-to fix. All four files must be committed; `flixw validate` fails if a gitignore rule
-swallows one, because a collaborator would then get a project that cannot bootstrap.
+to fix. All five must be committed; `flixw validate` fails if a gitignore rule swallows one,
+because a collaborator would then get a project that cannot bootstrap. `.flixw/local/` is
+the exception that proves it: machine-specific, and ignored by the `.gitignore` flixw
+ships for exactly that purpose.
 
 **Installing from an archive.** A release also ships `flixw-<version>.tar.gz` and
 `flixw-<version>.zip`, whose contents are byte-identical to what `install` writes and are
-extracted at a project root. They carry three of the four files: `.gitattributes` is
-omitted, because `install` *merges* its block into whatever the project already has and an
-archive can only overwrite. `./flixw doctor --fix` performs that merge afterwards, and
+extracted at a project root. They carry the four invariant files and nothing else: the lock is yours to
+generate, and `.gitattributes` is omitted because `install` *merges* its block into
+whatever the project already has, while an archive can only overwrite. `./flixw doctor --fix` performs that merge afterwards, and
 `./flixw validate` reports the block as missing if it was skipped. The executable bit on
-`flix` is carried by both archive formats.
+`flixw` is carried by both archive formats.
 
 ## The pin
 

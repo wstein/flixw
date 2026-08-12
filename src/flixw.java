@@ -2040,7 +2040,8 @@ public final class flixw {
     }
 
     static final List<String> SHIPPED =
-        List.of("flixw", "flixw.cmd", WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml");
+        List.of("flixw", "flixw.cmd", WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml",
+                WRAPPER_DIR + "/.gitignore");
 
     /** Does one .gitattributes pattern match one path flixw ships? */
     static boolean patternMatches(String pattern, String path) {
@@ -2393,7 +2394,7 @@ public final class flixw {
             mergeGitattributes(target.resolve(".gitattributes"));
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
                              + "/flixw.java into " + target);
-            System.out.println("next: ./flixw pin <version>   then commit all four files");
+            System.out.println("next: ./flixw pin <version>   then commit all five files");
         } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
     }
 
@@ -2517,6 +2518,10 @@ public final class flixw {
         String block = begin + "\n/flixw text eol=lf\n"
                      + "/" + WRAPPER_DIR + "/flixw.java text eol=lf\n"
                      + "/" + WRAPPER_DIR + "/lock.toml text eol=lf\n"
+                     // Compared byte for byte by `doctor --fix`, so a checkout that
+                     // translated its endings would make every run report a file to
+                     // repair and repair it back. Same reason as the four above.
+                     + "/" + WRAPPER_DIR + "/.gitignore text eol=lf\n"
                      + "/flixw.cmd text eol=crlf\n" + end + "\n";
         String cur = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
         // Every existing block is removed and one is appended, rather than each being

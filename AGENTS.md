@@ -72,7 +72,7 @@ reported as `skip` rather than asserted for the wrong reason.
 
 ## Architecture
 
-Three artifacts ship into a consuming project, byte-identical across projects for a given
+Four artifacts ship into a consuming project, byte-identical across projects for a given
 wrapper release; only `.flixw/lock.toml` differs per project.
 
 | File | Role |

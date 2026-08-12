@@ -125,8 +125,8 @@ compare it against the release you meant to install.
 
 ### What the project looks like
 
-Eight files, of which flixw owns four. Everything below is committed on purpose — a clone
-needs no bootstrap step of its own, and no `flix` on `PATH`. (`init` also scaffolds a
+Nine files, of which flixw writes five and shares a sixth. Everything below is committed on
+purpose — a clone needs no bootstrap step of its own, and no `flix` on `PATH`. (`init` also scaffolds a
 `README.md`, a `LICENSE.md`, a `.gitignore` and a CI workflow, which are yours to keep or
 delete.)
 
@@ -134,16 +134,16 @@ delete.)
 flixw                 the wrapper you actually run; a POSIX sh shim
 flixw.cmd             the same, for cmd.exe and PowerShell
 .flixw/flixw.java     stage 0: the whole bootstrap, one dependency-free Java file
+.flixw/.gitignore     keeps .flixw/local/ (below) out of git
 .flixw/lock.toml      the pin — repository, version, URL and SHA-256 of the compiler
-.flixw/.gitignore     keeps the line below out of git
-.gitattributes        line endings for the four files above, as a marked block
+.gitattributes        line endings for the five above, as a marked block in your file
 flix.toml             your project: name, dependencies, and the minimum Flix
 src/Main.flix         your code
 test/TestMain.flix    your tests
 ```
 
-The first four are byte-identical in every project on the same flixw release; only
-`lock.toml` is yours. Not committed, and safe to delete at any time:
+The first four are byte-identical in every project on the same flixw release; `lock.toml`
+is yours, and `.gitattributes` is yours with a block of ours in it. Not committed, and safe to delete at any time:
 
 ```text
 .flixw/local/java                        the JDK this machine resolved to, so the
