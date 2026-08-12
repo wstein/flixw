@@ -62,8 +62,10 @@ if [ -z "$java0" ]; then
   esac
   echo "            https://adoptium.net/temurin/releases/?version=21" >&2
   echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
-  echo "          With any Java 21+ present, ./flixw wrapper --install-jdk will" >&2
-  echo "          fetch and verify one into the flixw cache for this project." >&2
+  echo "          flixw cannot fetch this first one: it is a Java program itself," >&2
+  echo "          and there is no Java here to run it. Once any Java 16 or newer is" >&2
+  echo "          reachable, ./flixw wrapper --install-jdk fetches a verified" >&2
+  echo "          Temurin 21 into the flixw cache and leaves the system alone." >&2
   exit 127
 fi
 if [ ! -x "$java0" ]; then

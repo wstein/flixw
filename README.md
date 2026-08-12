@@ -27,7 +27,7 @@ from an actual run.
 ```console
 git init hello && cd hello
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
-java flixw.java install .    # writes flixw, flixw.cmd, .flixw/, and merges .gitattributes
+java flixw.java install .
 rm flixw.java
 ```
 
@@ -49,9 +49,13 @@ $ ./flixw run
 Hello World!
 ```
 
-That is the whole bootstrap. The only prerequisite was a Java 21+ JDK; if there is none,
-flixw says how to install one for your platform, and `./flixw wrapper --install-jdk`
-fetches a verified Temurin 21 into its own cache rather than touching your system.
+That is the whole bootstrap. The only prerequisite is a JDK — and two different versions
+of that sentence are true at once. The pinned *compiler* needs Java 21+. Stage 0 itself
+compiles on Java 16, so if what you have is older than the compiler needs but 16 or newer,
+flixw runs, tells you so, and `./flixw wrapper --install-jdk` fetches a verified Temurin 21
+into its own cache rather than touching your system. With no Java at all, flixw can only
+tell you how to install one for your platform: it is a Java program, so it cannot be the
+thing that gets you your first Java.
 
 From here every verb is the stock compiler, run by the wrapper:
 

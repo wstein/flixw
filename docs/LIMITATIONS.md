@@ -117,9 +117,10 @@ Three limits are worth knowing.
 **It cannot bootstrap from no Java at all — the first time.** Stage 0 is a Java program,
 so something must be able to run it before flixw can fetch anything. With no `java`
 anywhere, the shim exits before stage 0 starts, and what you get is its own message: how
-to install Temurin on this OS, and a note that `./flixw wrapper --install-jdk` will manage
-one for you once any Java 21+ exists. The offer itself therefore only reaches you when a
-*too old* Java exists, not when none does.
+to install Temurin on this OS, and a note that `./flixw wrapper --install-jdk` manages one
+for you once any Java 16 or newer is reachable — 16 being what stage 0 itself compiles at,
+not what the compiler needs. The offer therefore reaches you when a *too old* Java exists,
+and not when none does.
 
 Afterwards it is no longer true. A JDK flixw installed is recorded in
 `<cache>/jdks/default`, and the shims read that when `PATH`, `JAVA_HOME` and

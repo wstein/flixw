@@ -46,8 +46,10 @@ if not defined JAVA0 (
   echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
   echo             https://adoptium.net/temurin/releases/?version=21 1>&2
   echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
-  echo           With any Java 21+ present, flixw.cmd wrapper --install-jdk will 1>&2
-  echo           fetch and verify one into the flixw cache for this project. 1>&2
+  echo           flixw cannot fetch this first one: it is a Java program 1>&2
+  echo           itself, and there is no Java here to run it. Once any Java 16 1>&2
+  echo           or newer is reachable, flixw.cmd wrapper --install-jdk fetches 1>&2
+  echo           a verified Temurin 21 into the flixw cache. 1>&2
   exit /b 127 )
 if not exist "%JAVA0%" (
   echo FLIXW003: %JAVA0% not found. 1>&2

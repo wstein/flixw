@@ -150,8 +150,14 @@ JDK — Eclipse Temurin at `MIN_JAVA`, verified against Adoptium's published SHA
 that package and unpacked into `<cache>/jdks/` — and `FLIXW_INSTALL_JDK=1` accepts that
 offer in advance. `./flixw wrapper --install-jdk` performs it on demand and prints the
 resulting `java` on stdout. Temurin is the only vendor fetched; any other already on the
-machine is found and used. It is never taken silently, and it cannot help when no Java exists at all, since
-stage 0 needs one to run.
+machine is found and used. It is never taken silently.
+
+The offer reaches further down than the floor it repairs: stage 0 compiles at
+`SOURCE_FLOOR` (16), so every Java from there to `MIN_JAVA` runs flixw, fails to run the
+*compiler*, and can fetch one that will. Below that, and with no Java at all, nothing here
+speaks — stage 0 needs a JVM to say anything — so the shim's own message is the whole
+answer, and it does not offer an install it cannot perform. `tests/lint.sh` compiles stage
+0 at `SOURCE_FLOOR` so that promise cannot rot.
 
 Discovery covers the directories JDKs are unpacked into, including version managers the
 OS has no record of — SDKMAN, asdf, mise, jenv, Gradle, Homebrew on both architectures,

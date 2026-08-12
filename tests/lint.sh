@@ -87,6 +87,24 @@ else
   fi
 fi
 
+# --- 5. stage 0 still compiles at its own floor ----------------------------
+# SOURCE_FLOOR is the oldest javac that can compile stage 0, and it is a *claim made to
+# users*: below Java 21 flixw still runs and offers to fetch a JDK, and the no-java
+# diagnostic says how far down that offer reaches. One post-floor language feature would
+# make the promise false with nothing failing, so it is compiled at that release.
+floor=$(sed -n 's/.*static final int SOURCE_FLOOR = \([0-9][0-9]*\).*/\1/p' "$root/src/flixw.java")
+if [ -z "$floor" ]; then
+  bad "cannot read SOURCE_FLOOR from src/flixw.java"
+elif javac --release "$floor" -d "$work/floor" "$root/src/flixw.java" >"$work/floor.log" 2>&1; then
+  say "ok    stage 0 compiles at its stated floor (Java $floor)"
+elif grep -q "release version $floor not supported" "$work/floor.log"; then
+  # A javac new enough to have dropped that release cannot answer the question.
+  say "skip  floor check (this javac no longer targets $floor)"
+else
+  bad "stage 0 no longer compiles at Java $floor, which its diagnostics promise"
+  head -5 "$work/floor.log"
+fi
+
 # --- 5. the wrapper namespace is spelled the same way everywhere -----------
 # Diagnostics are required to name the command that repairs the problem, which makes a
 # renamed command a wrong answer printed at the worst possible moment: four messages went

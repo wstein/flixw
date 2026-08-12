@@ -39,6 +39,16 @@ public final class flixw {
     static final String WRAPPER_VERSION = "0.20.0";
     static final String WRAPPER_DIR = ".flixw";
     static final int MIN_JAVA = 21;
+    /**
+     * The oldest javac that can compile this file, which is a different number from the
+     * floor above and answers a different question. MIN_JAVA is what the *compiler* needs;
+     * this is what *stage 0* needs, and between the two lies the range where flixw runs,
+     * says the pinned Flix will not, and can fetch a JDK that will. Below it flixw cannot
+     * speak at all -- which is why the no-java diagnostic does not offer to install one.
+     * `tests/lint.sh` compiles this file with --release SOURCE_FLOOR so the number cannot
+     * quietly drift when a newer language feature is used.
+     */
+    static final int SOURCE_FLOOR = 16;
 
     /** The interval flixw is tested on.  Above the ceiling is a warning, not an error. */
     static final int TESTED_CEILING = 25;
@@ -1605,8 +1615,10 @@ public final class flixw {
           esac
           echo "            https://adoptium.net/temurin/releases/?version=21" >&2
           echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
-          echo "          With any Java 21+ present, ./flixw wrapper --install-jdk will" >&2
-          echo "          fetch and verify one into the flixw cache for this project." >&2
+          echo "          flixw cannot fetch this first one: it is a Java program itself," >&2
+          echo "          and there is no Java here to run it. Once any Java 16 or newer is" >&2
+          echo "          reachable, ./flixw wrapper --install-jdk fetches a verified" >&2
+          echo "          Temurin 21 into the flixw cache and leaves the system alone." >&2
           exit 127
         fi
         if [ ! -x "$java0" ]; then
@@ -1730,8 +1742,10 @@ public final class flixw {
           echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
           echo             https://adoptium.net/temurin/releases/?version=21 1>&2
           echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
-          echo           With any Java 21+ present, flixw.cmd wrapper --install-jdk will 1>&2
-          echo           fetch and verify one into the flixw cache for this project. 1>&2
+          echo           flixw cannot fetch this first one: it is a Java program 1>&2
+          echo           itself, and there is no Java here to run it. Once any Java 16 1>&2
+          echo           or newer is reachable, flixw.cmd wrapper --install-jdk fetches 1>&2
+          echo           a verified Temurin 21 into the flixw cache. 1>&2
           exit /b 127 )
         if not exist "%JAVA0%" (
           echo FLIXW003: %JAVA0% not found. 1>&2
