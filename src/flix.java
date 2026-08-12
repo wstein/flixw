@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.17.0";
+    static final String WRAPPER_VERSION = "0.18.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -2120,6 +2120,97 @@ public final class flix {
         Files.writeString(ga, next, StandardCharsets.UTF_8);
     }
 
+    /** Is `a` no newer than `b`? Both are the wrapper's own dotted versions. */
+    static boolean olderOrSame(String a, String b) {
+        String[] x = canonical(a).split("\\."), y = canonical(b).split("\\.");
+        for (int i = 0; i < Math.max(x.length, y.length); i++) {
+            int xi = i < x.length ? num(x[i]) : 0, yi = i < y.length ? num(y[i]) : 0;
+            if (xi != yi) return xi < yi;
+        }
+        return true;                                  // identical is not an upgrade
+    }
+
+    static int num(String s) {
+        Matcher m = Pattern.compile("^([0-9]+)").matcher(s);
+        return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    }
+
+    /** flixw's own releases. `latest/download` resolves without asking an API anything. */
+    static final String FLIXW_LATEST =
+        "https://github.com/wstein/flixw/releases/latest/download/";
+
+    /**
+     * Moves this project to the newest published flixw.
+     *
+     * The old `--upgrade` rewrote the files from the stage 0 already in the tree, which is
+     * a repair rather than a version change -- so it printed a note on every run
+     * explaining that it had not done what its name says. That repair is now
+     * `./flix doctor --fix`, and this does what the word means.
+     *
+     * The new stage 0 installs itself. It is the only thing that knows its own shim bytes,
+     * and having the old one write files for a version it has never seen is how the two
+     * drift apart.
+     *
+     * The digest is checked against the SHA256SUMS published beside it -- same origin,
+     * same TLS, so this catches a corrupted or truncated download and not a compromised
+     * release. That is the same footing as the compiler pin, and docs/LIMITATIONS.md says
+     * so; a self-update is simply where it matters most.
+     */
+    static void upgradeWrapper(Path root) {
+        String sums = httpGet(FLIXW_LATEST + "SHA256SUMS");
+        String want = null;
+        for (String line : sums.split("\r?\n")) {
+            String[] f = line.trim().split("\\s+");
+            if (f.length == 2 && f[1].equals("flix.java")) want = f[0];
+        }
+        if (want == null || !want.matches("[0-9a-f]{64}"))
+            throw w005("the published SHA256SUMS names no digest for flix.java");
+
+        Path current = root.resolve(WRAPPER_DIR).resolve("flix.java");
+        if (Files.isRegularFile(current) && sha256(current).equals(want)) {
+            System.out.println("already on the latest flixw (" + WRAPPER_VERSION + ")");
+            return;
+        }
+        Path dir = null;
+        try {
+            dir = Files.createTempDirectory("flixw-upgrade-");
+            Path fresh = dir.resolve("flix.java");
+            System.err.println("flixw: downloading the latest flixw");
+            download(FLIXW_LATEST + "flix.java", fresh);
+            String got = sha256(fresh);
+            if (!got.equals(want))
+                throw w006("digest mismatch for the downloaded flix.java"
+                         + "\n       published " + want + "\n       downloaded " + got);
+
+            // Newest published is not the same as newer than this. Anyone working on
+            // flixw itself runs a version no release has yet, and "upgrade" must not walk
+            // them backwards to it.
+            Matcher m = Pattern.compile("WRAPPER_VERSION\\s*=\\s*\"([^\"]+)\"")
+                               .matcher(Files.readString(fresh, StandardCharsets.UTF_8));
+            String published = m.find() ? m.group(1) : null;
+            if (published != null && olderOrSame(published, WRAPPER_VERSION)) {
+                System.out.println("this project is on flixw " + WRAPPER_VERSION
+                                 + "; the newest release is " + published + ". Nothing to do.");
+                return;
+            }
+            System.err.println("flixw: " + WRAPPER_VERSION + " -> "
+                             + (published == null ? "the latest release" : published));
+            // Hand over: the new stage 0 writes its own shims and its own copy of itself.
+            Path javaExe = exeIn(System.getProperty("java.home"));
+            Process p = new ProcessBuilder(javaExe.toString(), fresh.toString(),
+                                           "install", root.toString()).inheritIO().start();
+            int rc = awaitWithReaper(p);
+            if (rc != 0) throw w009("the downloaded flixw failed to install (exit " + rc + ")");
+        } catch (IOException e) {
+            throw w007("cannot upgrade the wrapper: " + why(e));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw w009("upgrade interrupted");
+        } finally {
+            if (dir != null) deleteTree(dir);
+        }
+    }
+
     /**
      * flixw's own namespace: `./flix wrapper [--operation]`.
      *
@@ -2153,7 +2244,7 @@ public final class flix {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--upgrade' takes no arguments"));
                 // The only operation here that needs a project, and it resolves one itself
                 // rather than making the others depend on being inside one.
-                updateWrapper(findRoot(wrapperAnchor()));
+                upgradeWrapper(findRoot(wrapperAnchor()));
             }
             case "--install-jdk" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
@@ -2168,9 +2259,8 @@ public final class flix {
              + "\n       usage: ./flix wrapper [--help | --version | --upgrade | --install-jdk]"
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
-             + "\n         --upgrade      rewrite this project's wrapper files from this flixw"
-             + "\n                        (a repair, not a version change: to move to a newer"
-             + "\n                        flixw, install it from that release)"
+             + "\n         --upgrade      move this project to the newest published flixw"
+             + "\n                        (to repair the files it has: ./flix doctor --fix)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache";
     }
 

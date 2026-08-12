@@ -154,6 +154,11 @@ reached only when no explicit setting exists and the running JVM is unusable.
    wrapper implements it.
 5. Otherwise the compiler gets it.
 
+`./flix wrapper --upgrade` moves the project to the newest published flixw: it fetches
+that release, checks it against the `SHA256SUMS` published beside it, declines to walk
+backwards, and then lets the *new* stage 0 install itself — it is the only thing that knows
+its own shim bytes. Repairing the files a project already has is `./flix doctor --fix`.
+
 `./flix wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
 not a stand-in for anything Flix might ship, so it is not routed to the compiler, does not
 retire, and is unaffected by `FLIX_BACKEND` — and it is reachable with a lock too broken

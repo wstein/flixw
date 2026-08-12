@@ -617,10 +617,10 @@ g 88 'markers' "validate detects a second flixw block"      sh -c '
   printf "# >>> flixw >>>\n/flix text eol=crlf\n# <<< flixw <<<\n" >> .gitattributes
   ./flix validate; rc=$?
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
-t 0  "wrapper --upgrade collapses duplicate blocks to one"     sh -c '
+t 0  "doctor --fix collapses duplicate blocks to one"          sh -c '
   cp .gitattributes "$1/ga.keep"
   printf "# >>> flixw >>>\n/flix text eol=crlf\n# <<< flixw <<<\n" >> .gitattributes
-  ./flix wrapper --upgrade >/dev/null 2>&1
+  ./flix doctor --fix >/dev/null 2>&1
   n=$(grep -c ">>> flixw >>>" .gitattributes)
   cp "$1/ga.keep" .gitattributes
   [ "$n" = 1 ]' sh "$work"
@@ -636,23 +636,31 @@ g 88 'markers' "an unbalanced flixw marker is a failure"         sh -c '
   printf "# <<< flixw <<<\n" >> .gitattributes
   ./flix validate; rc=$?
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
-t 0  "wrapper --upgrade is a no-op when files match"           ./flix wrapper --upgrade
-g 0  'rewrote' "wrapper --upgrade repairs a clobbered shim"        sh -c 'echo broken > flix.cmd; ./flix wrapper --upgrade'
+t 0  "doctor --fix is a no-op when files match"                ./flix doctor --fix
+g 0  'rewrote' "doctor --fix repairs a clobbered shim"        sh -c 'echo broken > flix.cmd; ./flix doctor --fix'
 t 0  "the repaired shim matches the source of truth"            cmp flix.cmd "$root/src/flix.cmd"
-t 0  "wrapper --upgrade restores the executable bit"           sh -c 'chmod -x flix; java .flix-wrapper/flix.java wrapper --upgrade; test -x flix'
+t 0  "doctor --fix restores the executable bit"                sh -c 'chmod -x flix; java .flix-wrapper/flix.java doctor --fix; test -x flix'
 
 # flixw's own namespace is answered before dispatch, so nothing can take it away: not a
 # compiler that claimed the name, not FLIX_BACKEND, and not a lock too broken to read --
 # which is the state it exists to repair.
 t 0  "bare wrapper prints the routing table"                   ./flix wrapper
 t 87 "wrapper rejects an unknown operation"                    ./flix wrapper --frobnicate
-t 87 "wrapper --upgrade takes no arguments"                    ./flix wrapper --upgrade now
-t 0  "wrapper --upgrade survives FLIX_BACKEND=compiler"        env FLIX_BACKEND=compiler ./flix wrapper --upgrade
-t 0  "wrapper --upgrade survives an unreadable lock"           sh -c '
+t 87 "wrapper --upgrade takes no arguments"                    ./flix doctor --fix now
+# FLIX_BACKEND=compiler forces every bare verb to the compiler, doctor among them.
+# The exemption belongs to flixw's own namespace, so that is what is tested.
+t 0  "wrapper --version survives FLIX_BACKEND=compiler"       env FLIX_BACKEND=compiler ./flix wrapper --version
+# 88 because doctor judges and the lock is broken; the point is that it ran at
+# all and repaired the shim, rather than being blocked before routing.
+g 88 'rewrote' "doctor --fix survives an unreadable lock"        sh -c '
   cp .flix-wrapper/lock.toml "$1/lock.keep"
   printf "garbage\n" > .flix-wrapper/lock.toml
-  ./flix wrapper --upgrade >/dev/null 2>&1; rc=$?
+    echo broken > flix.cmd; ./flix doctor --fix; rc=$?
   cp "$1/lock.keep" .flix-wrapper/lock.toml; exit $rc' sh "$work"
+
+# --upgrade moves to the newest published flixw. The suite runs a version no release has
+# yet, so what it can assert offline is the guard that keeps that from walking backwards.
+g 0 'Nothing to do' "upgrade declines to downgrade"             ./flix wrapper --upgrade
 
 # --- git integration -------------------------------------------------------
 echo "git integration"
