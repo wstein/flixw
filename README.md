@@ -3,7 +3,7 @@
 [![CI](https://github.com/wstein/flixw/actions/workflows/ci.yaml/badge.svg)](https://github.com/wstein/flixw/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Java 21+](https://img.shields.io/badge/java-21%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
-[![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/flix.java)
+[![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/flixw.java)
 [![platforms: linux | macOS | windows](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](.github/workflows/ci.yaml)
 
 An **experimental, third-party, opt-in** repository bootstrapper for
@@ -13,97 +13,92 @@ installation, no compiler fork, and no patched build.
 
 > This is not an official Flix tool. It is not affiliated with or endorsed by the Flix
 > project. It works against unmodified release JARs published by
-> [`flix/flix`](https://github.com/flix/flix).
+> [`flix/flix`](https://github.com/flix/flix) — and against a fork's, so long as the fork
+> publishes its build as a GitHub release asset named `flix-<version>.jar` or `flix.jar`:
+> `./flixw pin <owner>/<repo> <version>`. A fork is downloaded, digest-verified and pinned
+> exactly as the stock compiler is; what it is *not* is evidence that a project works with
+> stock Flix, and flixw says so on every pin that names one.
 
 ```console
 git clone <your project>
 cd <your project>
-./flix check          # downloads and verifies the pinned compiler, then runs it
+./flixw check          # downloads and verifies the pinned compiler, then runs it
 ```
 
 The only prerequisite is a Java 21+ JDK. If there is none, flixw says how to install
-one for your platform, and `./flix wrapper --install-jdk` fetches a verified Temurin 21
+one for your platform, and `./flixw wrapper --install-jdk` fetches a verified Temurin 21
 into its own cache rather than touching your system.
 
 ## A worked example
 
-From an empty directory to a running program. Every command and every line of output
-below is from an actual run against the published v0.19.1 archive.
+From an empty directory to a running program. Every command and every line of output below
+is from an actual run against the published archive.
 
 ```console
 mkdir hello && cd hello && git init
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.1/flixw-0.19.1.tar.gz
-tar -xzf flixw-0.19.1.tar.gz && rm flixw-0.19.1.tar.gz
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw-0.20.0.tar.gz
+tar -xzf flixw-0.20.0.tar.gz && rm flixw-0.20.0.tar.gz
 ```
 
-Write the manifest and a little code. `[package].flix` is Flix's own field: the **oldest**
-compiler these sources are known to work with, as plain `x.x.x`.
-
-```toml
-# flix.toml
-[package]
-name        = "hello"
-description = "a first Flix project"
-version     = "0.1.0"
-flix        = "0.75.2"
-authors     = ["you"]
-```
-
-```flix
-// src/Main.flix
-def greet(name: String): String = "hello, ${name}"
-
-def main(): Unit \ IO = println(greet("flix"))
-```
-
-```flix
-// test/TestMain.flix
-@Test
-def testGreet(): Unit \ Assert = Assert.assertEq(expected = "hello, flix", greet("flix"))
-```
-
-Now pin a compiler. This is the step that makes the project reproducible: it fetches
-Flix 0.75.2, hashes it, and records the digest in `.flix-wrapper/lock.toml`.
+Pin a compiler. This is the step that makes the project reproducible: it fetches Flix
+0.75.2, hashes it, and records the digest in `.flixw/lock.toml`. There is no `flix.toml`
+yet and none is needed — that file is Flix's, and the compiler is about to write it.
 
 ```console
-$ ./flix pin 0.75.2
+$ ./flixw pin 0.75.2
 flixw: pinned Flix 0.75.2 from flix/flix (a2697d875725a0dd...)
 
-$ ./flix doctor --fix
+$ ./flixw doctor --fix
 merged   ./.gitattributes
-1 file rewritten from flixw 0.19.1
+1 file rewritten from flixw 0.20.0
+```
+
+`init` is a compiler verb, not one of ours: it goes to the pinned Flix, which scaffolds
+`flix.toml`, `src/Main.flix` and `test/TestMain.flix`.
+
+```console
+$ ./flixw init
+$ ls
+LICENSE.md  README.md  flix.toml  flixw  flixw.cmd  src  test
 ```
 
 From here every verb is the stock compiler, run by the wrapper:
 
 ```console
-$ ./flix test
-Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.5ms.
+$ ./flixw test
+Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 
-$ ./flix run
-hello, flix
+$ ./flixw run
+Hello World!
+
+$ ./flixw validate
+ok    ./flixw matches flixw 0.20.0
+ok    ./flixw.cmd matches flixw 0.20.0
+ok    .flixw/flixw.java  sha256=11854c8776a6885d...
+ok    the lock satisfies flix.toml
 ```
 
 Commit, and a collaborator with nothing but a JDK gets the same compiler you have:
 
 ```console
-git add flix flix.cmd .flix-wrapper .gitattributes flix.toml src test
+git add flixw flixw.cmd .flixw .gitattributes flix.toml src test
 ```
 
 ### What the project looks like
 
-Nine files, of which flixw owns four. Everything below is committed on purpose — a
-clone needs no bootstrap step of its own, and no `flix` on `PATH`.
+Eight files, of which flixw owns four. Everything below is committed on purpose — a clone
+needs no bootstrap step of its own, and no `flix` on `PATH`. (`init` also writes a
+`README.md` and a `LICENSE.md`, which are yours to keep or delete.)
 
 ```text
-flix                        the wrapper you actually run; a POSIX sh shim
-flix.cmd                    the same, for cmd.exe and PowerShell
-.flix-wrapper/flix.java     stage 0: the whole bootstrap, one dependency-free Java file
-.flix-wrapper/lock.toml     the pin — repository, version, URL and SHA-256 of the compiler
-.gitattributes              line endings for the four files above, as a marked block
-flix.toml                   your project: name, dependencies, and the minimum Flix
-src/Main.flix               your code
-test/TestMain.flix          your tests
+flixw                 the wrapper you actually run; a POSIX sh shim
+flixw.cmd             the same, for cmd.exe and PowerShell
+.flixw/flixw.java     stage 0: the whole bootstrap, one dependency-free Java file
+.flixw/lock.toml      the pin — repository, version, URL and SHA-256 of the compiler
+.gitattributes        line endings for the four files above, as a marked block
+flix.toml             your project: name, dependencies, and the minimum Flix
+src/Main.flix         your code
+test/TestMain.flix    your tests
 ```
 
 The first four are byte-identical in every project on the same flixw release; only
@@ -115,7 +110,7 @@ build/  lib/  artifact/  .flix-cache/    Flix's own output and dependency cache
 ```
 
 A real project on this: [`flix-invaders`](https://github.com/wstein/flix-invaders), by
-the same author, which type-checks, tests, formats and packages through `./flix` on
+the same author, which type-checks, tests, formats and packages through `./flixw` on
 Linux, macOS and Windows, and keeps a
 [pin-lag log](https://github.com/wstein/flix-invaders/blob/main/docs/pin-lag.md) — one row
 per Flix release — so the cost of pinning is a number rather than an argument. That is one
@@ -125,13 +120,13 @@ established.
 ## Getting it into a project
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.1/flixw-0.19.1.tar.gz
-shasum -a 256 flixw-0.19.1.tar.gz   # compare with the release notes before extracting it
-tar -xzf flixw-0.19.1.tar.gz        # writes flix, flix.cmd, .flix-wrapper/flix.java
-rm flixw-0.19.1.tar.gz
-./flix pin 0.75.2                   # writes the lock, fetches and verifies the compiler
-./flix doctor --fix                 # merges the .gitattributes block
-git add flix flix.cmd .flix-wrapper .gitattributes
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw-0.20.0.tar.gz
+shasum -a 256 flixw-0.20.0.tar.gz   # compare with the release notes before extracting it
+tar -xzf flixw-0.20.0.tar.gz        # writes flixw, flixw.cmd, .flixw/flixw.java
+rm flixw-0.20.0.tar.gz
+./flixw pin 0.75.2                   # writes the lock, fetches and verifies the compiler
+./flixw doctor --fix                 # merges the .gitattributes block
+git add flixw flixw.cmd .flixw .gitattributes
 ```
 
 A `.zip` with the same contents is attached to every release for machines without `tar`.
@@ -140,23 +135,23 @@ already has, which is why `doctor --fix` — which *merges* the block — is a s
 It comes after `pin` because it reports on the whole installation, and until there is a
 lock the honest report is that one is missing.
 
-`flix.java` is published on its own as well, for the equivalent route through the installer:
+`flixw.java` is published on its own as well, for the equivalent route through the installer:
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.1/flix.java
-java flix.java install .          # writes all four files, merging .gitattributes
-rm flix.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
+java flixw.java install .          # writes all four files, merging .gitattributes
+rm flixw.java
 ```
 
 Install from a release rather than from `main`: a tool that asks you to pin an exact
 compiler should not ask you to fetch itself from a moving branch. Every release publishes
-the SHA-256 of all three files it installs, and `./flix validate` prints the one it finds
+the SHA-256 of all three files it installs, and `./flixw validate` prints the one it finds
 in your project so you can compare it against the release you meant to install.
 
-Once installed, `./flix wrapper --upgrade` moves the project to the newest release.
+Once installed, `./flixw wrapper --upgrade` moves the project to the newest release.
 
-Then `./flix check`, `./flix test`, `./flix run` — the pinned stock compiler, unmodified.
-`./flix wrapper --help` prints the routing table: which verbs go to the compiler, which
+Then `./flixw check`, `./flixw test`, `./flixw run` — the pinned stock compiler, unmodified.
+`./flixw wrapper --help` prints the routing table: which verbs go to the compiler, which
 to the wrapper, and how to force either.
 
 ## Documentation
@@ -170,9 +165,9 @@ to the wrapper, and how to force either.
 ## Repository layout
 
 ```text
-src/flix.java   stage 0 — the whole bootstrap, one dependency-free Java file
-src/flix        POSIX shim  — finds a Java, prefers the compiled stage 0
-src/flix.cmd    cmd.exe shim — same, for Windows without a POSIX shell
+src/flixw.java   stage 0 — the whole bootstrap, one dependency-free Java file
+src/flixw        POSIX shim  — finds a Java, prefers the compiled stage 0
+src/flixw.cmd    cmd.exe shim — same, for Windows without a POSIX shell
 tests/          regression suite, unit checks, and a corpus of 95 real flix.toml
                 files used to test the manifest scanner against a TOML oracle
 docs/           contract, benchmarks, limitations, design paper

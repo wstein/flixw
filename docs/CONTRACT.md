@@ -10,41 +10,41 @@ project using a given `flixw` release, so a single published hash validates them
 the lock differs per project.
 
 ```text
-flix                        POSIX shim
-flix.cmd                    cmd.exe shim
-.flix-wrapper/flix.java     stage 0
-.flix-wrapper/lock.toml     the pin: version, URL, SHA-256
+flixw                 POSIX shim
+flixw.cmd             cmd.exe shim
+.flixw/flixw.java     stage 0
+.flixw/lock.toml      the pin: version, URL, SHA-256
 ```
 
-`flix install` also merges a marked block into `.gitattributes`, preserving unrelated
-rules. `flix validate` compares the two shims byte for byte against the bytes this
+`flixw install` also merges a marked block into `.gitattributes`, preserving unrelated
+rules. `flixw validate` compares the two shims byte for byte against the bytes this
 release ships, reports stage 0's digest for comparison against the published release, and
 fails if a later `.gitattributes` rule overrides the block — any rule matching one of the
 four shipped paths, whether by wildcard or by naming it outright — or if more than one
 flixw block exists, since git honours the last — gitattributes resolves by
 last matching pattern, so an override silently un-pins the line endings the block exists
-to fix. All four files must be committed; `flix validate` fails if a gitignore rule
+to fix. All four files must be committed; `flixw validate` fails if a gitignore rule
 swallows one, because a collaborator would then get a project that cannot bootstrap.
 
 **Installing from an archive.** A release also ships `flixw-<version>.tar.gz` and
 `flixw-<version>.zip`, whose contents are byte-identical to what `install` writes and are
 extracted at a project root. They carry three of the four files: `.gitattributes` is
 omitted, because `install` *merges* its block into whatever the project already has and an
-archive can only overwrite. `./flix doctor --fix` performs that merge afterwards, and
-`./flix validate` reports the block as missing if it was skipped. The executable bit on
+archive can only overwrite. `./flixw doctor --fix` performs that merge afterwards, and
+`./flixw validate` reports the block as missing if it was skipped. The executable bit on
 `flix` is carried by both archive formats.
 
 ## The pin
 
-`.flix-wrapper/lock.toml` is the pin: it is flixw's own file, it is generated, and it
+`.flixw/lock.toml` is the pin: it is flixw's own file, it is generated, and it
 binds the tuple *(repository, version, distribution URL, SHA-256)* that decides which
 compiler actually runs. `flix.toml` is the project's manifest and belongs to Flix; its
 `[package].flix` key is Flix's field, with Flix's rules — a plain `x.x.x`, read here as a
 *minimum* compiler version rather than an exact one.
 
 ```console
-./flix pin 0.75.2                                    # the stock compiler
-./flix pin wstein/flix-fork 0.75.2+fork.wstein.1     # a fork build
+./flixw pin 0.75.2                                    # the stock compiler
+./flixw pin wstein/flix-fork 0.75.2+fork.wstein.1     # a fork build
 ```
 
 The two arguments are told apart by the slash, which a version can never contain, so their
@@ -148,7 +148,7 @@ When nothing usable is found, stage 0 prints OS-specific installation instructio
 exits `FLIXW003`. If stdin is a terminal and `CI` is unset it first offers to download a
 JDK — Eclipse Temurin at `MIN_JAVA`, verified against Adoptium's published SHA-256 for
 that package and unpacked into `<cache>/jdks/` — and `FLIXW_INSTALL_JDK=1` accepts that
-offer in advance. `./flix wrapper --install-jdk` performs it on demand and prints the
+offer in advance. `./flixw wrapper --install-jdk` performs it on demand and prints the
 resulting `java` on stdout. Temurin is the only vendor fetched; any other already on the
 machine is found and used. It is never taken silently, and it cannot help when no Java exists at all, since
 stage 0 needs one to run.
@@ -160,10 +160,10 @@ reached only when no explicit setting exists and the running JVM is unusable.
 
 ## Dispatch
 
-`./flix <verb>` is compiler-first. In order:
+`./flixw <verb>` is compiler-first. In order:
 
-1. `./flix -- <args>` forwards everything after `--` to the compiler.
-2. `./flix wrapper [--operation]` is flixw's own namespace, answered by stage 0 before
+1. `./flixw -- <args>` forwards everything after `--` to the compiler.
+2. `./flixw wrapper [--operation]` is flixw's own namespace, answered by stage 0 before
    anything else. `--version` and `--help` are offline: no project, no lock, no network,
    no compiler. `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
    a JDK and needs the network. A bare `wrapper` prints the routing table.
@@ -173,23 +173,23 @@ reached only when no explicit setting exists and the running JVM is unusable.
    wrapper implements it.
 5. Otherwise the compiler gets it.
 
-`./flix wrapper --upgrade` moves the project to the newest published flixw: it fetches
+`./flixw wrapper --upgrade` moves the project to the newest published flixw: it fetches
 that release, checks it against the `SHA256SUMS` published beside it, declines to walk
 backwards, and then lets the *new* stage 0 install itself — it is the only thing that knows
-its own shim bytes. Repairing the files a project already has is `./flix doctor --fix`.
+its own shim bytes. Repairing the files a project already has is `./flixw doctor --fix`.
 
-`./flix wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
+`./flixw wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
 not a stand-in for anything Flix might ship, so it is not routed to the compiler, does not
 retire, and is unaffected by `FLIX_BACKEND` — and it is reachable with a lock too broken
-to parse, because `./flix wrapper --upgrade` is one of the two ways out of a broken
-installation, the other being `./flix doctor --fix`. The bare
+to parse, because `./flixw wrapper --upgrade` is one of the two ways out of a broken
+installation, the other being `./flixw doctor --fix`. The bare
 verbs above collide with names Flix could claim *on purpose*; rewriting flixw's own files
 never will, so it does not compete for one.
 
-`./flix help` and `./flix --help` answer with both halves: flixw's routing table, then
+`./flixw help` and `./flixw --help` answer with both halves: flixw's routing table, then
 the pinned compiler's own help, unedited. `help` is a bare verb and retires under rule 3
 like any other; `--help` is a flag, can never be a compiler verb, and is intercepted
-outright. `./flix -- --help`, `FLIX_BACKEND=compiler`, and any `--help` carrying further
+outright. `./flixw -- --help`, `FLIX_BACKEND=compiler`, and any `--help` carrying further
 arguments reach the compiler alone — which is what anyone parsing its output wants. The
 exit status is the compiler's.
 
@@ -227,7 +227,12 @@ The search starts at the caller's working directory and takes the nearest ancest
 containing `flix.toml`, bounded above by the wrapper's own project. Invocation from
 outside that tree is refused rather than searched: an unbounded walk finds the first
 stray manifest above the caller and silently builds an unrelated project.
-`FLIX_PROJECT_ROOT` overrides the search entirely.
+`FLIX_PROJECT_ROOT` overrides the search entirely. A search that finds no `flix.toml`
+falls back to the directory the wrapper was installed into rather than failing: `flix.toml`
+is Flix's file, and what flixw needs is somewhere to keep the lock. Demanding one first made
+an empty directory unreachable from both sides — `pin` refused without a manifest, and
+`init`, the compiler verb that writes one, refused without a pinned compiler. A project that
+really is missing its manifest hears it from the compiler, whose file it is.
 
 **The wrapper never changes the caller's working directory.** Relative paths in and out
 keep their ordinary meaning.
@@ -239,7 +244,7 @@ and the terminal inherited. Consequences, all tested:
 
 - The child's exit status is the wrapper's exit status.
 - The REPL keeps raw-mode input, line editing and colour.
-- `./flix run > out.txt` contains only the program's stdout. Every wrapper *diagnostic* —
+- `./flixw run > out.txt` contains only the program's stdout. Every wrapper *diagnostic* —
   routing notices, warnings, `FLIXWnnn` — goes to stderr. Wrapper *command results*
   (`doctor`, `validate`, `wrapper --help`) go to stdout, so they can be redirected and
   piped like any other command output.
@@ -251,9 +256,9 @@ and the terminal inherited. Consequences, all tested:
 Java has no `exec(2)`, so stage 0 stays resident for the compiler's whole life. See
 [LIMITATIONS.md](LIMITATIONS.md) for what that costs and the one signal it cannot handle.
 
-`./flix info` reports state and judges nothing. `./flix validate` judges and reports no
-state, which is the form CI wants: a verdict and an exit code. `./flix doctor` is both,
-for a person — and `./flix doctor --fix` repairs what can be repaired, naming what cannot.
+`./flixw info` reports state and judges nothing. `./flixw validate` judges and reports no
+state, which is the form CI wants: a verdict and an exit code. `./flixw doctor` is both,
+for a person — and `./flixw doctor --fix` repairs what can be repaired, naming what cannot.
 
 That split replaced a `doctor` that printed state, noticed nothing and exited 0 with an
 edited shim in the project, while the command that actually diagnosed was called
@@ -267,7 +272,7 @@ these.
 
 | Code | Exit | Condition |
 |---|---:|---|
-| `FLIXW001` | 80 | no project manifest within the bounded search |
+| `FLIXW001` | 80 | the project root cannot be established |
 | `FLIXW002` | 81 | manifest or lock missing, invalid, or inconsistent |
 | `FLIXW003` | 82 | no compatible Java found (also emitted by the shims, as 126/127) |
 | `FLIXW004` | 83 | explicitly selected Java is invalid or incompatible |
@@ -313,7 +318,7 @@ The shims must locate the compiled stage 0, so these paths are a versioned inter
 between shim and stage 0, not an implementation detail:
 
 ```text
-<cache>/stage0/<sha256 of flix.java>/flix.class
+<cache>/stage0/<sha256 of flixw.java>/flixw.class
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer

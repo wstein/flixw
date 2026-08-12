@@ -19,7 +19,7 @@
 # python3 a dependency of the suite.
 set -eu
 
-# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flix
+# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 corpus=$root/tests/corpus
 limit=${FLIXW_CORPUS_LIMIT:-100}

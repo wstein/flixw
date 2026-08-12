@@ -6,17 +6,17 @@ below in full. This rule file is a pointer plus the constraints that are most ex
 violate.
 
 `flixw` is a repository-local bootstrap that downloads, digest-verifies, caches and runs an
-**unmodified stock Flix compiler JAR**. `src/flix.java` (stage 0) holds all logic; `src/flix`
-and `src/flix.cmd` are shims that only locate a `java` and prefer the cached compiled stage 0.
+**unmodified stock Flix compiler JAR**. `src/flixw.java` (stage 0) holds all logic; `src/flixw`
+and `src/flixw.cmd` are shims that only locate a `java` and prefer the cached compiled stage 0.
 
-- `src/flix.java` must stay **one file, dependency-free, Java 21** — no preview features, no
+- `src/flixw.java` must stay **one file, dependency-free, Java 21** — no preview features, no
   build tool, no JBang. It is meant to be audited by strangers.
-- The shims exist twice: `src/flix` / `src/flix.cmd` on disk, and the `SHIM` / `CMD` text blocks
-  inside `src/flix.java` (what `install` writes). Edit both or they drift.
+- The shims exist twice: `src/flixw` / `src/flixw.cmd` on disk, and the `SHIM` / `CMD` text blocks
+  inside `src/flixw.java` (what `install` writes). Edit both or they drift.
 - Never patch, wrap, or link against `flix.jar`; it is launched as an opaque process.
 - The cached compiler is SHA-256 verified on **every** run. One download attempt, at most one
   Java relaunch, no retry loops.
-- `flix.toml` is the human authority; drift against `.flix-wrapper/lock.toml` fails before any
+- `flix.toml` is the human authority; drift against `.flixw/lock.toml` fails before any
   network access, except for the `pin`, `doctor` and `validate` repair verbs.
 - stdout belongs to the compiler. Wrapper messages go to stderr; cwd, argv and all three
   streams are inherited.

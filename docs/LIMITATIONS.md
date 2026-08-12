@@ -20,7 +20,7 @@ lock the way you would review any other dependency pin — it is a committed, di
 git-blameable line, which is the most this design can offer.
 
 Pinning a fork is supported and verified the same way, and means something different.
-`./flix pin <owner>/<repo> <version>` records the repository in the lock, so the source is
+`./flixw pin <owner>/<repo> <version>` records the repository in the lock, so the source is
 visible in review and a later bare re-pin cannot quietly move the project back to stock.
 What it cannot do is make a fork build evidence about the stock compiler: this project's
 compatibility claims are about unmodified releases from `flix/flix`, and a run against
@@ -48,7 +48,7 @@ signal reaches the compiler directly.
 
 ## Windows is covered, with two gaps
 
-`flix.cmd` is written, lint-checked, and covered by a CI job that installs into a scratch
+`flixw.cmd` is written, lint-checked, and covered by a CI job that installs into a scratch
 project and runs `pin`, `check`, `run` and `validate` through it under `cmd.exe`, plus the
 full suite under Git Bash and the shim once from PowerShell. That job now runs on every
 push and passes. `flix-invaders` also runs the POSIX shim under Git Bash on
@@ -56,7 +56,7 @@ push and passes. `flix-invaders` also runs the POSIX shim under Git Bash on
 
 Two gaps remain behind that green tick. Four suite cases cannot exist on Windows and are
 reported as skipped, not passed. And the `cmd.exe` trampoline has no *field* coverage: the
-one real project using flixw drives it from Git Bash, so `flix.cmd` is exercised only by
+one real project using flixw drives it from Git Bash, so `flixw.cmd` is exercised only by
 flixw's own smoke job. Specific risks:
 
 - `cmd.exe` transforms arguments before any script sees them. `%VAR%` is expanded at
@@ -67,7 +67,7 @@ flixw's own smoke job. Specific risks:
   running.
 - The `certutil` hash used to find the compiled stage 0 is best-effort; if it fails the
   shim falls back to the source launch, which is slower but correct.
-- Three decisions in `flix.cmd` have **no** automated coverage on Windows: choosing the
+- Three decisions in `flixw.cmd` have **no** automated coverage on Windows: choosing the
   JDK named by `<cache>\jdks\default`, refusing a marker that points outside that
   directory, and falling back to it when the `java` on `PATH` is below the floor. The
   POSIX suite tests all three and skips them on Windows, because each needs a fake
@@ -76,7 +76,7 @@ flixw's own smoke job. Specific risks:
   The two shims are written and reviewed against each other line by line, which is the
   only assurance those paths currently have on Windows.
 
-`java .flix-wrapper\flix.java <args>` is the lossless fallback on Windows: it needs no
+`java .flixw\flixw.java <args>` is the lossless fallback on Windows: it needs no
 shim, no shell, and no execution policy. Git Bash also works, and is present on every
 GitHub Windows runner, which is how `wstein/flix-invaders` exercises the wrapper there.
 
@@ -117,7 +117,7 @@ Three limits are worth knowing.
 **It cannot bootstrap from no Java at all — the first time.** Stage 0 is a Java program,
 so something must be able to run it before flixw can fetch anything. With no `java`
 anywhere, the shim exits before stage 0 starts, and what you get is its own message: how
-to install Temurin on this OS, and a note that `./flix wrapper --install-jdk` will manage
+to install Temurin on this OS, and a note that `./flixw wrapper --install-jdk` will manage
 one for you once any Java 21+ exists. The offer itself therefore only reaches you when a
 *too old* Java exists, not when none does.
 
@@ -125,7 +125,7 @@ Afterwards it is no longer true. A JDK flixw installed is recorded in
 `<cache>/jdks/default`, and the shims read that when `PATH`, `JAVA_HOME` and
 `FLIX_JAVA_HOME` all come up empty — so a machine with no system Java at all still
 compiles and runs, on flixw's own JDK. That is verified: with `PATH` stripped of every
-`java`, `./flix run` builds and runs the program.
+`java`, `./flixw run` builds and runs the program.
 
 A `java` below the floor no longer hides it either: when `PATH` resolves one under Java
 21 and flixw has a JDK of its own recorded, the shim prefers the recorded one, because
@@ -142,7 +142,7 @@ way out.
 **It never prompts where nobody can answer.** In CI, in a pipe, or in a git hook a prompt
 is not a question, it is a hang; so a non-terminal stdin, or `CI` in the environment, gets
 the instructions and a failure instead. `FLIXW_INSTALL_JDK=1` opts in ahead of time for
-scripted setup, and `./flix wrapper --install-jdk` does it on demand.
+scripted setup, and `./flixw wrapper --install-jdk` does it on demand.
 
 **The Windows install has been reasoned about, not run.** Unpacking there is a zip read
 by `java.util.zip` inside stage 0 — not `tar`, `Expand-Archive` or any external tool, so it
@@ -195,7 +195,7 @@ have to be a second, older-syntax file — so it is stated instead.
 ## Wrapper verbs live in stage 0, and there is no second artifact
 
 Every wrapper verb — `pin`, `doctor`, `setup`, `validate` — is
-implemented inside `src/flix.java`. There is no helper JAR, no plugin, and no module
+implemented inside `src/flixw.java`. There is no helper JAR, no plugin, and no module
 reserved for one.
 
 The design paper describes an optional services JAR that could hold those verbs if the
@@ -248,7 +248,7 @@ mis-quoted, which is what `pin` is for. Table headers fail closed too — traili
 
 ## The compiled stage 0 in the cache is executed on trust
 
-The shims run whatever class sits at `<cache>/stage0/<sha256 of flix.java>/flix.class`.
+The shims run whatever class sits at `<cache>/stage0/<sha256 of flixw.java>/flixw.class`.
 The path is keyed by the hash of the *source*, not of the class, so anyone who can write
 that directory can run code as you.
 
@@ -276,7 +276,7 @@ Linux, macOS and Windows.
 
 Since 2026-08-11 it has also run in one real project.
 [`flix-invaders`](https://github.com/wstein/flix-invaders) replaced its hand-written
-downloader with `./flix` outright: its CI type-checks, tests and formats through the
+downloader with `./flixw` outright: its CI type-checks, tests and formats through the
 wrapper, and its smoke job launches the game in a real window on Linux, macOS and Windows.
 That is the first evidence from something other than a scratch fixture, and it produced
 two findings the test suite could not. The project's `main` read an asset path relative to

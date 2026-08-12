@@ -23,16 +23,16 @@ rows include both JVM starts and the unconditional digest check.
 | Path | `--version` | overhead |
 |---|---:|---:|
 | `java -jar flix.jar` (baseline) | 0.19 – 0.25 s | — |
-| `./flix` — compiled stage 0 | 0.34 – 0.44 s | **≈ +0.17 s** |
-| `./flix` — source stage 0 (JEP 330) | 1.16 – 1.17 s | ≈ +0.95 s |
+| `./flixw` — compiled stage 0 | 0.34 – 0.44 s | **≈ +0.17 s** |
+| `./flixw` — source stage 0 (JEP 330) | 1.16 – 1.17 s | ≈ +0.95 s |
 
 ```console
 for i in 1 2 3 4 5; do /usr/bin/time -p java -jar "$jar" --version; done
-for i in 1 2 3 4 5; do /usr/bin/time -p ./flix -- --version; done
+for i in 1 2 3 4 5; do /usr/bin/time -p ./flixw -- --version; done
 ```
 
 Stage 0 in isolation, doing everything except launching the compiler
-(`./flix wrapper --version`, which resolves nothing and touches no network):
+(`./flixw wrapper --version`, which resolves nothing and touches no network):
 
 | | |
 |---|---:|
@@ -46,7 +46,7 @@ logic — root search, lock parse, Java selection, dispatch — is a few millise
 ## Why the shims consult the cache
 
 The source and compiled rows differ by ~0.95 s **per command**, because JEP 330
-recompiles `flix.java` on every invocation. That is the entire justification for letting
+recompiles `flixw.java` on every invocation. That is the entire justification for letting
 the shims look up the content-keyed compiled stage 0 in the user cache, which is
 otherwise knowledge a shim should not have. The alternative is not "a slightly slower
 wrapper"; it is a wrapper that adds a second to every `check` in an edit loop.
@@ -58,7 +58,7 @@ the source path keeps working.
 
 ## In context
 
-| | direct | `./flix` |
+| | direct | `./flixw` |
 |---|---:|---:|
 | `check`, one source file | 3.12 – 5.49 s | 3.19 – 3.70 s |
 
@@ -83,6 +83,6 @@ in stage 0 and it needs C2. Net result is worse. Do not add it.
 
 ## What is not measured here
 
-Cold start (first download, ~32 MiB), Windows (`flix.cmd` under `cmd.exe` and
+Cold start (first download, ~32 MiB), Windows (`flixw.cmd` under `cmd.exe` and
 PowerShell), Linux, and multi-release behaviour over the real Flix cadence. Those belong
 to a field study that has not run yet.

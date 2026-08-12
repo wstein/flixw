@@ -1,7 +1,7 @@
 // flixw stage 0 -- repository-local Flix compiler bootstrap.
 //
-// Invoked by the ./flix shim as:   java .flix-wrapper/flix.java <args>
-// or, once self-compiled, as:      java -cp <cache>/stage0/<hash> flix <args>
+// Invoked by the ./flixw shim as:   java .flixw/flixw.java <args>
+// or, once self-compiled, as:      java -cp <cache>/stage0/<hash> flixw <args>
 //
 // One file, no dependencies, Java 21.  Owns: project discovery, lock parsing, drift
 // detection, version validation, Java selection, compiler acquisition, unconditional
@@ -34,10 +34,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class flix {
+public final class flixw {
 
-    static final String WRAPPER_VERSION = "0.19.1";
-    static final String WRAPPER_DIR = ".flix-wrapper";
+    static final String WRAPPER_VERSION = "0.20.0";
+    static final String WRAPPER_DIR = ".flixw";
     static final int MIN_JAVA = 21;
 
     /** The interval flixw is tested on.  Above the ceiling is a warning, not an error. */
@@ -122,7 +122,7 @@ public final class flix {
      * version comparison.  SemVer build metadata identifies a build, not a release, so
      * it is accepted in the manifest and stripped everywhere it would name an artifact.
      * Defining this once is what stops `flix = "0.75.2+build.4"` from producing a drift
-     * error that `./flix pin` cannot repair.
+     * error that `./flixw pin` cannot repair.
      */
     static String canonical(String v) { int i = v.indexOf('+'); return i < 0 ? v : v.substring(0, i); }
 
@@ -348,7 +348,7 @@ public final class flix {
         try { text = Files.readString(lockFile, StandardCharsets.UTF_8); }
         catch (IOException e) {
             throw w002("cannot read " + lockFile + ": " + why(e)
-                     + "\n       run: ./flix pin <version>");
+                     + "\n       run: ./flixw pin <version>");
         }
         String w = lockFile.toString();
         String v = tomlLookup(text, "compiler", "version", w);
@@ -489,7 +489,7 @@ public final class flix {
         }
     }
     /**
-     * `./flix pin [<owner>/<repo>] <version>`.
+     * `./flixw pin [<owner>/<repo>] <version>`.
      *
      * The two are told apart by the slash, which a version can never contain -- the
      * grammar rejects it -- so the order does not matter and neither does a flag.  An
@@ -510,7 +510,7 @@ public final class flix {
             }
         }
         if (version == null)
-            throw w002("pin: no version\n       usage: ./flix pin [<owner>/<repo>] <version>");
+            throw w002("pin: no version\n       usage: ./flixw pin [<owner>/<repo>] <version>");
         validateVersion(version, "pin");
         if (repo == null) repo = existing != null && existing.repo() != null
                                ? existing.repo() : UPSTREAM_REPO;
@@ -1237,7 +1237,7 @@ public final class flix {
         if (env("CI") != null || System.console() == null) {
             System.err.println("       or set FLIXW_INSTALL_JDK=1 to let flixw download a"
                              + " verified Temurin " + MIN_JAVA + " into its own cache,");
-            System.err.println("       or run: ./flix wrapper --install-jdk");
+            System.err.println("       or run: ./flixw wrapper --install-jdk");
             return false;
         }
         System.err.print("flixw: download Eclipse Temurin " + MIN_JAVA
@@ -1262,7 +1262,7 @@ public final class flix {
         return new Jvm(exe, f, "flixw-installed Temurin");
     }
 
-    /** `./flix wrapper --install-jdk`, so the choice need not wait for a failure. */
+    /** `./flixw wrapper --install-jdk`, so the choice need not wait for a failure. */
     static void installJdkVerb(List<String> argv) {
         if (argv.size() > 1)
             throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
@@ -1329,14 +1329,14 @@ public final class flix {
             if (src != null) self = Paths.get(src);
             else {
                 try {
-                    self = Paths.get(flix.class.getProtectionDomain().getCodeSource()
+                    self = Paths.get(flixw.class.getProtectionDomain().getCodeSource()
                                      .getLocation().toURI());
                 } catch (Exception ignored) { }
             }
         }
         if (self == null) return Paths.get("").toAbsolutePath();
         try { self = resolveLinkChain(self.toAbsolutePath()); } catch (IOException ignored) { }
-        Path dir = Files.isDirectory(self) ? self : self.getParent();   // .../.flix-wrapper
+        Path dir = Files.isDirectory(self) ? self : self.getParent();   // .../.flixw
         // The anchor is the PROJECT ROOT: the parent of the wrapper directory, not the
         // wrapper directory itself, which holds no flix.toml and would bound every search
         // below the manifest.
@@ -1363,8 +1363,8 @@ public final class flix {
         String o = env("FLIX_PROJECT_ROOT");
         if (o != null) {
             Path r = Paths.get(o).toAbsolutePath().normalize();
-            if (!Files.isRegularFile(r.resolve("flix.toml")))
-                throw w001("FLIX_PROJECT_ROOT=" + o + " has no flix.toml");
+            if (!Files.isDirectory(r))
+                throw w001("FLIX_PROJECT_ROOT=" + o + " is not a directory");
             return r;
         }
         Path cwd = Paths.get("").toAbsolutePath().normalize();
@@ -1373,7 +1373,13 @@ public final class flix {
                      + cwd + "\n       cd into the project, or set FLIX_PROJECT_ROOT explicitly");
         for (Path p = cwd; p != null && p.startsWith(anchor); p = p.getParent())
             if (Files.isRegularFile(p.resolve("flix.toml"))) return p;
-        throw w001("no flix.toml between " + cwd + " and " + anchor);
+        // No manifest anywhere below the wrapper. That is not flixw's problem to have:
+        // flix.toml is Flix's file, and flixw needs only somewhere to keep the lock --
+        // which is the directory the wrapper was installed into, by definition. Refusing
+        // here made the empty directory unreachable in both directions: `pin` could not
+        // run without a manifest, and `init`, the compiler verb that writes one, could
+        // not run without a pinned compiler. The compiler still says what it needs.
+        return anchor;
     }
 
     // ---- verb capture -----------------------------------------------------
@@ -1475,7 +1481,7 @@ public final class flix {
         byte[] bytes;
         try { bytes = Files.readAllBytes(source); } catch (IOException e) { return; }
         Path dir = stage0Dir(sha256(bytes));
-        if (Files.isRegularFile(dir.resolve("flix.class"))) return;
+        if (Files.isRegularFile(dir.resolve("flixw.class"))) return;
         javax.tools.JavaCompiler jc = javax.tools.ToolProvider.getSystemJavaCompiler();
         if (jc == null) { tr("no javac in this runtime; staying on the source path"); return; }
         Path tmp = null;
@@ -1548,7 +1554,7 @@ public final class flix {
         # elsewhere and echo the result. shellcheck reads that as a typo (SC1007).
         # shellcheck disable=SC1007
         root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
-        src=$root/.flix-wrapper/flix.java
+        src=$root/.flixw/flixw.java
 
         # The cache is resolved before the java search, because a JDK flixw installed
         # earlier lives in it and is the last thing worth trying.
@@ -1599,7 +1605,7 @@ public final class flix {
           esac
           echo "            https://adoptium.net/temurin/releases/?version=21" >&2
           echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
-          echo "          With any Java 21+ present, ./flix wrapper --install-jdk will" >&2
+          echo "          With any Java 21+ present, ./flixw wrapper --install-jdk will" >&2
           echo "          fetch and verify one into the flixw cache for this project." >&2
           exit 127
         fi
@@ -1667,10 +1673,10 @@ public final class flix {
         # symlink into a JDK, so there is no release file to read, and a shim pointing at
         # Java 17 loaded the class and died on class file version.  The cost of being
         # careful is that such setups always take the source path.
-        if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ] \\
+        if [ -n "$h" ] && [ -f "$cache/stage0/$h/flixw.class" ] \\
            && [ -n "$jfeature" ] && [ "$jfeature" -ge 21 ]; then
           FLIXW_SOURCE=$src; export FLIXW_SOURCE
-          exec "$java0" -cp "$cache/stage0/$h" flix "$@"
+          exec "$java0" -cp "$cache/stage0/$h" flixw "$@"
         fi
         exec "$java0" "$src" "$@"
         """;
@@ -1681,7 +1687,7 @@ public final class flix {
         rem compiled stage 0 in the user cache, else launches the source.
         setlocal enabledelayedexpansion
         set "ROOT=%~dp0"
-        set "SRC=%ROOT%.flix-wrapper\\flix.java"
+        set "SRC=%ROOT%.flixw\\flixw.java"
 
         rem The cache is resolved first: a JDK flixw installed earlier lives in it, and is
         rem the last thing worth trying when nothing else answers.
@@ -1724,7 +1730,7 @@ public final class flix {
           echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
           echo             https://adoptium.net/temurin/releases/?version=21 1>&2
           echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
-          echo           With any Java 21+ present, flix.cmd wrapper --install-jdk will 1>&2
+          echo           With any Java 21+ present, flixw.cmd wrapper --install-jdk will 1>&2
           echo           fetch and verify one into the flixw cache for this project. 1>&2
           exit /b 127 )
         if not exist "%JAVA0%" (
@@ -1771,9 +1777,9 @@ public final class flix {
         for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
           if not defined H set "H=%%L" )
         if defined H set "H=!H: =!"
-        if not defined SLOWPATH if defined H if exist "!CACHE!\\stage0\\!H!\\flix.class" (
+        if not defined SLOWPATH if defined H if exist "!CACHE!\\stage0\\!H!\\flixw.class" (
           set "FLIXW_SOURCE=%SRC%"
-          "%JAVA0%" -cp "!CACHE!\\stage0\\!H!" flix %*
+          "%JAVA0%" -cp "!CACHE!\\stage0\\!H!" flixw %*
           exit /b !ERRORLEVEL! )
         "%JAVA0%" "%SRC%" %*
         exit /b !ERRORLEVEL!
@@ -1786,7 +1792,7 @@ public final class flix {
         switch (verb) {
             case "pin" -> {
                 if (rest.isEmpty())
-                    throw w009("usage: ./flix pin [<owner>/<repo>] <version>");
+                    throw w009("usage: ./flixw pin [<owner>/<repo>] <version>");
                 String[] t = parsePin(rest, lock);
                 pin(root, t[0], t[1]);
             }
@@ -1802,15 +1808,15 @@ public final class flix {
                 boolean fix = rest.contains("--fix");
                 for (String a : rest)
                     if (!a.equals("--fix"))
-                        throw w008("./flix doctor: unknown option " + q(a)
-                                 + "\n       usage: ./flix doctor [--fix]");
+                        throw w008("./flixw doctor: unknown option " + q(a)
+                                 + "\n       usage: ./flixw doctor [--fix]");
                 if (fix) { updateWrapper(root); System.out.println(); }
                 report(root, lock, jar, jvm, compilerVerbs);
                 System.out.println();
                 int bad = check(root, lock, jar);
                 if (bad > 0)
-                    throw w009(bad + " problem(s); ./flix doctor --fix repairs the wrapper"
-                             + " files, ./flix pin <version> repairs a drifted lock");
+                    throw w009(bad + " problem(s); ./flixw doctor --fix repairs the wrapper"
+                             + " files, ./flixw pin <version> repairs a drifted lock");
             }
             default -> throw w009("no wrapper implementation for " + q(verb));
         }
@@ -1842,7 +1848,7 @@ public final class flix {
         List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
         if (cv != null) fallback.removeAll(cv);
         System.out.println("wrapper verbs    " + String.join(" ", fallback));
-        System.out.println("pass-through     ./flix -- <args>");
+        System.out.println("pass-through     ./flixw -- <args>");
     }
 
     /** Compares a committed invariant file against the bytes this wrapper release ships. */
@@ -1854,7 +1860,7 @@ public final class flix {
                 return 0;
             }
             System.out.println("FAIL  " + label + " differs from flixw " + WRAPPER_VERSION
-                             + " (./flix doctor --fix)");
+                             + " (./flixw doctor --fix)");
         } catch (IOException e) {
             System.out.println("FAIL  unreadable " + label + ": " + why(e));
         }
@@ -1863,11 +1869,11 @@ public final class flix {
 
     /** The line endings the flixw block pins for one shipped path. */
     static String canonicalAttrs(String shipped) {
-        return shipped.equals("flix.cmd") ? "text eol=crlf" : "text eol=lf";
+        return shipped.equals("flixw.cmd") ? "text eol=crlf" : "text eol=lf";
     }
 
     static final List<String> SHIPPED =
-        List.of("flix", "flix.cmd", WRAPPER_DIR + "/flix.java", WRAPPER_DIR + "/lock.toml");
+        List.of("flixw", "flixw.cmd", WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml");
 
     /** Does one .gitattributes pattern match one path flixw ships? */
     static boolean patternMatches(String pattern, String path) {
@@ -1899,7 +1905,7 @@ public final class flix {
         String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
         int opens = count(text, begin), closes = count(text, end);
         if (opens == 0 && closes == 0) {
-            System.out.println("warn  .gitattributes has no flixw block (./flix doctor --fix)");
+            System.out.println("warn  .gitattributes has no flixw block (./flixw doctor --fix)");
             return 0;
         }
         int bad = 0;
@@ -1908,7 +1914,7 @@ public final class flix {
         if (opens != 1 || closes != 1) {
             System.out.println("FAIL  .gitattributes has " + opens + " flixw start and "
                              + closes + " end markers; expected one of each"
-                             + " (./flix doctor --fix)");
+                             + " (./flixw doctor --fix)");
             bad++;
         }
         int after = text.lastIndexOf(end);
@@ -1961,24 +1967,24 @@ public final class flix {
         int bad = 0;
         // The shims are invariant for a wrapper release, and this stage 0 carries their
         // canonical bytes, so drift is detectable here rather than merely reportable.
-        bad += checkCanonical(root.resolve("flix"), SHIM, "./flix");
-        bad += checkCanonical(root.resolve("flix.cmd"), CMD.replace("\n", "\r\n"), "./flix.cmd");
-        if (!isWindows() && Files.isRegularFile(root.resolve("flix"))
-            && !Files.isExecutable(root.resolve("flix"))) {
-            System.out.println("FAIL  ./flix is not executable (./flix doctor --fix)"); bad++;
+        bad += checkCanonical(root.resolve("flixw"), SHIM, "./flixw");
+        bad += checkCanonical(root.resolve("flixw.cmd"), CMD.replace("\n", "\r\n"), "./flixw.cmd");
+        if (!isWindows() && Files.isRegularFile(root.resolve("flixw"))
+            && !Files.isExecutable(root.resolve("flixw"))) {
+            System.out.println("FAIL  ./flixw is not executable (./flixw doctor --fix)"); bad++;
         }
 
         // Stage 0 cannot know its own canonical hash -- it would have to contain it -- so
         // its digest is reported for comparison against the published wrapper release.
-        Path src = root.resolve(WRAPPER_DIR).resolve("flix.java");
+        Path src = root.resolve(WRAPPER_DIR).resolve("flixw.java");
         if (!Files.isRegularFile(src)) {
-            System.out.println("FAIL  missing " + WRAPPER_DIR + "/flix.java"); bad++;
+            System.out.println("FAIL  missing " + WRAPPER_DIR + "/flixw.java"); bad++;
         } else {
             try {
-                System.out.println("ok    " + WRAPPER_DIR + "/flix.java  sha256="
+                System.out.println("ok    " + WRAPPER_DIR + "/flixw.java  sha256="
                                  + sha256(Files.readAllBytes(src)));
             } catch (IOException e) {
-                System.out.println("FAIL  unreadable " + WRAPPER_DIR + "/flix.java"); bad++;
+                System.out.println("FAIL  unreadable " + WRAPPER_DIR + "/flixw.java"); bad++;
             }
         }
 
@@ -2021,8 +2027,8 @@ public final class flix {
 
         // Generated wrapper files are only reproducible for a collaborator if git actually
         // carries them.  A .gitignore rule that swallows the lock is silent otherwise.
-        List<String> generated = List.of("flix", "flix.cmd",
-                                         WRAPPER_DIR + "/flix.java", WRAPPER_DIR + "/lock.toml");
+        List<String> generated = List.of("flixw", "flixw.cmd",
+                                         WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml");
         Integer isRepo = git(root, "rev-parse", "--is-inside-work-tree");
         if (isRepo == null || isRepo != 0) {
             System.out.println("warn  not a git work tree; cannot check tracked status");
@@ -2101,7 +2107,7 @@ public final class flix {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
             String lock = """
-                # Generated by ./flix pin. Do not edit by hand; commit this file.
+                # Generated by ./flixw pin. Do not edit by hand; commit this file.
                 wrapperVersion = "%s"
 
                 [compiler]
@@ -2145,18 +2151,65 @@ public final class flix {
             Path fw = target.resolve(WRAPPER_DIR);
             Files.createDirectories(fw);
             if (source == null || !Files.isRegularFile(source))
-                throw w009("install needs the wrapper source; run it as: java flix.java install <dir>");
-            Files.copy(source, fw.resolve("flix.java"), StandardCopyOption.REPLACE_EXISTING);
-            Path shim = target.resolve("flix");
+                throw w009("install needs the wrapper source; run it as: java flixw.java install <dir>");
+            Files.copy(source, fw.resolve("flixw.java"), StandardCopyOption.REPLACE_EXISTING);
+            Path shim = target.resolve("flixw");
             Files.writeString(shim, SHIM, StandardCharsets.UTF_8);
             shim.toFile().setExecutable(true, false);
-            Files.writeString(target.resolve("flix.cmd"), CMD.replace("\n", "\r\n"),
+            Files.writeString(target.resolve("flixw.cmd"), CMD.replace("\n", "\r\n"),
                               StandardCharsets.UTF_8);
+            migrateFromFlixNames(target);
             mergeGitattributes(target.resolve(".gitattributes"));
-            System.out.println("installed ./flix, ./flix.cmd and " + WRAPPER_DIR
-                             + "/flix.java into " + target);
-            System.out.println("next: ./flix pin <version>   then commit all four files");
+            System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
+                             + "/flixw.java into " + target);
+            System.out.println("next: ./flixw pin <version>   then commit all four files");
         } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
+    }
+
+    /**
+     * Moves a project installed under the pre-0.20 names onto the current ones.
+     *
+     * Until 0.20 the wrapper shipped as `flix`, `flix.cmd` and `.flix-wrapper/flix.java`,
+     * which read as the compiler's own name on a tool that is not the compiler. Installing
+     * over such a project would otherwise leave both sets side by side, and the pin -- the
+     * one file here that is the project's rather than ours -- would still be in the old
+     * directory, where nothing reads it. So the lock moves first, and the old files are
+     * removed only when they are recognisably the ones flixw wrote: a shim someone edited,
+     * or a directory holding anything else, is left alone and reported.
+     */
+    static void migrateFromFlixNames(Path target) throws IOException {
+        Path old = target.resolve(".flix-wrapper");
+        Path oldLock = old.resolve("lock.toml");
+        Path newLock = lockPath(target);
+        if (Files.isRegularFile(oldLock) && !Files.isRegularFile(newLock)) {
+            Files.createDirectories(newLock.getParent());
+            Files.move(oldLock, newLock, StandardCopyOption.ATOMIC_MOVE);
+            System.out.println("moved    .flix-wrapper/lock.toml -> " + WRAPPER_DIR + "/lock.toml");
+        }
+        for (String name : List.of("flix", "flix.cmd")) {
+            Path f = target.resolve(name);
+            if (!Files.isRegularFile(f)) continue;
+            String body = Files.readString(f, StandardCharsets.UTF_8);
+            // Only a shim that still says what flixw writes is ours to delete.
+            if (!body.contains("flixw") || !body.contains("stage0")) {
+                System.out.println("kept     ./" + name + " (edited; remove it by hand)");
+                continue;
+            }
+            Files.delete(f);
+            System.out.println("removed  ./" + name);
+        }
+        Path oldSrc = old.resolve("flix.java");
+        if (Files.isRegularFile(oldSrc)) { Files.delete(oldSrc); }
+        if (Files.isDirectory(old)) {
+            try (var s = Files.list(old)) {
+                if (s.findAny().isEmpty()) {
+                    Files.delete(old);
+                    System.out.println("removed  .flix-wrapper/");
+                } else {
+                    System.out.println("kept     .flix-wrapper/ (not empty)");
+                }
+            }
+        }
     }
 
     /**
@@ -2172,22 +2225,22 @@ public final class flix {
     static void updateWrapper(Path root) {
         int changed = 0;
         try {
-            Path shim = root.resolve("flix");
+            Path shim = root.resolve("flixw");
             if (!Files.isRegularFile(shim)
                 || !Files.readString(shim, StandardCharsets.UTF_8).equals(SHIM)) {
                 Files.writeString(shim, SHIM, StandardCharsets.UTF_8);
-                System.out.println("rewrote  ./flix"); changed++;
+                System.out.println("rewrote  ./flixw"); changed++;
             }
             if (!isWindows() && !Files.isExecutable(shim)) {
                 shim.toFile().setExecutable(true, false);
-                System.out.println("restored ./flix executable bit"); changed++;
+                System.out.println("restored ./flixw executable bit"); changed++;
             }
-            Path cmd = root.resolve("flix.cmd");
+            Path cmd = root.resolve("flixw.cmd");
             String cmdBytes = CMD.replace("\n", "\r\n");
             if (!Files.isRegularFile(cmd)
                 || !Files.readString(cmd, StandardCharsets.UTF_8).equals(cmdBytes)) {
                 Files.writeString(cmd, cmdBytes, StandardCharsets.UTF_8);
-                System.out.println("rewrote  ./flix.cmd"); changed++;
+                System.out.println("rewrote  ./flixw.cmd"); changed++;
             }
             Path ga = root.resolve(".gitattributes");
             String before = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
@@ -2209,10 +2262,10 @@ public final class flix {
 
     static void mergeGitattributes(Path ga) throws IOException {
         String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
-        String block = begin + "\n/flix text eol=lf\n"
-                     + "/" + WRAPPER_DIR + "/flix.java text eol=lf\n"
+        String block = begin + "\n/flixw text eol=lf\n"
+                     + "/" + WRAPPER_DIR + "/flixw.java text eol=lf\n"
                      + "/" + WRAPPER_DIR + "/lock.toml text eol=lf\n"
-                     + "/flix.cmd text eol=crlf\n" + end + "\n";
+                     + "/flixw.cmd text eol=crlf\n" + end + "\n";
         String cur = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
         // Every existing block is removed and one is appended, rather than each being
         // rewritten where it sits: two blocks rewritten in place stay two blocks, and the
@@ -2249,7 +2302,7 @@ public final class flix {
      * The old `--upgrade` rewrote the files from the stage 0 already in the tree, which is
      * a repair rather than a version change -- so it printed a note on every run
      * explaining that it had not done what its name says. That repair is now
-     * `./flix doctor --fix`, and this does what the word means.
+     * `./flixw doctor --fix`, and this does what the word means.
      *
      * The new stage 0 installs itself. It is the only thing that knows its own shim bytes,
      * and having the old one write files for a version it has never seen is how the two
@@ -2265,12 +2318,12 @@ public final class flix {
         String want = null;
         for (String line : sums.split("\r?\n")) {
             String[] f = line.trim().split("\\s+");
-            if (f.length == 2 && f[1].equals("flix.java")) want = f[0];
+            if (f.length == 2 && f[1].equals("flixw.java")) want = f[0];
         }
         if (want == null || !want.matches("[0-9a-f]{64}"))
-            throw w005("the published SHA256SUMS names no digest for flix.java");
+            throw w005("the published SHA256SUMS names no digest for flixw.java");
 
-        Path current = root.resolve(WRAPPER_DIR).resolve("flix.java");
+        Path current = root.resolve(WRAPPER_DIR).resolve("flixw.java");
         if (Files.isRegularFile(current) && sha256(current).equals(want)) {
             // Same sentence as the version guard below, because it is the same outcome:
             // nothing was changed and nothing needed to be. They differ only in how it was
@@ -2282,12 +2335,12 @@ public final class flix {
         Path dir = null;
         try {
             dir = Files.createTempDirectory("flixw-upgrade-");
-            Path fresh = dir.resolve("flix.java");
+            Path fresh = dir.resolve("flixw.java");
             System.err.println("flixw: downloading the latest flixw");
-            download(FLIXW_LATEST + "flix.java", fresh);
+            download(FLIXW_LATEST + "flixw.java", fresh);
             String got = sha256(fresh);
             if (!got.equals(want))
-                throw w006("digest mismatch for the downloaded flix.java"
+                throw w006("digest mismatch for the downloaded flixw.java"
                          + "\n       published " + want + "\n       downloaded " + got);
 
             // Newest published is not the same as newer than this. Anyone working on
@@ -2326,7 +2379,7 @@ public final class flix {
     }
 
     /**
-     * flixw's own namespace: `./flix wrapper [--operation]`.
+     * flixw's own namespace: `./flixw wrapper [--operation]`.
      *
      * One verb, and every flixw-only operation under it as a flag.  These are not
      * stand-ins for anything Flix might one day ship, so they neither retire nor compete
@@ -2369,12 +2422,12 @@ public final class flix {
     }
 
     static String wrapperUsage(String problem) {
-        return "./flix wrapper: " + problem
-             + "\n       usage: ./flix wrapper [--help | --version | --upgrade | --install-jdk]"
+        return "./flixw wrapper: " + problem
+             + "\n       usage: ./flixw wrapper [--help | --version | --upgrade | --install-jdk]"
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
              + "\n         --upgrade      move this project to the newest published flixw"
-             + "\n                        (to repair the files it has: ./flix doctor --fix)"
+             + "\n                        (to repair the files it has: ./flixw doctor --fix)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache";
     }
 
@@ -2397,7 +2450,7 @@ public final class flix {
         if (first != null && first.startsWith("--wrapper-"))
             throw w008("unknown launcher flag " + q(first)
                      + "\n       flixw's own operations moved under one verb:"
-                     + "\n       ./flix wrapper [--help | --version | --upgrade | --install-jdk]");
+                     + "\n       ./flixw wrapper [--help | --version | --upgrade | --install-jdk]");
 
         Path anchor = wrapperAnchor();
         if ("install".equals(first) && !Files.isRegularFile(lockPath(anchor))) {
@@ -2451,7 +2504,7 @@ public final class flix {
                         && !olderOrSame(triple(mv), triple(lock.version())))
             ? "flix.toml asks for Flix " + mv + " or newer, but " + WRAPPER_DIR
               + "/lock.toml pins " + lock.version()
-              + "\n       run: ./flix pin " + triple(mv) + " (or lower the requirement)"
+              + "\n       run: ./flixw pin " + triple(mv) + " (or lower the requirement)"
             : null;
 
         // When the project cannot reach a compiler -- no lock yet, or a lock that
@@ -2477,7 +2530,7 @@ public final class flix {
         if (lockError != null) throw lockError;      // unreadable, and the repair declined it
         if (manifestError != null) throw manifestError;
         if (lock == null)
-            throw w002("no " + lockFile + "\n       run: ./flix pin <version>");
+            throw w002("no " + lockFile + "\n       run: ./flixw pin <version>");
         if (drift != null) throw w002(drift);
 
         // pin is the documented repair and never needs the compiler.
@@ -2531,14 +2584,14 @@ public final class flix {
         // plausibly claim, so it sits in WRAPPER_VERBS and rule 3 above takes it away the
         // day Flix implements one -- the same automatic retirement every wrapper verb
         // gets. `--help` is a flag, can never be a compiler verb, and so is intercepted
-        // outright. Either way `./flix -- --help` and FLIX_BACKEND=compiler still reach
+        // outright. Either way `./flixw -- --help` and FLIX_BACKEND=compiler still reach
         // the compiler alone, which is what someone parsing its output would want.
         if (!toCompiler && "help".equals(first)
             || (!forcedCompiler && "--help".equals(first) && argv.size() == 1)) {
             wrapperHelp();
             System.out.println();
             System.out.println("---- Flix " + lock.version() + " ".repeat(3)
-                             + "(./flix -- --help for this alone) ----");
+                             + "(./flixw -- --help for this alone) ----");
             System.out.println();
             launch(jvm.exe(), opts, jar, List.of("--help"));
             return;                                  // launch exits; this is for the reader
@@ -2546,7 +2599,7 @@ public final class flix {
 
         if (!toCompiler) {
             if (forcedWrapper && compilerVerbs.contains(first) && trace())
-                System.err.println("flix: " + q(first) + " \u2192 wrapper " + WRAPPER_VERSION
+                System.err.println("flixw: " + q(first) + " \u2192 wrapper " + WRAPPER_VERSION
                                  + " (forced by FLIX_BACKEND=wrapper; compiler " + lock.version()
                                  + " also implements it)");
             else routingNotice(first, lock.version());
@@ -2554,7 +2607,7 @@ public final class flix {
             return;
         }
         if (first != null && WRAPPER_VERBS.contains(first) && compilerVerbs.contains(first))
-            System.err.println("flix: note: compiler " + lock.version() + " now implements "
+            System.err.println("flixw: note: compiler " + lock.version() + " now implements "
                              + q(first) + "; the wrapper implementation is deprecated"
                              + " and will be removed in the next wrapper release");
 
@@ -2565,28 +2618,28 @@ public final class flix {
      * Which side handled a verb, under FLIXW_TRACE only.
      *
      * It used to print on every wrapper-handled command, and it told the caller what they
-     * had already said: typing `./flix doctor` and being told that doctor went to the
+     * had already said: typing `./flixw doctor` and being told that doctor went to the
      * wrapper is not news. Worse, it read as a warning -- something had happened worth
      * mentioning -- when nothing had. The hot path was already silent; now the rest is
      * too, and the routing is still visible to anyone debugging it.
      */
     static void routingNotice(String verb, String compilerVersion) {
         if (!trace()) return;
-        System.err.println("flix: " + q(verb) + " \u2192 wrapper " + WRAPPER_VERSION
+        System.err.println("flixw: " + q(verb) + " \u2192 wrapper " + WRAPPER_VERSION
                          + " (pinned compiler " + compilerVersion + " does not implement it)");
     }
 
     static void wrapperHelp() {
         System.out.println("flixw " + WRAPPER_VERSION + " -- repository-local Flix bootstrap");
         System.out.println();
-        System.out.println("  ./flix help | --help            this table, then the compiler's own help");
-        System.out.println("  ./flix <compiler verb> [args]   run the pinned stock compiler");
-        System.out.println("  ./flix -- <args>                forced compiler pass-through");
-        System.out.println("  ./flix pin [<owner>/<repo>] <version>   write the lock, fetch the compiler");
-        System.out.println("  ./flix info                     project, compiler, java, cache");
-        System.out.println("  ./flix doctor [--fix]           info, plus every check, with a verdict");
-        System.out.println("  ./flix validate                 the checks alone, for CI");
-        System.out.println("  ./flix wrapper [--help | --version | --upgrade | --install-jdk]");
+        System.out.println("  ./flixw help | --help            this table, then the compiler's own help");
+        System.out.println("  ./flixw <compiler verb> [args]   run the pinned stock compiler");
+        System.out.println("  ./flixw -- <args>                forced compiler pass-through");
+        System.out.println("  ./flixw pin [<owner>/<repo>] <version>   write the lock, fetch the compiler");
+        System.out.println("  ./flixw info                     project, compiler, java, cache");
+        System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
+        System.out.println("  ./flixw validate                 the checks alone, for CI");
+        System.out.println("  ./flixw wrapper [--help | --version | --upgrade | --install-jdk]");
 
         System.out.println();
         System.out.println("cache            " + cacheHome());
@@ -2620,7 +2673,7 @@ public final class flix {
         List<String> fb = new ArrayList<>(WRAPPER_VERBS);
         if (cv != null) fb.removeAll(cv);
         System.out.println("wrapper verbs    " + String.join(" ", fb));
-        System.out.println("pass-through     ./flix -- <args>");
+        System.out.println("pass-through     ./flixw -- <args>");
     }
 
     /**
@@ -2638,7 +2691,7 @@ public final class flix {
      */
     static Path sourceLaunchPath() {
         try {
-            Path loc = Paths.get(flix.class.getProtectionDomain().getCodeSource()
+            Path loc = Paths.get(flixw.class.getProtectionDomain().getCodeSource()
                                  .getLocation().toURI());
             if (Files.isRegularFile(loc) && loc.toString().endsWith(".java")) return loc;
         } catch (Exception ignored) { }
@@ -2651,7 +2704,7 @@ public final class flix {
         String s = env("FLIXW_SOURCE");
         if (s != null) return Paths.get(s);
         try {
-            Path loc = Paths.get(flix.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            Path loc = Paths.get(flixw.class.getProtectionDomain().getCodeSource().getLocation().toURI());
             Path p = loc.resolve("source.path");                      // compiled stage 0
             if (Files.isRegularFile(p)) return Paths.get(Files.readString(p).trim());
         } catch (Exception ignored) { }

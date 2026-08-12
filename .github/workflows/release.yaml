@@ -1,7 +1,7 @@
 name: release
 
 # Tag-driven, because the version a release publishes is the one compiled into
-# src/flix.java: the tag says which commit, and the commit says which version. The job
+# src/flixw.java: the tag says which commit, and the commit says which version. The job
 # refuses to publish if the two disagree, which is the mistake this automation makes
 # possible in the first place.
 on:
@@ -39,7 +39,7 @@ jobs:
       - name: the tag must match WRAPPER_VERSION
         run: |
           tag="${{ inputs.tag || github.ref_name }}"
-          version=$(java src/flix.java wrapper --version | head -1 | cut -d' ' -f2)
+          version=$(java src/flixw.java wrapper --version | head -1 | cut -d' ' -f2)
           if [ "$tag" != "v$version" ]; then
             echo "tag $tag does not match WRAPPER_VERSION $version" >&2
             exit 1
@@ -60,11 +60,11 @@ jobs:
             printf '## Install into an existing project\n\n'
             printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-%s.tar.gz\n' \
                    "$GITHUB_REPOSITORY" "$TAG" "$version"
-            printf 'tar -xzf flixw-%s.tar.gz     # writes flix, flix.cmd, .flix-wrapper/flix.java\n' "$version"
-            printf './flix pin <flix-version>     # writes the lock and fetches the compiler\n'
-            printf './flix doctor --fix           # merges the .gitattributes block\n```\n\n'
+            printf 'tar -xzf flixw-%s.tar.gz     # writes flixw, flixw.cmd, .flixw/flixw.java\n' "$version"
+            printf './flixw pin <flix-version>     # writes the lock and fetches the compiler\n'
+            printf './flixw doctor --fix           # merges the .gitattributes block\n```\n\n'
             printf 'A `.zip` with the same contents is attached for machines without `tar`, and '
-            printf '`flix.java` on its own for the `java flix.java install .` route.\n\n'
+            printf '`flixw.java` on its own for the `java flixw.java install .` route.\n\n'
             printf 'Verify before you run it -- these digests are the ones this workflow built:\n\n'
             printf '```\n'
             cat dist/SHA256SUMS

@@ -70,28 +70,28 @@ jobs:
         shell: cmd
         run: |
           xcopy /E /I /Q tests\fixtures\smoke scratch || exit /b 1
-          java src\flix.java install scratch || exit /b 1
+          java src\flixw.java install scratch || exit /b 1
 
-      - name: pin, check and run through flix.cmd
+      - name: pin, check and run through flixw.cmd
         shell: cmd
         working-directory: scratch
         run: |
-          call flix.cmd pin %FLIXW_TEST_VERSION% || exit /b 1
-          call flix.cmd wrapper --version || exit /b 1
-          call flix.cmd check || exit /b 1
-          call flix.cmd run || exit /b 1
-          call flix.cmd validate || exit /b 1
+          call flixw.cmd pin %FLIXW_TEST_VERSION% || exit /b 1
+          call flixw.cmd wrapper --version || exit /b 1
+          call flixw.cmd check || exit /b 1
+          call flixw.cmd run || exit /b 1
+          call flixw.cmd validate || exit /b 1
 
       - name: the lossless fallback needs no shim
         shell: cmd
         working-directory: scratch
-        run: java .flix-wrapper\flix.java -- --version || exit /b 1
+        run: java .flixw\flixw.java -- --version || exit /b 1
 
-      # PowerShell can call flix.cmd, which is why there is no .ps1: a Group Policy
+      # PowerShell can call flixw.cmd, which is why there is no .ps1: a Group Policy
       # execution policy cannot block a .cmd. Prove the path works.
-      - name: flix.cmd from PowerShell
+      - name: flixw.cmd from PowerShell
         shell: pwsh
         working-directory: scratch
         run: |
-          .\flix.cmd wrapper --version
+          .\flixw.cmd wrapper --version
           if ($LASTEXITCODE -ne 0) { exit 1 }

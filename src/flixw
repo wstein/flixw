@@ -11,7 +11,7 @@ done
 # elsewhere and echo the result. shellcheck reads that as a typo (SC1007).
 # shellcheck disable=SC1007
 root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
-src=$root/.flix-wrapper/flix.java
+src=$root/.flixw/flixw.java
 
 # The cache is resolved before the java search, because a JDK flixw installed
 # earlier lives in it and is the last thing worth trying.
@@ -62,7 +62,7 @@ if [ -z "$java0" ]; then
   esac
   echo "            https://adoptium.net/temurin/releases/?version=21" >&2
   echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
-  echo "          With any Java 21+ present, ./flix wrapper --install-jdk will" >&2
+  echo "          With any Java 21+ present, ./flixw wrapper --install-jdk will" >&2
   echo "          fetch and verify one into the flixw cache for this project." >&2
   exit 127
 fi
@@ -130,9 +130,9 @@ fi
 # symlink into a JDK, so there is no release file to read, and a shim pointing at
 # Java 17 loaded the class and died on class file version.  The cost of being
 # careful is that such setups always take the source path.
-if [ -n "$h" ] && [ -f "$cache/stage0/$h/flix.class" ] \
+if [ -n "$h" ] && [ -f "$cache/stage0/$h/flixw.class" ] \
    && [ -n "$jfeature" ] && [ "$jfeature" -ge 21 ]; then
   FLIXW_SOURCE=$src; export FLIXW_SOURCE
-  exec "$java0" -cp "$cache/stage0/$h" flix "$@"
+  exec "$java0" -cp "$cache/stage0/$h" flixw "$@"
 fi
 exec "$java0" "$src" "$@"

@@ -15,7 +15,7 @@ Change guidance here first; update the pointers only when a constraint in them i
 ## What this is
 
 `flixw` is an experimental, third-party, opt-in repository-local bootstrap for the
-[Flix](https://flix.dev) compiler: `./flix <verb>` downloads, digest-verifies, caches and
+[Flix](https://flix.dev) compiler: `./flixw <verb>` downloads, digest-verifies, caches and
 executes an **unmodified stock `flix.jar`** pinned by the project. It is not a Flix fork,
 plugin, or official tool.
 
@@ -29,24 +29,24 @@ you are deliberately letting lead.
 The wrapper has no build system — it is one Java 21 source file, run via JEP 330.
 
 ```sh
-java src/flix.java wrapper --version      # offline; no project, lock, or network needed
-java src/flix.java wrapper --help         # routing table (enriched if run inside a project)
-javac -d /tmp/flixw-out src/flix.java     # compile check
-FLIXW_TRACE=1 ./flix check                # per-phase timings on stderr
+java src/flixw.java wrapper --version      # offline; no project, lock, or network needed
+java src/flixw.java wrapper --help         # routing table (enriched if run inside a project)
+javac -d /tmp/flixw-out src/flixw.java     # compile check
+FLIXW_TRACE=1 ./flixw check                # per-phase timings on stderr
 ```
 
 Exercising it end to end means installing into a scratch project:
 
 ```sh
-java src/flix.java install /tmp/proj      # writes flix, flix.cmd, .flix-wrapper/flix.java, .gitattributes
-cd /tmp/proj && ./flix pin 0.75.2         # writes .flix-wrapper/lock.toml, downloads the JAR
-./flix pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
-./flix info                               # java, compiler, cache, mirror, proxy, routing state
-./flix doctor [--fix]                     # the same, plus every check, with a verdict
-./flix validate                           # wrapper files, lock/manifest agreement, git tracked status
+java src/flixw.java install /tmp/proj      # writes flixw, flixw.cmd, .flixw/flixw.java, .gitattributes
+cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads the JAR
+./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
+./flixw info                               # java, compiler, cache, mirror, proxy, routing state
+./flixw doctor [--fix]                     # the same, plus every check, with a verdict
+./flixw validate                           # wrapper files, lock/manifest agreement, git tracked status
 ```
 
-A release ships the same three files as two archives plus `flix.java`; `sh tests/pack.sh
+A release ships the same three files as two archives plus `flixw.java`; `sh tests/pack.sh
 <dir>` builds them by running `install` into a staging directory and packing the result, so
 the archive route cannot drift from the install route. `.github/workflows/release.yaml`
 runs it on a `v*` tag and refuses to publish if the tag and `WRAPPER_VERSION` disagree.
@@ -73,13 +73,13 @@ reported as `skip` rather than asserted for the wrong reason.
 ## Architecture
 
 Three artifacts ship into a consuming project, byte-identical across projects for a given
-wrapper release; only `.flix-wrapper/lock.toml` differs per project.
+wrapper release; only `.flixw/lock.toml` differs per project.
 
 | File | Role |
 |---|---|
-| `src/flix` | POSIX `sh` shim: find a `java`, prefer the cached compiled stage 0, else source-launch |
-| `src/flix.cmd` | same for `cmd.exe`/PowerShell |
-| `src/flix.java` | **stage 0** — everything else, in one dependency-free file |
+| `src/flixw` | POSIX `sh` shim: find a `java`, prefer the cached compiled stage 0, else source-launch |
+| `src/flixw.cmd` | same for `cmd.exe`/PowerShell |
+| `src/flixw.java` | **stage 0** — everything else, in one dependency-free file |
 
 Stage 0 owns project discovery, lock parsing, drift detection, version validation, Java
 selection, compiler acquisition, unconditional SHA-256 verification, verb dispatch, wrapper
@@ -107,8 +107,8 @@ write the cache, which `doctor` checks.
 
 ### The shims exist twice
 
-`src/flix` and `src/flix.cmd` are the checked-in copies of the `SHIM` and `CMD` text blocks
-in `src/flix.java`, which is what `install` actually writes out (`CMD` with CRLF). **Edit both
+`src/flixw` and `src/flixw.cmd` are the checked-in copies of the `SHIM` and `CMD` text blocks
+in `src/flixw.java`, which is what `install` actually writes out (`CMD` with CRLF). **Edit both
 sides or they drift.** In the Java text block, backslashes are escaped (`\\`); on disk they
 are literal.
 
@@ -117,7 +117,7 @@ are literal.
 The shim must know where the compiled stage 0 lives, so these paths are contract, not detail:
 
 ```
-<cache>/stage0/<sha256 of flix.java>/flix.class   # self-compiled stage 0 (~131ms vs ~532ms)
+<cache>/stage0/<sha256 of flixw.java>/flixw.class   # self-compiled stage 0 (~131ms vs ~532ms)
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 ```
@@ -130,7 +130,7 @@ the JAR — a content-addressed compiler directory may legitimately be read-only
 ### Dispatch is compiler-first
 
 Order in `realMain` (paper §4.8): `--wrapper-*` flags → `install` (first contact only) →
-drift check → `./flix -- args` forced pass-through → verb in the captured compiler verb set →
+drift check → `./flixw -- args` forced pass-through → verb in the captured compiler verb set →
 verb in `WRAPPER_VERBS` (`pin info doctor validate help`) → otherwise the compiler,
 so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire *automatically*, one
 at a time, as Flix implements them; a displaced verb prints a deprecation notice.
@@ -173,7 +173,7 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   but Flix has no unknown-command diagnostic: `flix doctro` answers
   `Unrecognized file extension: 'doctro'.` on **stdout**, exit 1. The routing is right; the
   resulting message is not good, and improving it is an open UX question.
-- `flix.cmd` has a CI job but no results: the repository has no remote, so no workflow has
+- `flixw.cmd` has a CI job but no results: the repository has no remote, so no workflow has
   ever run. Argument parity with the POSIX shim is not achievable and is not claimed; see
   `docs/LIMITATIONS.md`.
 - The design paper is Revision 6 and now trails the implementation in places. `docs/CONTRACT.md`
@@ -184,5 +184,5 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 - Comments explain *why a cheaper option was rejected*, not what the line does. Match that
   density — this file is meant to be audited by strangers who must trust it with a download.
 - Diagnostics are actionable: state what was found, what was expected, and the command that
-  repairs it (`run: ./flix pin <version>`).
+  repairs it (`run: ./flixw pin <version>`).
 - Commits are Conventional Commits (`feat:`, `docs:`, `refactor:`, `chore:`).

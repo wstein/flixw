@@ -1,6 +1,6 @@
 // flixw unit checks -- the parts of stage 0 the shell suite cannot reach from outside.
 //
-//   javac -d <out> src/flix.java tests/UnitCheck.java
+//   javac -d <out> src/flixw.java tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
 // Compiled and run by tests/run.sh; not a separate CI entry point. Four groups:
@@ -65,13 +65,13 @@ public final class UnitCheck {
             String label = "corpus " + r.slug();
             String text = Files.readString(dir.resolve(r.slug() + ".toml"), StandardCharsets.UTF_8);
             try {
-                String got = flix.tomlLookup(text, "package", "flix", r.slug());
+                String got = flixw.tomlLookup(text, "package", "flix", r.slug());
                 switch (r.kind()) {
                     case "OK" -> eq(label, r.value(), got);
                     case "NONE" -> eq(label, null, got);
                     default -> bad(label, "expected a rejection for a non-string value, got " + q(got));
                 }
-            } catch (flix.Fail e) {
+            } catch (flixw.Fail e) {
                 if (r.kind().equals("NONSTRING")) ok();
                 else bad(label, "rejected a manifest tomllib accepts: " + e.getMessage());
             }
@@ -155,8 +155,8 @@ public final class UnitCheck {
             boolean mustFail = "!".equals(c.want());
             String got;
             try {
-                got = flix.tomlLookup(c.toml(), "package", "flix", c.name());
-            } catch (flix.Fail e) {
+                got = flixw.tomlLookup(c.toml(), "package", "flix", c.name());
+            } catch (flixw.Fail e) {
                 if (mustFail) ok();
                 else bad(label, "unexpected rejection: " + e.getMessage());
                 continue;
@@ -170,7 +170,7 @@ public final class UnitCheck {
     // ---- 4: the capture bounds --------------------------------------------
 
     static void bounded() throws IOException {
-        Path javaExe = flix.exeIn(System.getProperty("java.home"));
+        Path javaExe = flixw.exeIn(System.getProperty("java.home"));
         Path tmp = Files.createTempDirectory("flixw-unit-");
         try {
             // A child that starts and then says nothing. Before the fix the deadline was
@@ -181,7 +181,7 @@ public final class UnitCheck {
                 "    public static void main(String[] a) throws Exception { Thread.sleep(600_000); }",
                 "}"));
             long t0 = System.nanoTime();
-            String out = flix.runCapture(List.of(javaExe.toString(), silent.toString()),
+            String out = flixw.runCapture(List.of(javaExe.toString(), silent.toString()),
                                          Duration.ofSeconds(2), 1 << 16);
             long ms = (System.nanoTime() - t0) / 1_000_000;
             if (out != null) bad("bounded capture: silent child", "want null, got " + out.length() + " chars");
@@ -196,7 +196,7 @@ public final class UnitCheck {
                 "        for (int i = 0; i < 500000; i++) System.out.println(\"noise noise noise\");",
                 "    }",
                 "}"));
-            String capped = flix.runCapture(List.of(javaExe.toString(), chatty.toString()),
+            String capped = flixw.runCapture(List.of(javaExe.toString(), chatty.toString()),
                                             Duration.ofSeconds(120), 4096);
             if (capped == null) bad("bounded capture: chatty child", "timed out instead of truncating");
             else if (capped.length() > 4096) bad("bounded capture: chatty child",
@@ -204,7 +204,7 @@ public final class UnitCheck {
             else ok();
 
             // The ordinary case still has to work.
-            String version = flix.runCapture(List.of(javaExe.toString(), "--version"),
+            String version = flixw.runCapture(List.of(javaExe.toString(), "--version"),
                                              Duration.ofSeconds(60), 1 << 16);
             if (version == null || version.isBlank())
                 bad("bounded capture: ordinary child", "captured nothing from java --version");
@@ -226,9 +226,9 @@ public final class UnitCheck {
      * the search finds them all and something has to pick. It cannot be staged in CI --
      * a runner has one JDK -- so it is asserted here, on the pure function.
      */
-    static java.util.List<flix.Jvm> jdks(int... features) {
-        java.util.List<flix.Jvm> out = new ArrayList<>();
-        for (int f : features) out.add(new flix.Jvm(Paths.get("/jdk" + f), f, "known installation"));
+    static java.util.List<flixw.Jvm> jdks(int... features) {
+        java.util.List<flixw.Jvm> out = new ArrayList<>();
+        for (int f : features) out.add(new flixw.Jvm(Paths.get("/jdk" + f), f, "known installation"));
         return out;
     }
 
@@ -236,32 +236,32 @@ public final class UnitCheck {
         // The case measured on a real machine: 11, 17, 21, 25 and 26 installed, and the
         // old first-in-directory-order rule answered 26 -- above the tested ceiling, and
         // warned about -- because a symlink named `java` sorts before `openjdk@21`.
-        flix.Jvm pick = flix.chooseInstall(jdks(26, 11, 21, 17, 25), false);
+        flixw.Jvm pick = flixw.chooseInstall(jdks(26, 11, 21, 17, 25), false);
         eq("chooser: newest inside the tested interval", "25", pick == null ? null : "" + pick.feature());
 
         // Above the ceiling is a fallback, not a preference, and the closest one wins.
-        pick = flix.chooseInstall(jdks(27, 26, 30), false);
+        pick = flixw.chooseInstall(jdks(27, 26, 30), false);
         eq("chooser: lowest above the ceiling when nothing fits", "26",
            pick == null ? null : "" + pick.feature());
 
         // FLIXW_STRICT_JAVA removes that fallback entirely.
-        pick = flix.chooseInstall(jdks(27, 26, 30), true);
+        pick = flixw.chooseInstall(jdks(27, 26, 30), true);
         eq("chooser: strict refuses everything above the ceiling", null,
            pick == null ? null : "" + pick.feature());
 
         // Below the floor is never a candidate, strict or not.
-        pick = flix.chooseInstall(jdks(8, 11, 17, 20), false);
+        pick = flixw.chooseInstall(jdks(8, 11, 17, 20), false);
         eq("chooser: below the floor is never chosen", null,
            pick == null ? null : "" + pick.feature());
 
-        pick = flix.chooseInstall(jdks(), false);
+        pick = flixw.chooseInstall(jdks(), false);
         eq("chooser: nothing found is not a choice", null,
            pick == null ? null : "" + pick.feature());
 
         // Exactly at the boundaries, both of which are inclusive.
-        pick = flix.chooseInstall(jdks(21), false);
+        pick = flixw.chooseInstall(jdks(21), false);
         eq("chooser: the floor itself is usable", "21", pick == null ? null : "" + pick.feature());
-        pick = flix.chooseInstall(jdks(25, 21), true);
+        pick = flixw.chooseInstall(jdks(25, 21), true);
         eq("chooser: the ceiling itself is usable under strict", "25",
            pick == null ? null : "" + pick.feature());
 
@@ -290,30 +290,30 @@ public final class UnitCheck {
                     + "\"checksum\":\"" + "a".repeat(64) + "\"}}}]";
 
         eq("metadata: the installer is not the package",
-           "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.pkg", flix.jsonField(body, "name"));
-        String pkg = flix.jsonObject(body, "package");
+           "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.pkg", flixw.jsonField(body, "name"));
+        String pkg = flixw.jsonObject(body, "package");
         eq("metadata: package name", "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.tar.gz",
-           flix.jsonField(pkg, "name"));
+           flixw.jsonField(pkg, "name"));
         eq("metadata: package checksum, not the installer's", "a".repeat(64),
-           flix.jsonField(pkg, "checksum"));
+           flixw.jsonField(pkg, "checksum"));
         eq("metadata: package link", "https://github.com/adoptium/x.tar.gz",
-           flix.jsonField(pkg, "link"));
-        eq("metadata: an absent field is absent", null, flix.jsonField(pkg, "nope"));
+           flixw.jsonField(pkg, "link"));
+        eq("metadata: an absent field is absent", null, flixw.jsonField(pkg, "nope"));
         // The key is quoted into the pattern, so a key containing regex metacharacters
         // must not become one.
-        eq("metadata: a key is not a pattern", null, flix.jsonField(pkg, "na.e"));
-        eq("metadata: an absent object is absent", null, flix.jsonObject(body, "nope"));
+        eq("metadata: a key is not a pattern", null, flixw.jsonField(pkg, "na.e"));
+        eq("metadata: an absent object is absent", null, flixw.jsonObject(body, "nope"));
 
         // Nested braces have to balance, or the object ends at the first inner close.
         eq("metadata: nested objects balance", "x",
-           flix.jsonField(flix.jsonObject("{\"a\":{\"b\":{\"c\":1},\"d\":\"x\"}}", "a"), "d"));
+           flixw.jsonField(flixw.jsonObject("{\"a\":{\"b\":{\"c\":1},\"d\":\"x\"}}", "a"), "d"));
 
         // Windows is published as a zip and nothing else; the rest as tar.gz.
         eq("coords: archive type follows the platform",
            System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
                  .startsWith("windows") ? "zip" : "tar.gz",
-           flix.jdkArchiveType());
-        String arch = flix.jdkArch();
+           flixw.jdkArchiveType());
+        String arch = flixw.jdkArch();
         if (arch != null && !arch.equals("aarch64") && !arch.equals("x64"))
             bad("coords: architecture", "unexpected " + arch);
         else ok();
@@ -332,7 +332,7 @@ public final class UnitCheck {
                 Path exe = bin.resolve(want);
                 Files.writeString(exe, "not really a jvm");
                 // 0644, exactly as unzip leaves it.
-                Path found = flix.findJavaUnder(root);
+                Path found = flixw.findJavaUnder(root);
                 if (want.equals("java.exe")) {
                     eq("findJavaUnder: a zip-extracted java.exe is found", exe.toString(),
                        found == null ? null : found.toString());
@@ -341,10 +341,10 @@ public final class UnitCheck {
                        found == null ? null : found.toString());
                     exe.toFile().setExecutable(true, true);
                     eq("findJavaUnder: an executable one is", exe.toString(),
-                       flix.findJavaUnder(root) == null ? null : flix.findJavaUnder(root).toString());
+                       flixw.findJavaUnder(root) == null ? null : flixw.findJavaUnder(root).toString());
                 }
                 eq("findJavaUnder: nothing under an empty tree", null,
-                   flix.findJavaUnder(Files.createTempDirectory("flixw-empty-")) == null
+                   flixw.findJavaUnder(Files.createTempDirectory("flixw-empty-")) == null
                        ? null : "something");
             } finally {
                 try (var w = Files.walk(root)) {
@@ -365,23 +365,23 @@ public final class UnitCheck {
      * slash a version can never contain. None of this needs the network.
      */
     static void pinTargets() {
-        flix.Lock forked = new flix.Lock("0.75.2+f.1", "https://x/y.jar", "a".repeat(64),
+        flixw.Lock forked = new flixw.Lock("0.75.2+f.1", "https://x/y.jar", "a".repeat(64),
                                          "wstein/flix-fork");
-        String[] t = flix.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);
+        String[] t = flixw.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);
         eq("pin: repository then version", "wstein/flix-fork", t[0]);
         eq("pin: version survives its build metadata", "0.75.2+f.1", t[1]);
 
-        t = flix.parsePin(java.util.List.of("0.75.2+f.1", "wstein/flix-fork"), null);
+        t = flixw.parsePin(java.util.List.of("0.75.2+f.1", "wstein/flix-fork"), null);
         eq("pin: order does not matter", "wstein/flix-fork", t[0]);
 
         // The trap this exists to close: a bare re-pin used to rebuild the upstream URL
         // and move a fork-tracking project back to stock, silently, because both are
         // honestly the same version.
-        t = flix.parsePin(java.util.List.of("0.75.2+f.1"), forked);
+        t = flixw.parsePin(java.util.List.of("0.75.2+f.1"), forked);
         eq("pin: a bare re-pin stays on the fork", "wstein/flix-fork", t[0]);
-        t = flix.parsePin(java.util.List.of("0.75.2"), null);
+        t = flixw.parsePin(java.util.List.of("0.75.2"), null);
         eq("pin: with no lock and no repository it is upstream", "flix/flix", t[0]);
-        t = flix.parsePin(java.util.List.of("flix/flix", "0.75.2"), forked);
+        t = flixw.parsePin(java.util.List.of("flix/flix", "0.75.2"), forked);
         eq("pin: naming upstream leaves the fork", "flix/flix", t[0]);
 
         for (java.util.List<String> bad : java.util.List.of(
@@ -390,8 +390,8 @@ public final class UnitCheck {
                 java.util.List.of("1.0.0", "2.0.0"),
                 java.util.List.of("not/a/repo", "1.0.0"),
                 java.util.List.of("a/b", "not-a-version"))) {
-            try { flix.parsePin(bad, null); bad("pin: " + bad, "accepted"); }
-            catch (flix.Fail e) { ok(); }
+            try { flixw.parsePin(bad, null); bad("pin: " + bad, "accepted"); }
+            catch (flixw.Fail e) { ok(); }
         }
 
         System.out.println("  ok   pin targets: repository and version parsing");
