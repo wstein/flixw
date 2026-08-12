@@ -39,7 +39,7 @@ Exercising it end to end means installing into a scratch project:
 
 ```sh
 java src/flix.java install /tmp/proj      # writes flix, flix.cmd, .flix-wrapper/flix.java, .gitattributes
-cd /tmp/proj && ./flix pin 0.75.2         # writes flix.toml + .flix-wrapper/lock.toml, downloads the JAR
+cd /tmp/proj && ./flix pin 0.75.2         # writes .flix-wrapper/lock.toml, downloads the JAR
 ./flix pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flix info                               # java, compiler, cache, mirror, proxy, routing state
 ./flix doctor [--fix]                     # the same, plus every check, with a verdict
@@ -129,9 +129,11 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   no install stamps, no skip flag.
 - **One acquisition attempt, one relaunch.** No retry loops; relaunch is guarded by
   `FLIXW_RELAUNCHED` so a stale `release` file cannot loop.
-- **Drift fails before the network.** `flix.toml` is the human authority; a mismatch with
-  `lock.toml` is fatal — except that `pin`, `doctor` and `validate` still run so the project
-  can be repaired.
+- **The manifest is a floor, checked before the network.** `flix.toml`'s `flix` key is
+  Flix's field with Flix's rules (`x.x.x` only), read as a *minimum*; `lock.toml` is flixw's
+  and pins the exact compiler. A lock below the floor is fatal — except that `pin`, `doctor`
+  and `validate` still run so the project can be repaired. A lock *above* it is normal, and
+  `pin` never edits the manifest.
 - **stdout belongs to the compiler.** All wrapper chatter goes to stderr; cwd, argv and all
   three streams are inherited so the REPL keeps its TTY.
 - **Failures are `FLIXWnnn` on stderr.** `FLIXW001`–`009` are fatal (advisory exits 80–88);

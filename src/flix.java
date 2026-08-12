@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.18.0";
+    static final String WRAPPER_VERSION = "0.19.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -126,6 +126,23 @@ public final class flix {
      */
     static String canonical(String v) { int i = v.indexOf('+'); return i < 0 ? v : v.substring(0, i); }
 
+    /**
+     * The `x.x.x` that `[package].flix` is allowed to hold.
+     *
+     * That field is Flix's, not flixw's, and Flix rejects anything else outright --
+     * "This toml file has a Flix version number of the wrong length" for a version
+     * carrying build metadata. It also accepts 99.99.99 against a 0.75.2 compiler, so it
+     * reads as a coarse floor rather than a pin.
+     *
+     * The exact version therefore lives in the lock, which is flixw's own file and can say
+     * `0.75.2+fork.wstein.260807.1` without breaking anything. Drift compares the two at
+     * this precision, because that is all the manifest is able to express.
+     */
+    static String triple(String v) {
+        Matcher m = Pattern.compile("^([0-9]+\\.[0-9]+\\.[0-9]+)").matcher(v);
+        return m.find() ? m.group(1) : v;
+    }
+
     static String q(String s) { return "'" + s + "'"; }
     /** IOException.getMessage() is often bare the path; name the failure too. */
     static String why(Exception e) {
@@ -162,8 +179,7 @@ public final class flix {
      * `value` is the raw right-hand side; `multiline` marks a `"""` or `'''` opener, whose
      * body this scanner deliberately does not reassemble -- no key flixw reads is one.
      */
-    record TomlEntry(int line, String table, String key, String value, boolean multiline,
-                     int valueStart, int valueEnd) {}
+    record TomlEntry(int line, String table, String key, String value, boolean multiline) {}
 
     /** Every scalar entry in a document, plus every table header, in file order. */
     record TomlScan(List<TomlEntry> entries, List<String> tables) {}
@@ -194,12 +210,10 @@ public final class flix {
         String[] lines = text.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
-            int base = 0;                                // offsets stay relative to lines[i]
             if (mlDelim != null) {                       // inside """ or ''': find the close
                 int e = line.indexOf(mlDelim);
                 if (e < 0) continue;
-                base = e + 3;                            // both delimiters are three chars
-                line = line.substring(base);
+                line = line.substring(e + 3);            // three chars either way
                 mlDelim = null;
             }
             String t = stripComment(line).trim();
@@ -230,16 +244,7 @@ public final class flix {
             String v = t.substring(eq + 1).trim();
             String delim = v.startsWith("\"\"\"") ? "\"\"\"" : v.startsWith("'''") ? "'''" : null;
             if (delim != null && !v.substring(3).contains(delim)) mlDelim = delim;
-            // Where the value sits in the untouched line, so a rewrite can replace exactly
-            // it. `t` is the line with comments stripped and both ends trimmed, so the
-            // offset is the leading whitespace plus the position within `t`, plus whatever
-            // a multi-line string closing earlier on this same line already consumed.
-            String noComment = stripComment(line);
-            int lead = noComment.length() - noComment.stripLeading().length();
-            int vs = lead + eq + 1;
-            while (vs < noComment.length() && Character.isWhitespace(noComment.charAt(vs))) vs++;
-            entries.add(new TomlEntry(i, current, k, v, delim != null,
-                                      base + vs, base + vs + v.length()));
+            entries.add(new TomlEntry(i, current, k, v, delim != null));
         }
         return new TomlScan(entries, tables);
     }
@@ -334,33 +339,6 @@ public final class flix {
         return declared == null ? null : validateVersion(declared, manifest.toString());
     }
 
-    /**
-     * Rewrites [package].flix in place, leaving every other table and all formatting alone.
-     * Shares tomlScan with the readers, so the key it rewrites is by construction the key
-     * manifestVersion reads -- including the multi-line-string body it must not rewrite.
-     */
-    static String rewritePackageFlix(String text, String version, String where) {
-        TomlEntry target = null;
-        for (TomlEntry e : tomlScan(text, where).entries()) {
-            if (!isKey(e, "package", "flix")) continue;
-            if (e.multiline()) throw w002(where + ": 'flix' must be a single-line string");
-            if (target != null) throw w002(where + ": duplicate 'flix' key in [package]");
-            target = e;
-        }
-        if (target == null) return null;
-        // The same split tomlScan indexed, rejoined with the same separator: a manifest
-        // with CRLF endings keeps them, and only the pinned line differs afterwards.
-        String[] lines = text.split("\n", -1);
-        String raw = lines[target.line()];
-        // The span the scanner recorded, replaced whole. A regex over the line could not do
-        // this safely: an escaped quote inside the value stopped [^"']* early and left
-        // flix = "2.0.0"x", which is not TOML at all. Replacing the whole span also repairs
-        // an unquoted or mis-quoted value, which is exactly what pin is for.
-        lines[target.line()] = raw.substring(0, target.valueStart())
-                             + '"' + version + '"'
-                             + raw.substring(target.valueEnd());
-        return String.join("\n", lines);
-    }
     // ---- cache ------------------------------------------------------------
 
     static boolean isWindows() {
@@ -1891,9 +1869,10 @@ public final class flix {
             bad++;
         }
         if (lock == null) { System.out.println("FAIL  no lock"); bad++; }
-        else if (mv != null && !canonical(mv).equals(canonical(lock.version()))) {
-            System.out.println("FAIL  flix.toml says " + mv + ", lock pins " + lock.version()); bad++;
-        } else System.out.println("ok    lock agrees with flix.toml");
+        else if (mv != null && !olderOrSame(triple(mv), triple(lock.version()))) {
+            System.out.println("FAIL  flix.toml asks for " + mv + " or newer, lock pins "
+                             + lock.version()); bad++;
+        } else System.out.println("ok    the lock satisfies flix.toml");
 
         if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
 
@@ -1982,9 +1961,9 @@ public final class flix {
             tmp = Files.createTempFile(wrapperDir, ".pin-", ".part");
         }
         catch (IOException e) { throw w009("cannot write in " + wrapperDir + ": " + e.getMessage()); }
-        Path manifest = root.resolve("flix.toml"), lockFile = lockPath(root);
+        Path lockFile = lockPath(root);
         boolean hadLock = Files.isRegularFile(lockFile);
-        String oldManifest = null, oldLock = null;
+        String oldLock = null;
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
@@ -2013,17 +1992,11 @@ public final class flix {
                 } catch (IOException ignored) { }
             }
 
-            // Both previous states are captured before either file is touched, so a
-            // failure part-way puts the pair back as it was rather than half of it.
-            if (Files.isRegularFile(manifest))
-                oldManifest = Files.readString(manifest, StandardCharsets.UTF_8);
+            // Only the lock is written. flix.toml belongs to the project and to Flix --
+            // its `flix` key is Flix's own field, with Flix's rules -- so pin has no
+            // business editing it. What pin owns is the lock, and that is now the only
+            // file in this transaction.
             if (hadLock) oldLock = Files.readString(lockFile, StandardCharsets.UTF_8);
-
-            if (oldManifest != null) {
-                String updated = rewritePackageFlix(oldManifest, version, manifest.toString());
-                if (updated != null && !updated.equals(oldManifest))
-                    writeAtomic(manifest, updated);
-            }
             writeAtomic(lockFile, lock);
             System.err.println("flixw: pinned Flix " + version + " from " + repo
                              + " (" + digest.substring(0, 16) + "...)");
@@ -2031,7 +2004,6 @@ public final class flix {
                 System.err.println("       a fork is not stock-compatibility evidence;"
                                  + " see docs/LIMITATIONS.md");
         } catch (IOException e) {
-            if (oldManifest != null) restore(manifest, oldManifest);
             if (hadLock || Files.isRegularFile(lockFile)) restore(lockFile, oldLock);
             throw w009("pin failed: " + why(e));
         } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
@@ -2329,9 +2301,15 @@ public final class flix {
 
         // Drift is detected here -- immediately after the manifest and the lock are read,
         // before any Java selection, any network access, and any compiler execution.
-        String drift = (lock != null && mv != null && !canonical(mv).equals(canonical(lock.version())))
-            ? "flix.toml declares " + mv + " but " + WRAPPER_DIR + "/lock.toml pins "
-              + lock.version() + "\n       run: ./flix pin " + mv
+        // `[package].flix` is a floor, not a pin: Flix accepts 99.99.99 against a 0.75.2
+        // compiler and rejects anything but x.x.x, so comparing it to the lock for
+        // equality was comparing two different kinds of statement. What can be checked is
+        // that the pinned compiler satisfies what the project asked for.
+        String drift = (lock != null && mv != null
+                        && !olderOrSame(triple(mv), triple(lock.version())))
+            ? "flix.toml asks for Flix " + mv + " or newer, but " + WRAPPER_DIR
+              + "/lock.toml pins " + lock.version()
+              + "\n       run: ./flix pin " + triple(mv) + " (or lower the requirement)"
             : null;
 
         // When the project cannot reach a compiler -- no lock yet, or a lock that

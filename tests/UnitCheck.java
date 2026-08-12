@@ -79,38 +79,6 @@ public final class UnitCheck {
         System.out.println("  ok   corpus: " + rows.size() + " real manifests agree with tomllib");
     }
 
-    /**
-     * pin's contract over the corpus: the document it returns differs from the input on
-     * exactly one line, that line is the one holding [package].flix, and reading the
-     * result back yields the new version. Anything else is a manifest-eating rewrite.
-     */
-    static void rewriteProperty(Path dir, List<Row> rows) throws IOException {
-        int n = 0;
-        for (Row r : rows) {
-            if (!r.kind().equals("OK")) continue;
-            String label = "rewrite " + r.slug();
-            String text = Files.readString(dir.resolve(r.slug() + ".toml"), StandardCharsets.UTF_8);
-            String updated = flix.rewritePackageFlix(text, "9.9.9", r.slug());
-            if (updated == null) {
-                bad(label, "declined to rewrite a manifest that has a [package].flix");
-                continue;
-            }
-            eq(label + " reads back", "9.9.9", flix.tomlLookup(updated, "package", "flix", r.slug()));
-            String[] before = text.split("\n", -1);
-            String[] after = updated.split("\n", -1);
-            if (before.length != after.length) {
-                bad(label, "line count changed: " + before.length + " -> " + after.length);
-                continue;
-            }
-            int changed = 0;
-            for (int i = 0; i < before.length; i++) if (!before[i].equals(after[i])) changed++;
-            if (changed != 1) bad(label, changed + " lines changed, want exactly 1");
-            else ok();
-            n++;
-        }
-        System.out.println("  ok   rewrite: " + n + " manifests repinned, one line each");
-    }
-
     // ---- 3: adversarial manifests the wild does not supply -----------------
 
     /** want == null: the key must be absent. want starting with '!': the read must fail. */
@@ -174,75 +142,8 @@ public final class UnitCheck {
             }
             if (mustFail) { bad(label, "expected a rejection, got " + q(got)); continue; }
             eq(label, c.want(), got);
-
-            // The writer must agree with the reader on every one of these, which is the
-            // invariant that broke: pin had a second scanner that saw different keys.
-            String updated;
-            try {
-                updated = flix.rewritePackageFlix(c.toml(), "2.0.0", c.name());
-            } catch (flix.Fail e) {
-                bad(label + " (rewrite)", "reader accepted, writer rejected: " + e.getMessage());
-                continue;
-            }
-            if (c.want() == null) {
-                if (updated != null) bad(label + " (rewrite)", "rewrote a key the reader does not see");
-                else ok();
-                continue;
-            }
-            if (updated == null) {
-                bad(label + " (rewrite)", "writer found no key the reader read as " + q(c.want()));
-                continue;
-            }
-            eq(label + " (rewrite)", "2.0.0", flix.tomlLookup(updated, "package", "flix", c.name()));
-            if (updated.contains("9.9.9") != c.toml().contains("9.9.9"))
-                bad(label + " (rewrite)", "a decoy value was disturbed");
-            else ok();
         }
-        // pin used a regex over the line, and an escaped quote inside the value stopped
-        // [^"']* early: `flix = "1.0\"x"` became `flix = "2.0.0"x"`, which is not TOML.
-        // The scanner records where the value sits and the whole span is replaced.
-        String tricky = lines("[package]", "name = \"x\"",
-                              "flix = \"1.0\\\"x\"", "authors = [\"n\"]");
-        String fixed = flix.rewritePackageFlix(tricky, "2.0.0", "tricky");
-        eq("rewrite: an escaped quote does not survive the rewrite", "2.0.0",
-           fixed == null ? null : flix.tomlLookup(fixed, "package", "flix", "tricky"));
-
-        // Replacing the whole span repairs a value that was never a quoted string.
-        String bare = lines("[package]", "flix = 1.0.0", "name = \"x\"");
-        String repaired = flix.rewritePackageFlix(bare, "2.0.0", "bare");
-        eq("rewrite: an unquoted value is repaired, not skipped", "2.0.0",
-           repaired == null ? null : flix.tomlLookup(repaired, "package", "flix", "bare"));
-
-        // A comment on the line must survive, since only the value span is touched.
-        String noted = lines("[package]", "flix = \"1.0.0\"  # pinned", "name = \"x\"");
-        String renoted = flix.rewritePackageFlix(noted, "2.0.0", "noted");
-        if (renoted == null || !renoted.contains("# pinned"))
-            bad("rewrite: a trailing comment survives", "comment lost");
-        else ok();
-
-        // Headers now fail closed rather than dropping what they cannot account for.
-        for (String header : new String[] { "[package] junk", "[[package" }) {
-            try {
-                flix.tomlLookup(lines(header, "flix = \"1.0.0\""), "package", "flix", "hdr");
-                bad("header: " + header, "accepted a malformed table header");
-            } catch (flix.Fail e) { ok(); }
-        }
-
         System.out.println("  ok   adversarial: " + cases().size() + " hand-written manifests");
-    }
-
-    /** CRLF is checked separately: the fixture must not go through lines(). */
-    static void crlf() {
-        String doc = String.join("\r\n", "[package]", "name = \"x\"", "flix = \"1.0.0\"") + "\r\n";
-        eq("crlf read", "1.0.0", flix.tomlLookup(doc, "package", "flix", "crlf"));
-        String updated = flix.rewritePackageFlix(doc, "2.0.0", "crlf");
-        if (updated == null) { bad("crlf rewrite", "no key found"); return; }
-        eq("crlf rewrite", "2.0.0", flix.tomlLookup(updated, "package", "flix", "crlf"));
-        long crs = updated.chars().filter(ch -> ch == '\r').count();
-        long lfs = updated.chars().filter(ch -> ch == '\n').count();
-        if (crs != lfs) bad("crlf rewrite", "line endings changed: " + crs + " CR, " + lfs + " LF");
-        else ok();
-        System.out.println("  ok   crlf: endings survive a repin");
     }
 
     // ---- 4: the capture bounds --------------------------------------------
@@ -479,9 +380,7 @@ public final class UnitCheck {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         List<Row> rows = rows(dir);
         corpus(dir, rows);
-        rewriteProperty(dir, rows);
         adversarial();
-        crlf();
         chooser();
         provisioning();
         pinTargets();

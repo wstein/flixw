@@ -28,8 +28,11 @@ swallows one, because a collaborator would then get a project that cannot bootst
 
 ## The pin
 
-`flix.toml` is the human authority for the compiler version. `.flix-wrapper/lock.toml`
-is generated and binds the tuple *(repository, version, distribution URL, SHA-256)*.
+`.flix-wrapper/lock.toml` is the pin: it is flixw's own file, it is generated, and it
+binds the tuple *(repository, version, distribution URL, SHA-256)* that decides which
+compiler actually runs. `flix.toml` is the project's manifest and belongs to Flix; its
+`[package].flix` key is Flix's field, with Flix's rules — a plain `x.x.x`, read here as a
+*minimum* compiler version rather than an exact one.
 
 ```console
 ./flix pin 0.75.2                                    # the stock compiler
@@ -55,33 +58,41 @@ temporary limitation. A digest identifies one immutable byte sequence, so a floa
 version and a pinned digest cannot both be honoured; exactness is what makes the digest
 mean anything.
 
-SemVer build metadata is accepted in the manifest and stripped from the release tag and
-the cache coordinate. That normalization is defined once, in `canonical()`, and used for
-every comparison — otherwise `flix = "0.75.2+build.4"` produces a drift error that
-`./flix pin` regenerates and cannot repair.
+`[package].flix` is Flix's own field, not flixw's, and Flix accepts only `x.x.x` there —
+anything else is *"a Flix version number of the wrong length"*. It also accepts `99.99.99`
+against a 0.75.2 compiler, so it reads as a coarse floor rather than a pin. `pin` therefore
+writes the `x.x.x` form to the manifest and keeps the exact version — a fork build, a
+prerelease — in the lock, which is flixw's file and can say so. Drift compares the two at
+`x.x.x`, because that is all the manifest is able to express.
 
-**Drift is fatal, and detected before the network.** If `flix.toml` and the lock
-disagree, the compiler path stops immediately — before Java selection, before any
-download, before the compiler is executed. `pin`, `doctor`, `validate` and
-`wrapper --upgrade` still run, because otherwise the repair the diagnostic recommends is
-unreachable. The same holds for a lock
-that does not *parse*: `pin` replaces it, while everything needing a compiler still fails
-on it.
+A pin may carry SemVer build metadata — `0.75.2+fork.wstein.1` — which the lock records
+in full and which is stripped from the release tag and the cache coordinate. That
+normalization is defined once, in `canonical()`, and used for every comparison. The
+manifest never sees it: Flix accepts only `x.x.x` there, so a fork build is expressible in
+the lock alone.
 
-Both files are written through a same-directory temporary and an atomic rename, so a
+**The manifest sets a floor, and it is checked before the network.** If `flix.toml` asks
+for a Flix newer than the lock pins, the compiler path stops immediately — before Java
+selection, before any download, before the compiler is executed. A lock *at or above* the
+floor is not an error and is the ordinary case: `flix = "0.70.0"` in the manifest with
+`0.75.2` in the lock is a project that declares what it needs and runs something newer.
+`pin`, `doctor`, `validate` and `wrapper --upgrade` still run when the floor is
+unsatisfied, because otherwise the repair the diagnostic recommends is unreachable. The
+same holds for a lock that does not *parse*: `pin` replaces it, while everything needing a
+compiler still fails on it.
+
+The lock is written through a same-directory temporary and an atomic rename, so a
 termination or power loss mid-write leaves the previous file rather than half of a new one.
+The previous contents are held first, and restored if anything after the write fails.
 
-`pin` fills the compiler cache before it touches either committed file, and treats every
-failure there as nothing — the cache is an optimisation and the next run refills it. Both
-previous states are captured before either file is written, so a failure part-way restores
-the pair rather than half of it: an earlier ordering rolled the manifest back and left the
-new lock in place, which is the drift the rollback exists to prevent.
+`pin` fills the compiler cache before it writes the lock, and treats every failure there as
+nothing — the cache is an optimisation and the next run refills it.
 
-`pin` rewrites exactly one line of `flix.toml` — the `flix` key of `[package]` — and
-leaves every other table, comment, key order and line ending as it found them, including
-CRLF. The key it rewrites is by construction the key the reader reads: both go through
-the same table- and multi-line-string-aware scanner, so a `flix = "…"` sitting inside a
-`"""` description is invisible to each of them alike.
+**`pin` never writes `flix.toml`.** The exact compiler is flixw's business and lives in
+flixw's file; the manifest's floor is the project's statement about what its sources need,
+and moving it is a decision only a human should make. The floor check reads the manifest
+through the same table- and multi-line-string-aware scanner used everywhere else, so a
+`flix = "…"` sitting inside a `"""` description is invisible to it.
 
 ## Integrity
 

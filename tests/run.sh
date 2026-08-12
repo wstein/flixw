@@ -277,6 +277,20 @@ t 81 "reject empty prerelease suffix"                           ./flix pin '0.75
 # Build metadata is accepted in the manifest and stripped from the release tag and the
 # cache coordinate. If canonical() were applied inconsistently this would either fail to
 # resolve or produce a drift error that pin cannot repair.
+# pin never touches flix.toml: that key is Flix's, with Flix's rules, and Flix rejects
+# anything but x.x.x there. The exact version lives in the lock, which is flixw's file.
+t 0  "pin leaves flix.toml alone"                               sh -c '
+  cp flix.toml "$1/toml.before"
+  ./flix pin '"$version"'+build.4 >/dev/null 2>&1
+  cmp -s flix.toml "$1/toml.before"' sh "$work"
+t 0  "the exact version lands in the lock"                      sh -c '
+  grep -q "^version = \"'"$version"'+build.4\"" .flix-wrapper/lock.toml'
+# A manifest floor below the pinned compiler is the normal case, not drift.
+t 0  "a lower floor in flix.toml is satisfied, not drift"       sh -c '
+  cp flix.toml "$1/toml.keep"
+  sed "s/^flix .*/flix        = \"0.70.0\"/" "$1/toml.keep" > flix.toml
+  ./flix check >/dev/null 2>&1; rc=$?
+  cp "$1/toml.keep" flix.toml; exit $rc' sh "$work"
 t 0  "accept and strip build metadata"                          ./flix pin "$version+build.4"
 g 0  "$version"  "stripped pin still resolves"                  ./flix wrapper --help
 ./flix pin "$version" > /dev/null 2>&1
@@ -342,31 +356,16 @@ t 81 "an unreadable manifest is not treated as absent"           sh -c '
   ./flix -- --version; rc=$?
   chmod 644 flix.toml; exit $rc'
 cp "$work/flix.toml.good" flix.toml
-t 0  "pin only rewrites [package].flix"                          sh -c '
-  { cat "$1/flix.toml.good"; printf "\n[other]\nflix = \"9.9.9\"\n"; } > flix.toml
-  ./flix pin '"$version"' >/dev/null 2>&1
-  grep -q "flix = \"9.9.9\"" flix.toml' sh "$work"
-cp "$work/flix.toml.good" flix.toml
-# pin used to run its own line scanner, which had never learned about multi-line strings.
-# The decoy below was correctly invisible to the reader and yet visible to the rewriter,
-# so pin saw two [package].flix keys and refused. Reader and writer now share tomlScan.
-t 0  "pin ignores a flix key inside a multi-line description"    sh -c '
+# pin used to run its own line scanner, which had never learned about multi-line strings,
+# so a decoy inside a description read as a second [package].flix key. pin no longer writes
+# the manifest at all, but the floor check still reads it, and must still ignore the decoy.
+t 0  "the floor reader ignores a flix key inside a description"  sh -c '
+  cp flix.toml "$1/toml.keep"
   { printf "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"; \
     printf "description = \"\"\"\nflix = \"9.9.9\"\n\"\"\"\n"; \
-    printf "flix = \"0.75.1\"\nauthors = [\"n\"]\n"; } > flix.toml
-  ./flix pin '"$version"' >/dev/null 2>&1 || exit 1
-  grep -q "^flix = \"'"$version"'\"" flix.toml || exit 1
-  grep -q "^flix = \"9.9.9\"" flix.toml' sh "$work"
-cp "$work/flix.toml.good" flix.toml
-# The rewrite splits on \n and rejoins with \n so that a CRLF manifest keeps its endings;
-# splitting on \r?\n silently rewrote the whole file to LF on the first pin.
-t 0  "pin preserves CRLF line endings in the manifest"           sh -c '
-  printf "[package]\r\nname = \"x\"\r\nversion = \"0.1.0\"\r\nflix = \"0.75.1\"\r\n" > flix.toml
-  ./flix pin '"$version"' >/dev/null 2>&1 || exit 1
-  grep -q "flix = \"'"$version"'\"" flix.toml || exit 1
-  crs=$(tr -cd "\r" < flix.toml | wc -c | tr -d " ")
-  lns=$(wc -l < flix.toml | tr -d " ")
-  [ "$crs" = "$lns" ]' sh "$work"
+    printf "flix = \"0.70.0\"\nauthors = [\"n\"]\n"; } > flix.toml
+  ./flix doctor >/dev/null 2>&1; rc=$?
+  cp "$1/toml.keep" flix.toml; exit $rc' sh "$work"
 cp "$work/flix.toml.good" flix.toml
 
 # --- lock validation -------------------------------------------------------
@@ -385,10 +384,10 @@ t 81 "a malformed url in the lock is a diagnostic, not a crash"  sh -c '
 # --- drift -----------------------------------------------------------------
 echo "drift"
 cp flix.toml "$work/flix.toml.bak"
-sed 's/^flix .*/flix        = "0.75.1"/' flix.toml > "$work/drifted" && cp "$work/drifted" flix.toml
-g 81 'declares 0.75.1' "drift blocks the compiler"              ./flix check
+sed 's/^flix .*/flix        = "0.99.0"/' flix.toml > "$work/drifted" && cp "$work/drifted" flix.toml
+g 81 'or newer' "an unsatisfied floor blocks the compiler"              ./flix check
 t 0  "drift does not block wrapper --version"                   ./flix wrapper --version
-g 88 'declares 0.75.1' "drift does not block doctor"           ./flix doctor
+g 88 'or newer' "an unsatisfied floor does not block doctor"           ./flix doctor
 t 88 "drift does not block validate (which reports it)"         ./flix validate
 cp "$work/flix.toml.bak" flix.toml
 
