@@ -11,6 +11,12 @@ An **experimental, third-party, opt-in** repository bootstrapper for
 official release JAR against a committed SHA-256, and runs it — with no Flix
 installation, no compiler fork, and no patched build.
 
+That digest is recorded from whatever the first `pin` downloaded, so what it buys you is
+that everyone afterwards runs the same bytes — not that those bytes are the ones the Flix
+project built. Flix publishes no signatures, so there is nothing to check them against.
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) states the difference plainly, and is worth
+reading before trusting this with a download.
+
 > This is not an official Flix tool. It is not affiliated with or endorsed by the Flix
 > project. It works against unmodified release JARs published by
 > [`flix/flix`](https://github.com/flix/flix) — and against a fork's, so long as the fork
@@ -24,12 +30,32 @@ installation, no compiler fork, and no patched build.
 A new project, from an empty directory. Every command and every line of output below is
 from an actual run.
 
+You need a JDK first: flixw is itself a Java program, so it cannot be the thing that gets
+you your first Java. Java 21+ is what the compiler needs — see
+[what if my Java is older](#what-if-my-java-is-older) if yours is not.
+
 ```console
 git init hello && cd hello
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
 java flixw.java install .
 rm flixw.java
 ```
+
+<details>
+<summary>The same, in PowerShell</summary>
+
+```powershell
+git init hello; cd hello
+Invoke-WebRequest -OutFile flixw.java `
+  https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
+java flixw.java install .
+Remove-Item flixw.java
+```
+
+Then read `.\flixw.cmd` wherever this page writes `./flixw`: `.\flixw.cmd pin 0.75.2`,
+`.\flixw.cmd init`, `.\flixw.cmd run`. Git Bash and WSL run the POSIX shim, so there the
+commands work as written.
+</details>
 
 Pin a compiler. This is the step that makes the project reproducible: it fetches Flix
 0.75.2, hashes it, and records the digest in `.flixw/lock.toml`. There is no `flix.toml`
@@ -49,13 +75,18 @@ $ ./flixw run
 Hello World!
 ```
 
-That is the whole bootstrap. The only prerequisite is a JDK — and two different versions
-of that sentence are true at once. The pinned *compiler* needs Java 21+. Stage 0 itself
-compiles on Java 16, so if what you have is older than the compiler needs but 16 or newer,
-flixw runs, tells you so, and `./flixw wrapper --install-jdk` fetches a verified Temurin 21
-into its own cache rather than touching your system. With no Java at all, flixw can only
-tell you how to install one for your platform: it is a Java program, so it cannot be the
-thing that gets you your first Java.
+That is the whole bootstrap.
+
+### What if my Java is older?
+
+Two versions of "you need a JDK" are true at once. The pinned *compiler* needs Java 21+;
+stage 0 itself compiles on Java 16. So with anything from 16 up, flixw runs, tells you the
+compiler will not, and `./flixw wrapper --install-jdk` fetches a verified Temurin 21 into
+its own cache rather than touching your system.
+
+Below 16, and with no Java at all, that command cannot help: it is a Java program and there
+is nothing to run it. You get the shim's own message naming the install command for your
+platform instead. First contact needs a JDK you installed yourself.
 
 From here every verb is the stock compiler, run by the wrapper:
 
@@ -147,14 +178,23 @@ A project that already has sources and a `flix.toml` takes the same route, or th
 one — which reaches the same state without running anything first:
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw-0.20.0.tar.gz
-shasum -a 256 flixw-0.20.0.tar.gz   # compare with the release notes before extracting it
+base=https://github.com/wstein/flixw/releases/download/v0.20.0
+curl -fsSLO $base/flixw-0.20.0.tar.gz
+curl -fsSL  $base/SHA256SUMS | grep flixw-0.20.0.tar.gz | shasum -a 256 -c -
 tar -xzf flixw-0.20.0.tar.gz        # writes flixw, flixw.cmd, .flixw/flixw.java
 rm flixw-0.20.0.tar.gz
-./flixw pin 0.75.2                  # writes the lock, fetches and verifies the compiler
+./flixw pin <version>               # writes the lock, fetches and verifies the compiler
 ./flixw doctor --fix                # merges the .gitattributes block
 git add flixw flixw.cmd .flixw .gitattributes
 ```
+
+The digest line is a check you run, not a comparison you eyeball: it prints `OK` or fails.
+On Windows, `Get-FileHash flixw-0.20.0.tar.gz` and `Expand-Archive` are the equivalents.
+
+Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
+own field and flixw reads it as a **minimum**, so pinning the same version or anything newer
+is fine and pinning something older is refused, naming both numbers. `pin` never edits the
+manifest — if you want a different floor, that is your edit to make.
 
 A `.zip` with the same contents is attached for machines without `tar`. The archives leave
 `.gitattributes` alone rather than overwriting the one your project already has, which is
@@ -195,9 +235,15 @@ sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity
 sh tests/run.sh     # regression suite (needs network on first run)
 ```
 
-Both are required before a commit, and both run in CI on Linux, macOS and Windows.
-`sh tests/pack.sh <dir>` builds the release archives locally, by the same script the
-release workflow runs — so a published digest can be reproduced rather than trusted.
+Both are required before a commit. In CI, `lint.sh` runs once on Linux — `javac` and
+`shellcheck` answer the same on every platform — while `run.sh` runs on Linux, macOS and
+Windows, and Windows additionally gets a `cmd.exe` job that installs into a scratch project
+and drives `flixw.cmd` end to end.
+
+`sh tests/pack.sh <dir>` builds the release archives locally, by the same script the release
+workflow runs — so a published digest can be reproduced rather than trusted. It needs
+`java`, `zip`, `tar`, and `sha256sum` or `shasum`; the byte-for-byte reproduction of a
+published archive needs GNU `tar`, which is why the release job runs on Linux.
 `sh tests/fetch-corpus.sh` refreshes the manifest corpus; it is a maintenance tool rather
 than a test, and needs `gh`, `curl` and python3. See
 [`tests/corpus/README.md`](tests/corpus/README.md).
