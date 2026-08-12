@@ -1309,19 +1309,20 @@ public final class flixw {
     }
 
     /** What to type on this OS, pointing at the same vendor flixw would fetch. */
-    static void jdkInstructions() {
-        System.err.println("       install a JDK " + MIN_JAVA + "+ and re-run, for example:");
+    static void jdkInstructions(int want) {
+        System.err.println("       install a JDK " + want
+                         + (want == MIN_JAVA ? "+" : "") + " and re-run, for example:");
         if (isMac()) {
-            System.err.println("         brew install temurin@" + MIN_JAVA);
+            System.err.println("         brew install temurin@" + want);
         } else if (isWindows()) {
-            System.err.println("         winget install EclipseAdoptium.Temurin." + MIN_JAVA + ".JDK");
-            System.err.println("         scoop install temurin" + MIN_JAVA + "-jdk");
+            System.err.println("         winget install EclipseAdoptium.Temurin." + want + ".JDK");
+            System.err.println("         scoop install temurin" + want + "-jdk");
         } else {
-            System.err.println("         apt install temurin-" + MIN_JAVA + "-jdk         (Debian, Ubuntu)");
-            System.err.println("         dnf install temurin-" + MIN_JAVA + "-jdk         (Fedora, RHEL)");
-            System.err.println("         pacman -S jdk" + MIN_JAVA + "-openjdk           (Arch)");
+            System.err.println("         apt install temurin-" + want + "-jdk         (Debian, Ubuntu)");
+            System.err.println("         dnf install temurin-" + want + "-jdk         (Fedora, RHEL)");
+            System.err.println("         pacman -S jdk" + want + "-openjdk           (Arch)");
         }
-        System.err.println("         or https://adoptium.net/temurin/releases/?version=" + MIN_JAVA);
+        System.err.println("         or https://adoptium.net/temurin/releases/?version=" + want);
         System.err.println("       then set JAVA_HOME, or put its bin directory on PATH.");
     }
 
@@ -1330,33 +1331,51 @@ public final class flixw {
      * pipe, a CI log or a hook is not a question, it is a hang, so those get the
      * instructions and a failure instead -- and an opt-in they can set once.
      */
-    static boolean offerJdk() {
+    static boolean offerJdk(int want) {
         if (env("FLIXW_INSTALL_JDK") != null) return true;
         if (env("CI") != null || System.console() == null) {
             System.err.println("       or set FLIXW_INSTALL_JDK=1 to let flixw download a"
-                             + " verified Temurin " + MIN_JAVA + " into its own cache,");
+                             + " verified Temurin " + want + " into its own cache,");
             System.err.println("       or run: ./flixw wrapper --install-jdk");
             return false;
         }
-        System.err.print("flixw: download Eclipse Temurin " + MIN_JAVA
+        System.err.print("flixw: download Eclipse Temurin " + want
                        + " into the flixw cache instead? [y/N] ");
         String line = System.console().readLine();
         return line != null && line.strip().toLowerCase(Locale.ROOT).startsWith("y");
     }
 
     /** Nothing usable was found: say how to fix it, then offer to do it. */
+    /**
+     * Is there a JDK on this machine that satisfies the pin? Asked by `pin` so that writing
+     * one is not silently a decision to break the next command. It never offers, downloads
+     * or throws: the answer is used for a note, and a pin for a JDK this machine does not
+     * have is legitimate -- CI may have it, and `--install-jdk` can fetch it.
+     */
+    static boolean javaPinAvailable(String pin) {
+        if (pin == null) return true;
+        if (satisfiesJavaPin(pin, Runtime.version().toString().split("[+-]")[0])) return true;
+        Path mine = installedJdk();
+        if (mine != null && satisfiesJavaPin(pin, probeVersion(mine))) return true;
+        for (Path cand : knownInstalls())
+            if (satisfiesJavaPin(pin, probeVersion(cand))) return true;
+        return false;
+    }
+
     static Jvm noJavaFound(int self, String pin) {
         System.err.println(pin == null
             ? "FLIXW003: no Java in [" + MIN_JAVA + ", " + TESTED_CEILING
               + "] found; this JVM is " + self
             : "FLIXW003: no Java " + pin + " found, which " + WRAPPER_DIR
               + "/lock.toml pins; this JVM is " + self);
-        jdkInstructions();
-        if (!offerJdk()) throw w003("no usable Java; see the instructions above");
         // A pinned project gets the pinned feature release, not the wrapper's floor:
-        // fetching 21 for a project that asked for 25 would install something that
-        // cannot then be selected, which is worse than not fetching at all.
-        Path exe = installJdk(resolveTemurin(pin == null ? MIN_JAVA : feature(pin)));
+        // fetching 21 for a project that asked for 22 installs something that cannot then
+        // be selected, and offering it in those words is worse still -- it was the
+        // instructions and the prompt that said 21 while the pin said 22.
+        int want = pin == null ? MIN_JAVA : feature(pin);
+        jdkInstructions(want);
+        if (!offerJdk(want)) throw w003("no usable Java; see the instructions above");
+        Path exe = installJdk(resolveTemurin(want));
         int f = probe(exe);
         if (f < MIN_JAVA)
             throw w003("the JDK just installed reports Java " + f + ", which is below "
@@ -2287,6 +2306,7 @@ public final class flixw {
             System.err.println(javaPin == null
                 ? "flixw: unpinned java; the newest tested JDK will be used"
                 : "flixw: pinned java " + javaPin);
+            warnMissingJava(javaPin);
             return;
         }
         Asset asset = resolveRelease(repo, version);
@@ -2345,6 +2365,7 @@ public final class flixw {
             // floor lives in the project's own file and lowering it may be exactly the
             // plan -- but "accepted, and every later run will refuse" is not something to
             // find out later.
+            warnMissingJava(javaPin);
             String floor = null;
             try { floor = manifestVersion(root.resolve("flix.toml")); } catch (Fail ignored) { }
             if (floor != null && !olderOrSame(triple(floor), triple(version)))
@@ -2355,6 +2376,19 @@ public final class flixw {
             throw w009("pin failed: " + why(e));
         } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
     }
+    /**
+     * A pin naming a Java this machine does not have is written, and said out loud. It is
+     * not an error -- the machine that runs the build may not be this one -- but finding
+     * out at the next command, from a diagnostic about a missing JDK, is finding out late.
+     */
+    static void warnMissingJava(String javaPin) {
+        if (javaPin == null || javaPinAvailable(javaPin)) return;
+        System.err.println("       note: no Java " + javaPin + " on this machine;"
+                         + " nothing here will run the compiler until there is");
+        System.err.println("       run: ./flixw wrapper --install-jdk   (fetches Temurin "
+                         + feature(javaPin) + " into the flixw cache)");
+    }
+
     /** One place that knows what a lock looks like, so the writer cannot drift by table. */
     static String lockText(String wrapper, String repo, String version, String url,
                            String sha256, String java) {

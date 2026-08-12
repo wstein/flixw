@@ -138,9 +138,13 @@ command that created it. Re-pinning the compiler carries the java pin over uncha
 Resolution, in order: `FLIX_JAVA_HOME` or `JAVA_HOME` if set — obeyed as always, but a
 named JDK that contradicts the pin is an error naming both sides rather than a silent
 substitution; then the running JVM; then a JDK flixw installed; then any known
-installation. A machine with nothing matching gets `FLIXW003`, and the offer to fetch one
-is for the *pinned* feature release rather than the wrapper's floor, since installing 21
-for a project that asked for 25 downloads a JDK that then cannot be selected.
+installation. A machine with nothing matching gets `FLIXW003`, and everything about that message — the
+install instructions, the download prompt, the environment variable — names the *pinned*
+feature release rather than the wrapper's floor.
+
+`pin --java` says so at once when the machine has no such JDK. It still writes the pin,
+because the machine that runs the build may not be this one, and `--install-jdk` can fetch
+it; what it does not do is let you find out from the next command.
 
 `./flixw info` prints the pin, and `doctor`/`validate` check it against the JDK the run
 actually selected — "there is a 21 somewhere on this machine" is not the question.

@@ -420,6 +420,20 @@ t 87 "an unknown pin option is refused"                         ./flixw pin --ja
 # A repository with no version parsed and was then dropped: a --java-only pin rewrites one
 # line and never re-resolves the compiler, so there was nowhere for it to go.
 t 81 "a repository without a version is refused"                ./flixw pin wstein/flix-fork --java 21
+# Writing a pin for a JDK this machine does not have is allowed -- CI may have it, and
+# --install-jdk can fetch it -- but it must be said now, not discovered by the next
+# command failing on a missing JDK.
+g 0 'no Java 99 on this machine' "pin warns when the pinned Java is absent" sh -c '
+  ./flixw pin --java 99 2>&1; rc=$?
+  ./flixw pin --java none >/dev/null 2>&1; exit $rc'
+# The instructions and the offer must name the Java the pin asked for. They named the
+# wrapper floor instead, so a project pinning 22 was told to install 21 and offered a
+# download of 21 -- which, if accepted, fetched 22 anyway.
+g 82 'Temurin 99' "the offer names the pinned Java, not the floor" sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  printf "\n[java]\nversion = \"99\"\n" >> .flixw/lock.toml
+  env -u JAVA_HOME -u FLIX_JAVA_HOME ./flixw -- --version < /dev/null 2>&1; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
 # A lock asking for a Java this machine does not have stops before any compiler work.
 # JAVA_HOME is unset deliberately: with it set this takes the explicit-JDK branch below
 # and reports the conflict there instead, which is a different diagnostic and a different
