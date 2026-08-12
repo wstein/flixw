@@ -27,23 +27,30 @@ jobs:
       - run: sh tests/lint.sh
 
   test:
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.os }}, java ${{ matrix.java }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        java: ["21"]
+        # TESTED_CEILING is a claim that the suite has been run there. One job makes it
+        # true continuously; running the ceiling on every OS would buy little, since what
+        # changes between JDK versions is the JVM, not the shell around it.
+        include:
+          - os: ubuntu-latest
+            java: "26"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ matrix.java }}
       # The suite downloads one compiler; everything after that is cache hits.
       - uses: actions/cache@v4
         with:
           path: tests/.work/run/cache/compilers
-          key: flix-${{ runner.os }}-${{ env.FLIXW_TEST_VERSION }}
+          key: flix-${{ runner.os }}-${{ matrix.java }}-${{ env.FLIXW_TEST_VERSION }}
       - run: sh tests/run.sh
 
   windows:

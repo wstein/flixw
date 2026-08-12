@@ -50,8 +50,15 @@ public final class flixw {
      */
     static final int SOURCE_FLOOR = 16;
 
-    /** The interval flixw is tested on.  Above the ceiling is a warning, not an error. */
-    static final int TESTED_CEILING = 25;
+    /**
+     * The interval flixw is tested on.  Above the ceiling is a warning, not an error.
+     *
+     * The number means the suite has actually been run there, so it moves when that is
+     * done and not when a JDK is released: `.github/workflows/ci.yaml` runs the whole
+     * suite on the ceiling as well as on MIN_JAVA, which is what keeps the claim true
+     * rather than aspirational.
+     */
+    static final int TESTED_CEILING = 26;
 
     /**
      * Bounds for the two child processes stage 0 runs for information rather than for
@@ -511,8 +518,9 @@ public final class flixw {
      * tracks a fork stays on that fork: rebuilding the upstream URL every time silently
      * moved such a project back to stock, and because both are honestly version 0.75.2,
      * nothing about it looked wrong.
+     *
+     * Returns { repo, compiler version or null, java pin or null, "clear-java" or null }.
      */
-    /** Returns { repo, compiler version or null, java pin or null, "clear-java" or null }. */
     static String[] parsePin(List<String> args, Lock existing) {
         String repo = null, version = null, java = null, clearJava = null;
         boolean repoGiven = false;
@@ -1345,7 +1353,6 @@ public final class flixw {
         return line != null && line.strip().toLowerCase(Locale.ROOT).startsWith("y");
     }
 
-    /** Nothing usable was found: say how to fix it, then offer to do it. */
     /**
      * Is there a JDK on this machine that satisfies the pin? Asked by `pin` so that writing
      * one is not silently a decision to break the next command. It never offers, downloads
@@ -1362,6 +1369,7 @@ public final class flixw {
         return false;
     }
 
+    /** Nothing usable was found: say how to fix it, then offer to do it. */
     static Jvm noJavaFound(int self, String pin) {
         System.err.println(pin == null
             ? "FLIXW003: no Java in [" + MIN_JAVA + ", " + TESTED_CEILING

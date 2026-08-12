@@ -233,19 +233,25 @@ public final class UnitCheck {
     }
 
     static void chooser() {
-        // The case measured on a real machine: 11, 17, 21, 25 and 26 installed, and the
-        // old first-in-directory-order rule answered 26 -- above the tested ceiling, and
-        // warned about -- because a symlink named `java` sorts before `openjdk@21`.
-        flixw.Jvm pick = flixw.chooseInstall(jdks(26, 11, 21, 17, 25), false);
-        eq("chooser: newest inside the tested interval", "25", pick == null ? null : "" + pick.feature());
+        // Everything here is expressed relative to the ceiling rather than against the
+        // number it happens to hold: these are statements about the *rule*, and raising
+        // TESTED_CEILING after testing a new JDK should not look like a broken chooser.
+        int top = flixw.TESTED_CEILING;
+
+        // The case measured on a real machine: several JDKs installed, one of them above
+        // the ceiling, and the old first-in-directory-order rule answered that one --
+        // because a symlink named `java` sorts before `openjdk@21`.
+        flixw.Jvm pick = flixw.chooseInstall(jdks(top + 1, 11, 21, 17, top), false);
+        eq("chooser: newest inside the tested interval", "" + top,
+           pick == null ? null : "" + pick.feature());
 
         // Above the ceiling is a fallback, not a preference, and the closest one wins.
-        pick = flixw.chooseInstall(jdks(27, 26, 30), false);
-        eq("chooser: lowest above the ceiling when nothing fits", "26",
+        pick = flixw.chooseInstall(jdks(top + 2, top + 1, top + 5), false);
+        eq("chooser: lowest above the ceiling when nothing fits", "" + (top + 1),
            pick == null ? null : "" + pick.feature());
 
         // FLIXW_STRICT_JAVA removes that fallback entirely.
-        pick = flixw.chooseInstall(jdks(27, 26, 30), true);
+        pick = flixw.chooseInstall(jdks(top + 2, top + 1, top + 5), true);
         eq("chooser: strict refuses everything above the ceiling", null,
            pick == null ? null : "" + pick.feature());
 
@@ -259,10 +265,11 @@ public final class UnitCheck {
            pick == null ? null : "" + pick.feature());
 
         // Exactly at the boundaries, both of which are inclusive.
-        pick = flixw.chooseInstall(jdks(21), false);
-        eq("chooser: the floor itself is usable", "21", pick == null ? null : "" + pick.feature());
-        pick = flixw.chooseInstall(jdks(25, 21), true);
-        eq("chooser: the ceiling itself is usable under strict", "25",
+        pick = flixw.chooseInstall(jdks(flixw.MIN_JAVA), false);
+        eq("chooser: the floor itself is usable", "" + flixw.MIN_JAVA,
+           pick == null ? null : "" + pick.feature());
+        pick = flixw.chooseInstall(jdks(top, 21), true);
+        eq("chooser: the ceiling itself is usable under strict", "" + top,
            pick == null ? null : "" + pick.feature());
 
         System.out.println("  ok   chooser: 7 selections over discovered JDK sets");

@@ -398,9 +398,12 @@ cp "$work/flix.toml.good" flix.toml
 echo "java pin"
 # The lock pins which Java runs the compiler, in the same file and for the same reason as
 # the compiler itself. It is a version, not a path: a path is true on one machine.
+# The pin is the running JVM's own feature version, not a constant: a case that pins 21
+# while the runner is on 26 is testing the conflict diagnostic, not the pin.
+jfeature=$(java -version 2>&1 | sed -n 's/^[A-Za-z ]*version "\([0-9][0-9]*\).*/\1/p' | head -1)
 t 0  "pin --java writes the java table"                         sh -c '
-  ./flixw pin --java 21 >/dev/null 2>&1 || exit 1
-  grep -q "^\[java\]" .flixw/lock.toml && grep -q "^version = \"21\"" .flixw/lock.toml'
+  ./flixw pin --java '"$jfeature"' >/dev/null 2>&1 || exit 1
+  grep -q "^\[java\]" .flixw/lock.toml && grep -q "^version = \"'"$jfeature"'\"" .flixw/lock.toml'
 t 0  "a java pin does not disturb the compiler pin"             sh -c '
   grep -q "^version = \"'"$version"'\"" .flixw/lock.toml'
 t 0  "the compiler still runs under a satisfied pin"            ./flixw -- --version
@@ -408,7 +411,7 @@ g 0  'java 2[0-9]' "doctor reports the satisfied pin"           ./flixw doctor
 # Re-pinning the compiler must not quietly unpin the Java.
 t 0  "repinning the compiler keeps the java pin"                sh -c '
   ./flixw pin '"$version"' >/dev/null 2>&1 || exit 1
-  grep -q "^version = \"21\"" .flixw/lock.toml'
+  grep -q "^version = \"'"$jfeature"'\"" .flixw/lock.toml'
 t 0  "pin --java none removes it"                               sh -c '
   ./flixw pin --java none >/dev/null 2>&1 || exit 1
   ! grep -q "^\[java\]" .flixw/lock.toml'
