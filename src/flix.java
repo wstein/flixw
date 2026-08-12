@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.19.0";
+    static final String WRAPPER_VERSION = "0.19.1";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -1238,14 +1238,16 @@ public final class flix {
 
     /** Resolves this file's own symlink chain without physicalizing unrelated directories. */
     static Path wrapperAnchor() {
-        String src = env("FLIXW_SOURCE");                 // set by the self-compiled fast path
-        Path self = null;
-        if (src != null) self = Paths.get(src);
-        else {
-            try {
-                self = Paths.get(flix.class.getProtectionDomain().getCodeSource()
-                                 .getLocation().toURI());
-            } catch (Exception ignored) { }
+        Path self = sourceLaunchPath();                   // authoritative; see its javadoc
+        if (self == null) {
+            String src = env("FLIXW_SOURCE");             // set by the self-compiled fast path
+            if (src != null) self = Paths.get(src);
+            else {
+                try {
+                    self = Paths.get(flix.class.getProtectionDomain().getCodeSource()
+                                     .getLocation().toURI());
+                } catch (Exception ignored) { }
+            }
         }
         if (self == null) return Paths.get("").toAbsolutePath();
         try { self = resolveLinkChain(self.toAbsolutePath()); } catch (IOException ignored) { }
@@ -2173,8 +2175,14 @@ public final class flix {
                              + (published == null ? "the latest release" : published));
             // Hand over: the new stage 0 writes its own shims and its own copy of itself.
             Path javaExe = exeIn(System.getProperty("java.home"));
-            Process p = new ProcessBuilder(javaExe.toString(), fresh.toString(),
-                                           "install", root.toString()).inheritIO().start();
+            ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), fresh.toString(),
+                                                   "install", root.toString()).inheritIO();
+            // The child is a different file in a different directory. Both markers describe
+            // *this* process and mean nothing to it -- FLIXW_SOURCE would anchor it in this
+            // project, and FLIXW_RELAUNCHED would spend its one relaunch before it starts.
+            pb.environment().remove("FLIXW_SOURCE");
+            pb.environment().remove("FLIXW_RELAUNCHED");
+            Process p = pb.start();
             int rc = awaitWithReaper(p);
             if (rc != 0) throw w009("the downloaded flixw failed to install (exit " + rc + ")");
         } catch (IOException e) {
@@ -2213,7 +2221,7 @@ public final class flix {
             case "--version" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--version' takes no arguments"));
                 System.out.println("flixw " + WRAPPER_VERSION);
-                System.out.println("stage0 " + (env("FLIXW_SOURCE") != null ? "compiled" : "source")
+                System.out.println("stage0 " + (sourceLaunchPath() == null ? "compiled" : "source")
                                  + "  java " + Runtime.version());
             }
             case "--upgrade" -> {
@@ -2485,12 +2493,35 @@ public final class flix {
         System.out.println("pass-through     ./flix -- <args>");
     }
 
+    /**
+     * The .java file this stage 0 was launched from, or null when it is running as the
+     * compiled class out of the cache.
+     *
+     * A source launch knows its own path, and that knowledge outranks FLIXW_SOURCE.
+     * FLIXW_SOURCE is the shim telling the *compiled* stage 0 which source it was built
+     * from; it says nothing about a stage 0 launched by path. `wrapper --upgrade` hands
+     * its environment to a freshly downloaded stage 0 in a temporary directory, which is
+     * a different file in a different project-less place -- and believing the inherited
+     * variable there anchored the new wrapper in the old project, where a lock exists, so
+     * `install` was no longer first contact and went to the compiler:
+     * `Unrecognized file extension: 'install'.` Every upgrade failed that way.
+     */
+    static Path sourceLaunchPath() {
+        try {
+            Path loc = Paths.get(flix.class.getProtectionDomain().getCodeSource()
+                                 .getLocation().toURI());
+            if (Files.isRegularFile(loc) && loc.toString().endsWith(".java")) return loc;
+        } catch (Exception ignored) { }
+        return null;
+    }
+
     static Path selfSource() {
+        Path launched = sourceLaunchPath();
+        if (launched != null) return launched;
         String s = env("FLIXW_SOURCE");
         if (s != null) return Paths.get(s);
         try {
             Path loc = Paths.get(flix.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(loc) && loc.toString().endsWith(".java")) return loc;
             Path p = loc.resolve("source.path");                      // compiled stage 0
             if (Files.isRegularFile(p)) return Paths.get(Files.readString(p).trim());
         } catch (Exception ignored) { }

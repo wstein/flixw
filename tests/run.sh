@@ -657,6 +657,19 @@ g 88 'rewrote' "doctor --fix survives an unreadable lock"        sh -c '
     echo broken > flix.cmd; ./flix doctor --fix; rc=$?
   cp "$1/lock.keep" .flix-wrapper/lock.toml; exit $rc' sh "$work"
 
+# The upgrade hand-off runs the *downloaded* stage 0 as `install <root>`, and it inherits
+# this project's environment. FLIXW_SOURCE names the running wrapper's source file, so a
+# child that believes it anchors in this project, finds a lock, decides `install` is not
+# first contact and hands the word to the compiler: `Unrecognized file extension:
+# 'install'.` That broke every upgrade from 0.18.0, and it is invisible to any test that
+# does not set the variable, so the case sets it deliberately.
+t 0 "a stage 0 launched by path ignores a stale FLIXW_SOURCE"   sh -c '
+  cp "$1/src/flix.java" "$2/elsewhere.java"
+  rm -rf "$2/upgraded" && mkdir -p "$2/upgraded"
+  FLIXW_SOURCE="$PWD/.flix-wrapper/flix.java" \
+    java "$2/elsewhere.java" install "$2/upgraded" >/dev/null 2>&1 || exit 1
+  test -x "$2/upgraded/flix" && test -f "$2/upgraded/.flix-wrapper/flix.java"' sh "$root" "$work"
+
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
 # that keeps it from walking backwards -- and it must hold whether this version is newer
 # than the newest release (working on flixw) or exactly it (the commit a release was cut

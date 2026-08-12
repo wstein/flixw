@@ -54,10 +54,10 @@ That is one project and one compiler release, which is not yet evidence that pin
 ## Getting it into a project
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.0/flixw-0.19.0.tar.gz
-shasum -a 256 flixw-0.19.0.tar.gz   # compare with the release notes before extracting it
-tar -xzf flixw-0.19.0.tar.gz        # writes flix, flix.cmd, .flix-wrapper/flix.java
-rm flixw-0.19.0.tar.gz
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.1/flixw-0.19.1.tar.gz
+shasum -a 256 flixw-0.19.1.tar.gz   # compare with the release notes before extracting it
+tar -xzf flixw-0.19.1.tar.gz        # writes flix, flix.cmd, .flix-wrapper/flix.java
+rm flixw-0.19.1.tar.gz
 ./flix pin 0.75.2                   # writes the lock, fetches and verifies the compiler
 ./flix doctor --fix                 # merges the .gitattributes block
 git add flix flix.cmd .flix-wrapper .gitattributes
@@ -72,7 +72,7 @@ lock the honest report is that one is missing.
 `flix.java` is published on its own as well, for the equivalent route through the installer:
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.0/flix.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.1/flix.java
 java flix.java install .          # writes all four files, merging .gitattributes
 rm flix.java
 ```
