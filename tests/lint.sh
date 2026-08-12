@@ -87,6 +87,28 @@ else
   fi
 fi
 
+# --- 5. the wrapper namespace is spelled the same way everywhere -----------
+# Diagnostics are required to name the command that repairs the problem, which makes a
+# renamed command a wrong answer printed at the worst possible moment: four messages went
+# on recommending `./flix wrapper upgrade` for a release after flixw's own operations moved
+# behind flags, and nothing failed. `./flix wrapper` takes flags only, so a bare word after
+# it is always a stale spelling -- and every flag it is told to run must be one the usage
+# text offers.
+usage=$(sed -n 's/.*usage: .\/flix wrapper \[\(.*\)\].*/\1/p' "$root/src/flix.java" | tr -d ' |')
+stale=$(grep -o './flix wrapper [a-z][a-z-]*' "$root/src/flix.java" | sort -u || true)
+flags=$(grep -o -- './flix wrapper --[a-z-][a-z-]*' "$root/src/flix.java" \
+        | sed 's|.*wrapper ||' | sort -u)
+# shellcheck disable=SC2086  # deliberate: the flags are ours and contain no spaces
+set -- $flags
+for flag do
+  case $usage in *"$flag"*) ;; *) stale="$stale $flag" ;; esac
+done
+if [ -z "$stale" ]; then
+  say "ok    every ./flix wrapper spelling matches its usage line"
+else
+  bad "stale ./flix wrapper spellings: $(echo "$stale" | tr '\n' ' ')"
+fi
+
 # CRLF is load-bearing for cmd.exe: a LF-only .cmd breaks multi-line if/for blocks.
 if od -c "$root/src/flix.cmd" | grep -q '\\r'; then
   say "ok    src/flix.cmd has CRLF line endings"

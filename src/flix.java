@@ -1732,7 +1732,7 @@ public final class flix {
                 return 0;
             }
             System.out.println("FAIL  " + label + " differs from flixw " + WRAPPER_VERSION
-                             + " (./flix wrapper upgrade)");
+                             + " (./flix doctor --fix)");
         } catch (IOException e) {
             System.out.println("FAIL  unreadable " + label + ": " + why(e));
         }
@@ -1777,7 +1777,7 @@ public final class flix {
         String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
         int opens = count(text, begin), closes = count(text, end);
         if (opens == 0 && closes == 0) {
-            System.out.println("warn  .gitattributes has no flixw block (./flix wrapper upgrade)");
+            System.out.println("warn  .gitattributes has no flixw block (./flix doctor --fix)");
             return 0;
         }
         int bad = 0;
@@ -1786,7 +1786,7 @@ public final class flix {
         if (opens != 1 || closes != 1) {
             System.out.println("FAIL  .gitattributes has " + opens + " flixw start and "
                              + closes + " end markers; expected one of each"
-                             + " (./flix wrapper upgrade)");
+                             + " (./flix doctor --fix)");
             bad++;
         }
         int after = text.lastIndexOf(end);
@@ -1843,7 +1843,7 @@ public final class flix {
         bad += checkCanonical(root.resolve("flix.cmd"), CMD.replace("\n", "\r\n"), "./flix.cmd");
         if (!isWindows() && Files.isRegularFile(root.resolve("flix"))
             && !Files.isExecutable(root.resolve("flix"))) {
-            System.out.println("FAIL  ./flix is not executable (./flix wrapper upgrade)"); bad++;
+            System.out.println("FAIL  ./flix is not executable (./flix doctor --fix)"); bad++;
         }
 
         // Stage 0 cannot know its own canonical hash -- it would have to contain it -- so
@@ -2063,7 +2063,7 @@ public final class flix {
             if (!before.equals(Files.readString(ga, StandardCharsets.UTF_8))) {
                 System.out.println("merged   ./.gitattributes"); changed++;
             }
-        } catch (IOException e) { throw w009("wrapper upgrade failed: " + why(e)); }
+        } catch (IOException e) { throw w009("rewriting the wrapper files failed: " + why(e)); }
         // One line, and only the one that is true. The two-line note that used to follow
         // every run explained that this refreshes rather than upgrades -- which is a fact
         // about what the command is, not about what just happened, so it belongs in

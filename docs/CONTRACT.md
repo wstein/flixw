@@ -181,7 +181,8 @@ its own shim bytes. Repairing the files a project already has is `./flix doctor 
 `./flix wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
 not a stand-in for anything Flix might ship, so it is not routed to the compiler, does not
 retire, and is unaffected by `FLIX_BACKEND` — and it is reachable with a lock too broken
-to parse, because `./flix wrapper upgrade` is what repairs the installation. The bare
+to parse, because `./flix wrapper --upgrade` is one of the two ways out of a broken
+installation, the other being `./flix doctor --fix`. The bare
 verbs above collide with names Flix could claim *on purpose*; rewriting flixw's own files
 never will, so it does not compete for one.
 
