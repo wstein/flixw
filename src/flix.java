@@ -234,25 +234,65 @@ public final class flix {
                 // one it has no business guessing at.
                 if (!t.substring(close + 1).isBlank())
                     throw w002(where + ": trailing text after table header " + q(t));
-                current = unquote(t.substring(1, close).trim());
+                current = String.join(".", splitKey(t.substring(1, close), where));
                 tables.add(current);
                 continue;
             }
             int eq = t.indexOf('=');
             if (eq < 0) continue;
-            String k = unquote(t.substring(0, eq).trim());
+            // A dotted key is a table path, and TOML lets it be written with spaces around
+            // the dots and with any segment quoted -- `package . flix`, `package."flix"`
+            // and `"package".flix` all mean [package].flix. Matching the raw text meant
+            // only the tightest spelling was seen, so a manifest could state a floor this
+            // scanner did not read: the check passed, and an older compiler ran.
+            List<String> path = splitKey(t.substring(0, eq), where);
+            String k = path.get(path.size() - 1);
+            String tbl = current;
+            if (path.size() > 1) {
+                String prefix = String.join(".", path.subList(0, path.size() - 1));
+                tbl = current.isEmpty() ? prefix : current + "." + prefix;
+            }
             String v = t.substring(eq + 1).trim();
             String delim = v.startsWith("\"\"\"") ? "\"\"\"" : v.startsWith("'''") ? "'''" : null;
             if (delim != null && !v.substring(3).contains(delim)) mlDelim = delim;
-            entries.add(new TomlEntry(i, current, k, v, delim != null));
+            entries.add(new TomlEntry(i, tbl, k, v, delim != null));
         }
         return new TomlScan(entries, tables);
     }
 
-    /** True when an entry is `table.key`, written either inside [table] or as a dotted key. */
+    /**
+     * True when an entry is `table.key`. Dotted keys are resolved to their table by
+     * {@link #tomlScan}, so both spellings arrive here already in the same shape.
+     */
     static boolean isKey(TomlEntry e, String table, String key) {
-        return (e.table().equals(table) && e.key().equals(key))
-            || (e.table().isEmpty() && e.key().equals(table + "." + key));
+        return e.table().equals(table) && e.key().equals(key);
+    }
+
+    /**
+     * Splits a key into its segments, respecting quotes, then unquotes and trims each one.
+     * `a.b` is two segments; `"a.b"` is one. Fails closed: an unterminated quote or an
+     * empty segment is a manifest this scanner will not guess at.
+     */
+    static List<String> splitKey(String raw, String where) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        char quote = 0;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (quote != 0) { cur.append(c); if (c == quote) quote = 0; }
+            else if (c == '"' || c == '\'') { quote = c; cur.append(c); }
+            else if (c == '.') { parts.add(cur.toString()); cur.setLength(0); }
+            else cur.append(c);
+        }
+        if (quote != 0) throw w002(where + ": unterminated quoted key " + q(raw.trim()));
+        parts.add(cur.toString());
+        List<String> out = new ArrayList<>();
+        for (String part : parts) {
+            String seg = unquote(part.trim());
+            if (seg.isEmpty()) throw w002(where + ": empty key segment in " + q(raw.trim()));
+            out.add(seg);
+        }
+        return out;
     }
 
     /**
@@ -636,6 +676,14 @@ public final class flix {
             reader.start();
             if (!p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) return null;
             reader.join(2000);          // the child is gone; this is EOF, not a wait
+            // Unless something the child started inherited the pipe and outlived it, in
+            // which case there is no EOF coming and the reader is parked on a descendant
+            // nobody is waiting for. Closing this end makes that read fail, which is the
+            // only way back: the handle belongs to a process this one no longer owns.
+            if (reader.isAlive()) {
+                try { p.getInputStream().close(); } catch (IOException ignored) { }
+                reader.join(1000);
+            }
             return box[0];
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -644,8 +692,15 @@ public final class flix {
             // A probe must never outlive the probe. Killing the child alone is not enough:
             // anything it started is reparented and keeps running, and the reader thread
             // would otherwise be left parked on a pipe nobody will close.
+            // Descendants first, and outside the isAlive guard, because the guard also
+            // skipped the kill for a child that was killed a line earlier. What this
+            // cannot do is reach a grandchild of a child that exited on its own: it was
+            // reparented away and is nobody's descendant now. That case is survivable
+            // only because the pipe is closed above -- stage 0 stops waiting on it, and
+            // an orphan holding a closed pipe is the operating system's problem, not a
+            // probe that never returns.
+            p.descendants().forEach(ProcessHandle::destroyForcibly);
             if (p.isAlive()) {
-                p.descendants().forEach(ProcessHandle::destroyForcibly);
                 p.destroyForcibly();
                 try { p.waitFor(5, TimeUnit.SECONDS); }
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); }
@@ -1966,6 +2021,17 @@ public final class flix {
         Path lockFile = lockPath(root);
         boolean hadLock = Files.isRegularFile(lockFile);
         String oldLock = null;
+        // Snapshot before anything can fail, and record whether it succeeded. Rolling back
+        // means "put it back the way it was", and that is only possible while the way it
+        // was is known: reading the old lock lazily inside the transaction meant an
+        // unreadable-but-present lock left oldLock null, so the rollback deleted the
+        // project's pin outright -- destroying, in the name of repair, the one file the
+        // user came to `pin` to fix.
+        boolean snapshot = !hadLock;                       // absence, confirmed
+        if (hadLock) {
+            try { oldLock = Files.readString(lockFile, StandardCharsets.UTF_8); snapshot = true; }
+            catch (IOException ignored) { }                // unknown: leave the file alone
+        }
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
@@ -1998,7 +2064,6 @@ public final class flix {
             // its `flix` key is Flix's own field, with Flix's rules -- so pin has no
             // business editing it. What pin owns is the lock, and that is now the only
             // file in this transaction.
-            if (hadLock) oldLock = Files.readString(lockFile, StandardCharsets.UTF_8);
             writeAtomic(lockFile, lock);
             System.err.println("flixw: pinned Flix " + version + " from " + repo
                              + " (" + digest.substring(0, 16) + "...)");
@@ -2006,7 +2071,7 @@ public final class flix {
                 System.err.println("       a fork is not stock-compatibility evidence;"
                                  + " see docs/LIMITATIONS.md");
         } catch (IOException e) {
-            if (hadLock || Files.isRegularFile(lockFile)) restore(lockFile, oldLock);
+            if (snapshot) restore(lockFile, oldLock);
             throw w009("pin failed: " + why(e));
         } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
     }
@@ -2452,7 +2517,7 @@ public final class flix {
         System.out.println("  ./flix help | --help            this table, then the compiler's own help");
         System.out.println("  ./flix <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flix -- <args>                forced compiler pass-through");
-        System.out.println("  ./flix pin [<owner>/<repo>] <version>   repin flix.toml and the lock");
+        System.out.println("  ./flix pin [<owner>/<repo>] <version>   write the lock, fetch the compiler");
         System.out.println("  ./flix info                     project, compiler, java, cache");
         System.out.println("  ./flix doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flix validate                 the checks alone, for CI");

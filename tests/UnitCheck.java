@@ -101,6 +101,27 @@ public final class UnitCheck {
             lines("[package]", "description = " + TQ + "one line" + TQ, "flix = \"1.0.0\""), "1.0.0"));
         c.add(new Case("dotted key at the root",
             lines("package.flix = \"1.0.0\""), "1.0.0"));
+        // Every spelling below is the same key to a real TOML parser. Matching the raw
+        // text saw only the first, so a manifest could state a floor flixw did not read
+        // and an older compiler ran with nothing reported.
+        c.add(new Case("dotted key with spaces around the dot",
+            lines("package . flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("dotted key with a quoted last segment",
+            lines("package.\"flix\" = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("dotted key with a quoted first segment",
+            lines("\"package\".flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("dotted key inside the table it names",
+            lines("[package]", "a.b = \"x\"", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("a dot inside a quoted key is not a separator",
+            lines("[package]", "\"a.flix\" = \"9.9.9\"", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("quoted key that spells the dotted form is not it",
+            lines("\"package.flix\" = \"9.9.9\""), null));
+        c.add(new Case("empty key segment", lines("package..flix = \"1.0.0\""), "!"));
+        c.add(new Case("unterminated quoted key", lines("\"package.flix = \"1.0.0\""), "!"));
+        // A dotted key is relative to the table it sits under, so this one is
+        // [package.package].flix -- not a second [package].flix. tomllib agrees.
+        c.add(new Case("a dotted key under [package] nests, it does not duplicate",
+            lines("[package]", "flix = \"1.0.0\"", "", "package.flix = \"9.9.9\""), "1.0.0"));
         c.add(new Case("quoted table header",
             lines("[\"package\"]", "flix = \"1.0.0\""), "1.0.0"));
         c.add(new Case("trailing comment",
