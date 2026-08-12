@@ -125,29 +125,32 @@ compare it against the release you meant to install.
 
 ### What the project looks like
 
-Nine files, of which flixw writes five and shares a sixth. Everything below is committed on
-purpose — a clone needs no bootstrap step of its own, and no `flix` on `PATH`. (`init` also scaffolds a
-`README.md`, a `LICENSE.md`, a `.gitignore` and a CI workflow, which are yours to keep or
-delete.)
+Nine committed files and one that stays on your machine. flixw writes five of the nine and
+shares a sixth; all of them are committed on purpose, so a clone needs no bootstrap step of
+its own and no `flix` on `PATH`. (`init` also scaffolds a `README.md`, a `LICENSE.md`, a
+`.gitignore` and a CI workflow, which are yours to keep or delete.)
 
 ```text
-flixw                 the wrapper you actually run; a POSIX sh shim
-flixw.cmd             the same, for cmd.exe and PowerShell
-.flixw/flixw.java     stage 0: the whole bootstrap, one dependency-free Java file
-.flixw/.gitignore     keeps .flixw/local/ (below) out of git
-.flixw/lock.toml      the pin — repository, version, URL and SHA-256 of the compiler
-.gitattributes        line endings for the five above, as a marked block in your file
-flix.toml             your project: name, dependencies, and the minimum Flix
-src/Main.flix         your code
-test/TestMain.flix    your tests
+hello/
+├── flixw                  the wrapper you actually run; a POSIX sh shim
+├── flixw.cmd              the same, for cmd.exe and PowerShell
+├── .flixw/
+│   ├── flixw.java         stage 0: the bootstrap, one dependency-free Java file
+│   ├── .gitignore         keeps local/ out of git
+│   ├── lock.toml          the pin — repository, version, URL, SHA-256
+│   └── local/java         the JDK this machine resolved to — not committed
+├── .gitattributes         line endings for the five above, as a block in your file
+├── flix.toml              your project: name, dependencies, the minimum Flix
+├── src/Main.flix          your code
+└── test/TestMain.flix     your tests
 ```
 
-The first four are byte-identical in every project on the same flixw release; `lock.toml`
-is yours, and `.gitattributes` is yours with a block of ours in it. Not committed, and safe to delete at any time:
+`flixw`, `flixw.cmd`, `flixw.java` and `.gitignore` are byte-identical in every project on
+the same flixw release, so one published digest validates all four. `lock.toml` is yours,
+`.gitattributes` is yours with a block of ours in it, and `local/java` belongs to this
+machine alone. Not committed, and safe to delete at any time:
 
 ```text
-.flixw/local/java                        the JDK this machine resolved to, so the
-                                         shim can start on it directly
 build/  lib/  artifact/  .flix-cache/    Flix's own output and dependency cache
 <cache>/                                 verified compiler JARs and JDKs, shared
                                          across every project on the machine
@@ -227,12 +230,14 @@ the wrapper, and how to force either.
 ## Repository layout
 
 ```text
-src/flixw.java   stage 0 — the whole bootstrap, one dependency-free Java file
-src/flixw        POSIX shim  — finds a Java, prefers the compiled stage 0
-src/flixw.cmd    cmd.exe shim — same, for Windows without a POSIX shell
-tests/          regression suite, unit checks, and a corpus of 95 real flix.toml
-                files used to test the manifest scanner against a TOML oracle
-docs/           contract, benchmarks, limitations, design paper
+flixw/
+├── src/
+│   ├── flixw.java     stage 0 — the whole bootstrap, one dependency-free Java file
+│   ├── flixw          POSIX shim — finds a Java, prefers the compiled stage 0
+│   └── flixw.cmd      cmd.exe shim — the same, without a POSIX shell
+├── tests/             regression suite, unit checks, and a corpus of 95 real
+│                      flix.toml files, checked against a TOML oracle
+└── docs/              contract, benchmarks, limitations, design paper
 ```
 
 ## Development
