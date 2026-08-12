@@ -19,25 +19,16 @@ installation, no compiler fork, and no patched build.
 > exactly as the stock compiler is; what it is *not* is evidence that a project works with
 > stock Flix, and flixw says so on every pin that names one.
 
-```console
-git clone <your project>
-cd <your project>
-./flixw check          # downloads and verifies the pinned compiler, then runs it
-```
+## Quickstart
 
-The only prerequisite is a Java 21+ JDK. If there is none, flixw says how to install
-one for your platform, and `./flixw wrapper --install-jdk` fetches a verified Temurin 21
-into its own cache rather than touching your system.
-
-## A worked example
-
-From an empty directory to a running program. Every command and every line of output below
-is from an actual run against the published archive.
+A new project, from an empty directory. Every command and every line of output below is
+from an actual run.
 
 ```console
-mkdir hello && cd hello && git init
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw-0.20.0.tar.gz
-tar -xzf flixw-0.20.0.tar.gz && rm flixw-0.20.0.tar.gz
+mkdir hello && cd hello
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
+java flixw.java install .    # writes flixw, flixw.cmd, .flixw/, and merges .gitattributes
+rm flixw.java
 ```
 
 Pin a compiler. This is the step that makes the project reproducible: it fetches Flix
@@ -47,29 +38,26 @@ yet and none is needed — that file is Flix's, and the compiler is about to wri
 ```console
 $ ./flixw pin 0.75.2
 flixw: pinned Flix 0.75.2 from flix/flix (a2697d875725a0dd...)
-
-$ ./flixw doctor --fix
-merged   ./.gitattributes
-1 file rewritten from flixw 0.20.0
 ```
 
 `init` is a compiler verb, not one of ours: it goes to the pinned Flix, which scaffolds
-`flix.toml`, `src/Main.flix` and `test/TestMain.flix`.
+the project around the wrapper.
 
 ```console
 $ ./flixw init
-$ ls
-LICENSE.md  README.md  flix.toml  flixw  flixw.cmd  src  test
+$ ./flixw run
+Hello World!
 ```
+
+That is the whole bootstrap. The only prerequisite was a Java 21+ JDK; if there is none,
+flixw says how to install one for your platform, and `./flixw wrapper --install-jdk`
+fetches a verified Temurin 21 into its own cache rather than touching your system.
 
 From here every verb is the stock compiler, run by the wrapper:
 
 ```console
 $ ./flixw test
 Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
-
-$ ./flixw run
-Hello World!
 
 $ ./flixw validate
 ok    ./flixw matches flixw 0.20.0
@@ -84,11 +72,16 @@ Commit, and a collaborator with nothing but a JDK gets the same compiler you hav
 git add flixw flixw.cmd .flixw .gitattributes flix.toml src test
 ```
 
+Verify what you downloaded before you run it: every release publishes the SHA-256 of
+each file it ships, and `./flixw validate` prints the one in your project so you can
+compare it against the release you meant to install.
+
 ### What the project looks like
 
 Eight files, of which flixw owns four. Everything below is committed on purpose — a clone
-needs no bootstrap step of its own, and no `flix` on `PATH`. (`init` also writes a
-`README.md` and a `LICENSE.md`, which are yours to keep or delete.)
+needs no bootstrap step of its own, and no `flix` on `PATH`. (`init` also scaffolds a
+`README.md`, a `LICENSE.md`, a `.gitignore` and a CI workflow, which are yours to keep or
+delete.)
 
 ```text
 flixw                 the wrapper you actually run; a POSIX sh shim
@@ -117,42 +110,33 @@ per Flix release — so the cost of pinning is a number rather than an argument.
 project; [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) says exactly what is and is not
 established.
 
-## Getting it into a project
+## Adding it to an existing project
+
+A project that already has sources and a `flix.toml` takes the same route, or the archive
+one — which reaches the same state without running anything first:
 
 ```console
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw-0.20.0.tar.gz
 shasum -a 256 flixw-0.20.0.tar.gz   # compare with the release notes before extracting it
 tar -xzf flixw-0.20.0.tar.gz        # writes flixw, flixw.cmd, .flixw/flixw.java
 rm flixw-0.20.0.tar.gz
-./flixw pin 0.75.2                   # writes the lock, fetches and verifies the compiler
-./flixw doctor --fix                 # merges the .gitattributes block
+./flixw pin 0.75.2                  # writes the lock, fetches and verifies the compiler
+./flixw doctor --fix                # merges the .gitattributes block
 git add flixw flixw.cmd .flixw .gitattributes
 ```
 
-A `.zip` with the same contents is attached to every release for machines without `tar`.
-The archives leave `.gitattributes` alone rather than overwriting the one your project
-already has, which is why `doctor --fix` — which *merges* the block — is a step of its own.
-It comes after `pin` because it reports on the whole installation, and until there is a
-lock the honest report is that one is missing.
-
-`flixw.java` is published on its own as well, for the equivalent route through the installer:
-
-```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
-java flixw.java install .          # writes all four files, merging .gitattributes
-rm flixw.java
-```
+A `.zip` with the same contents is attached for machines without `tar`. The archives leave
+`.gitattributes` alone rather than overwriting the one your project already has, which is
+why `doctor --fix` — which *merges* the block — is a step of its own; `install` does that
+merge itself. It comes after `pin` because it reports on the whole installation, and until
+there is a lock the honest report is that one is missing.
 
 Install from a release rather than from `main`: a tool that asks you to pin an exact
-compiler should not ask you to fetch itself from a moving branch. Every release publishes
-the SHA-256 of all three files it installs, and `./flixw validate` prints the one it finds
-in your project so you can compare it against the release you meant to install.
+compiler should not ask you to fetch itself from a moving branch.
 
 Once installed, `./flixw wrapper --upgrade` moves the project to the newest release.
-
-Then `./flixw check`, `./flixw test`, `./flixw run` — the pinned stock compiler, unmodified.
-`./flixw wrapper --help` prints the routing table: which verbs go to the compiler, which
-to the wrapper, and how to force either.
+`./flixw wrapper --help` prints the routing table: which verbs go to the compiler, which to
+the wrapper, and how to force either.
 
 ## Documentation
 
