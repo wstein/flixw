@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 public final class flix {
 
-    static final String WRAPPER_VERSION = "0.16.0";
+    static final String WRAPPER_VERSION = "0.17.0";
     static final String WRAPPER_DIR = ".flix-wrapper";
     static final int MIN_JAVA = 21;
 
@@ -52,7 +52,7 @@ public final class flix {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "doctor", "setup", "validate", "help");
+        List.of("pin", "info", "doctor", "validate", "help");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -1690,11 +1690,28 @@ public final class flix {
                 String[] t = parsePin(rest, lock);
                 pin(root, t[0], t[1]);
             }
-            case "doctor", "setup" -> {
-                report(root, lock, jar, jvm, compilerVerbs);
-                if (verb.equals("setup")) System.out.println("compiler ready.");
+            // info reports, validate judges, doctor does both -- which is what the word
+            // means everywhere else, and what this one did not do: it printed twelve lines
+            // of state, noticed nothing, and exited 0 with a shim that had been edited.
+            case "info" -> report(root, lock, jar, jvm, compilerVerbs);
+            case "validate" -> {
+                int bad = check(root, lock, jar);
+                if (bad > 0) throw w009(bad + " validation failure(s)");
             }
-            case "validate" -> validate(root, lock, jar);
+            case "doctor" -> {
+                boolean fix = rest.contains("--fix");
+                for (String a : rest)
+                    if (!a.equals("--fix"))
+                        throw w008("./flix doctor: unknown option " + q(a)
+                                 + "\n       usage: ./flix doctor [--fix]");
+                if (fix) { updateWrapper(root); System.out.println(); }
+                report(root, lock, jar, jvm, compilerVerbs);
+                System.out.println();
+                int bad = check(root, lock, jar);
+                if (bad > 0)
+                    throw w009(bad + " problem(s); ./flix doctor --fix repairs the wrapper"
+                             + " files, ./flix pin <version> repairs a drifted lock");
+            }
             default -> throw w009("no wrapper implementation for " + q(verb));
         }
     }
@@ -1839,7 +1856,8 @@ public final class flix {
         }
     }
 
-    static void validate(Path root, Lock lock, Path jar) {
+    /** Every check, printed; the count is the caller's to act on. */
+    static int check(Path root, Lock lock, Path jar) {
         int bad = 0;
         // The shims are invariant for a wrapper release, and this stage 0 carries their
         // canonical bytes, so drift is detectable here rather than merely reportable.
@@ -1921,7 +1939,7 @@ public final class flix {
                 } else System.out.println("ok    " + rel + " is tracked");
             }
         }
-        if (bad > 0) throw w009(bad + " validation failure(s)");
+        return bad;
     }
 
     /**
@@ -2107,7 +2125,7 @@ public final class flix {
      *
      * One verb, and every flixw-only operation under it as a flag.  These are not
      * stand-ins for anything Flix might one day ship, so they neither retire nor compete
-     * for a name with something that will: `pin`, `doctor`, `setup` and `validate`
+     * for a name with something that will: `pin`, `info`, `doctor` and `validate`
      * deliberately collide with names Flix could claim, and step aside the day it does.
      * Rewriting flixw's own files, or reporting flixw's own version, never will.
      *
@@ -2231,7 +2249,7 @@ public final class flix {
         // must still run, or the repair the diagnostic recommends is unreachable. They
         // route on the built-in wrapper list alone, so no compiler is consulted.
         if ((lock == null || drift != null || manifestError != null) && first != null && !forcedCompiler
-            && WRAPPER_VERBS.contains(first) && !first.equals("setup")) {
+            && WRAPPER_VERBS.contains(first)) {
             if (lockError != null)
                 System.err.println("flixw: warning: " + lockError.getMessage().split("\n")[0]);
             if (manifestError != null)
@@ -2355,7 +2373,9 @@ public final class flix {
         System.out.println("  ./flix <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flix -- <args>                forced compiler pass-through");
         System.out.println("  ./flix pin [<owner>/<repo>] <version>   repin flix.toml and the lock");
-        System.out.println("  ./flix doctor | setup | validate");
+        System.out.println("  ./flix info                     project, compiler, java, cache");
+        System.out.println("  ./flix doctor [--fix]           info, plus every check, with a verdict");
+        System.out.println("  ./flix validate                 the checks alone, for CI");
         System.out.println("  ./flix wrapper [--help | --version | --upgrade | --install-jdk]");
 
         System.out.println();

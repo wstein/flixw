@@ -63,8 +63,8 @@ every comparison — otherwise `flix = "0.75.2+build.4"` produces a drift error 
 **Drift is fatal, and detected before the network.** If `flix.toml` and the lock
 disagree, the compiler path stops immediately — before Java selection, before any
 download, before the compiler is executed. `pin`, `doctor`, `validate` and
-`wrapper upgrade` still run, because otherwise the repair the diagnostic recommends is
-unreachable. `setup` does not, because it acquires the compiler. The same holds for a lock
+`wrapper --upgrade` still run, because otherwise the repair the diagnostic recommends is
+unreachable. The same holds for a lock
 that does not *parse*: `pin` replaces it, while everything needing a compiler still fails
 on it.
 
@@ -150,7 +150,7 @@ reached only when no explicit setting exists and the running JVM is unusable.
    a JDK and needs the network. A bare `wrapper` prints the routing table.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
-4. Otherwise, if it is `pin`, `doctor`, `setup` or `validate`, the
+4. Otherwise, if it is `pin`, `info`, `doctor`, `validate` or `help`, the
    wrapper implements it.
 5. Otherwise the compiler gets it.
 
@@ -225,6 +225,14 @@ and the terminal inherited. Consequences, all tested:
 
 Java has no `exec(2)`, so stage 0 stays resident for the compiler's whole life. See
 [LIMITATIONS.md](LIMITATIONS.md) for what that costs and the one signal it cannot handle.
+
+`./flix info` reports state and judges nothing. `./flix validate` judges and reports no
+state, which is the form CI wants: a verdict and an exit code. `./flix doctor` is both,
+for a person — and `./flix doctor --fix` repairs what can be repaired, naming what cannot.
+
+That split replaced a `doctor` that printed state, noticed nothing and exited 0 with an
+edited shim in the project, while the command that actually diagnosed was called
+`validate`. `setup` is gone: it was `doctor` plus one printed line.
 
 ## Diagnostics
 

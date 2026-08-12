@@ -247,6 +247,24 @@ t 0 "FLIX_BACKEND=compiler does not merge"                      sh -c '
 t 0 "a flag with arguments is passed through untouched"         sh -c '
   ! ./flix --help check 2>&1 | grep -q "repository-local"'
 
+# info reports, validate judges, doctor does both. The split matters because doctor used
+# to print twelve lines of state, notice nothing, and exit 0 with an edited shim.
+t 0  "info reports without judging"                             ./flix info
+g 88 'problem' "doctor catches what info does not"              sh -c '
+  cp flix "$1/flix.keep"; echo "# tampered" >> flix
+  ./flix doctor; rc=$?
+  cp "$1/flix.keep" flix; chmod +x flix; exit $rc' sh "$work"
+t 0  "info is blind to the same tampering"                      sh -c '
+  cp flix "$1/flix.keep"; echo "# tampered" >> flix
+  ./flix info >/dev/null 2>&1; rc=$?
+  cp "$1/flix.keep" flix; chmod +x flix; exit $rc' sh "$work"
+t 0  "doctor --fix repairs what it reports"                     sh -c '
+  cp flix "$1/flix.keep"; echo "# tampered" >> flix
+  ./flix doctor --fix >/dev/null 2>&1
+  ./flix doctor >/dev/null 2>&1; rc=$?
+  cp "$1/flix.keep" flix; chmod +x flix; exit $rc' sh "$work"
+t 87 "doctor rejects an unknown option"                         ./flix doctor --frobnicate
+
 # --- version grammar -------------------------------------------------------
 echo "version grammar"
 t 81 "reject 0.75"                                              ./flix pin 0.75
@@ -294,10 +312,13 @@ t 81 "a lock that does not parse still blocks the compiler"      sh -c '
 
 # A manifest that does not parse must not take the repair verbs down with it -- the same
 # trap as an unparseable lock, one file over.
-t 0  "doctor runs on a manifest that does not parse"             sh -c '
+# Reaching the verb at all is the point: 88 means doctor ran and judged, where 81
+# would mean it never got there. It reports the broken manifest rather than
+# exiting 0 over it, which is the whole reason doctor now judges.
+g 88 'flix.toml' "doctor runs on a manifest that does not parse"  sh -c '
   cp flix.toml "$1/toml.keep"
   printf "\n[package]\nflix = \"9.9.9\"\n" >> flix.toml
-  ./flix doctor >/dev/null 2>&1; rc=$?
+  ./flix doctor; rc=$?
   cp "$1/toml.keep" flix.toml; exit $rc' sh "$work"
 t 88 "validate reports a manifest that does not parse"           sh -c '
   cp flix.toml "$1/toml.keep"
@@ -367,7 +388,7 @@ cp flix.toml "$work/flix.toml.bak"
 sed 's/^flix .*/flix        = "0.75.1"/' flix.toml > "$work/drifted" && cp "$work/drifted" flix.toml
 g 81 'declares 0.75.1' "drift blocks the compiler"              ./flix check
 t 0  "drift does not block wrapper --version"                   ./flix wrapper --version
-t 0  "drift does not block doctor"                              ./flix doctor
+g 88 'declares 0.75.1' "drift does not block doctor"           ./flix doctor
 t 88 "drift does not block validate (which reports it)"         ./flix validate
 cp "$work/flix.toml.bak" flix.toml
 

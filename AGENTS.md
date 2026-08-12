@@ -41,7 +41,8 @@ Exercising it end to end means installing into a scratch project:
 java src/flix.java install /tmp/proj      # writes flix, flix.cmd, .flix-wrapper/flix.java, .gitattributes
 cd /tmp/proj && ./flix pin 0.75.2         # writes flix.toml + .flix-wrapper/lock.toml, downloads the JAR
 ./flix pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
-./flix doctor                             # java, compiler, cache, mirror, proxy, routing state
+./flix info                               # java, compiler, cache, mirror, proxy, routing state
+./flix doctor [--fix]                     # the same, plus every check, with a verdict
 ./flix validate                           # wrapper files, lock/manifest agreement, git tracked status
 ```
 
@@ -49,7 +50,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 115-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 120-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -113,7 +114,7 @@ the JAR — a content-addressed compiler directory may legitimately be read-only
 
 Order in `realMain` (paper §4.8): `--wrapper-*` flags → `install` (first contact only) →
 drift check → `./flix -- args` forced pass-through → verb in the captured compiler verb set →
-verb in `WRAPPER_VERBS` (`pin doctor setup validate help`) → otherwise the compiler,
+verb in `WRAPPER_VERBS` (`pin info doctor validate help`) → otherwise the compiler,
 so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire *automatically*, one
 at a time, as Flix implements them; a displaced verb prints a deprecation notice.
 `FLIX_BACKEND=wrapper|compiler` forces a side during a transition.
