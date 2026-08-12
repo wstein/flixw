@@ -1,0 +1,104 @@
+name: upstream
+
+# flixw's compatibility claim is about a compiler it does not control: dispatch routes an
+# unknown verb to Flix, wrapper verbs step aside as Flix claims their names, and the verb
+# set is read out of `flix --help`, whose format is nobody's contract. All three can be
+# broken by a Flix release without a single commit here — so the check that matters is not
+# "do our tests still pass" but "does the newest Flix still work through this wrapper".
+#
+# Weekly rather than on every push: the input only changes when Flix publishes, and a job
+# that fails for reasons outside this repository should be rare enough that a failure is
+# read rather than dismissed.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Flix version to test (default: the newest release)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  latest:
+    name: newest Flix through the wrapper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: resolve the version to test
+        run: |
+          v="${{ inputs.version }}"
+          if [ -z "$v" ]; then
+            # The tag, not the API's JSON body: this is the same route `pin` takes, and it
+            # costs no rate limit to follow one redirect.
+            v=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+                  https://github.com/flix/flix/releases/latest | sed 's|.*/tag/v||')
+          fi
+          case $v in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "could not resolve a Flix version (got '$v')" >&2; exit 1 ;;
+          esac
+          echo "FLIX_VERSION=$v" >> "$GITHUB_ENV"
+          echo "testing Flix $v"
+
+      - name: install into a scratch project
+        run: |
+          mkdir -p /tmp/drift && cd /tmp/drift
+          java "$GITHUB_WORKSPACE/src/flixw.java" install .
+          ./flixw pin "$FLIX_VERSION"
+
+      # `init` is a compiler verb reached through rule 5, so this also proves that an
+      # unknown-to-flixw verb still lands on the compiler.
+      - name: the compiler still runs, and its verbs still route
+        working-directory: /tmp/drift
+        run: |
+          ./flixw init
+          ./flixw check
+          ./flixw test
+          ./flixw run
+          ./flixw build
+
+      # The verb set is captured by parsing `flix --help`. If that format changes, capture
+      # degrades to BUILTIN_VERBS rather than failing — silently, and correctly, which is
+      # exactly why it needs a test that looks.
+      - name: the verb set was captured, not guessed
+        working-directory: /tmp/drift
+        run: |
+          verbs=$(find "$HOME/.cache/flixw/verbs" -type f | head -1)
+          if [ -z "$verbs" ]; then
+            echo "no verb record was written: `flix --help` no longer parses" >&2
+            exit 1
+          fi
+          echo "captured: $(tr '\n' ' ' < "$verbs")"
+          for v in check test run build; do
+            grep -qx "$v" "$verbs" || { echo "verb '$v' missing from the captured set" >&2; exit 1; }
+          done
+
+      # A wrapper verb retires the moment Flix claims its name. That is by design, and it
+      # is also the change most likely to surprise somebody, so name the ones at risk.
+      - name: report wrapper verbs the compiler has claimed
+        working-directory: /tmp/drift
+        run: |
+          verbs=$(find "$HOME/.cache/flixw/verbs" -type f | head -1)
+          for v in pin info doctor validate help; do
+            if grep -qx "$v" "$verbs"; then
+              echo "::warning::Flix $FLIX_VERSION implements '$v'; the wrapper verb has retired"
+            fi
+          done
+
+      - name: the manifest Flix writes is one flixw can read
+        working-directory: /tmp/drift
+        run: |
+          ./flixw validate
+          python3 - <<'PY'
+          import tomllib, pathlib
+          got = tomllib.loads(pathlib.Path("flix.toml").read_text())["package"]["flix"]
+          print("flix.toml declares", got)
+          PY

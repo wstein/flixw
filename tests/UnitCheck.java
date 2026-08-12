@@ -117,6 +117,33 @@ public final class UnitCheck {
         c.add(new Case("quoted key that spells the dotted form is not it",
             lines("\"package.flix\" = \"9.9.9\""), null));
         c.add(new Case("empty key segment", lines("package..flix = \"1.0.0\""), "!"));
+
+        // Everything below was checked against python3 -m tomllib first: the expectation
+        // is the oracle's answer, not this scanner's. The array cases are why the scanner
+        // now tracks bracket depth -- an authors entry holding `flix = "9.9.9"` read as an
+        // assignment, and one with an unbalanced quote in it made a legal manifest
+        // unreadable, which is worse than misreading it.
+        c.add(new Case("inline table holding the key",
+            lines("[package]", "deps = { flix = \"9.9.9\" }", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("nested inline table",
+            lines("[package]", "x = { a = { flix = \"9.9.9\" } }", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("array spanning lines",
+            lines("[package]", "authors = [", "  \"a\",", "  \"b\",", "]", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("array element that looks like an assignment",
+            lines("[package]", "authors = [", "  \"flix = \\\"9.9.9\\\"\",", "]", "flix = \"1.0.0\""),
+            "1.0.0"));
+        c.add(new Case("bracket inside a string is not depth",
+            lines("[package]", "authors = [\"a]b\"]", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("array of tables before the package",
+            lines("[[bin]]", "name = \"x\"", "", "[package]", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("comment on the table header line",
+            lines("[package] # the package", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("equals inside a value",
+            lines("[package]", "name = \"a=b\"", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("hash inside a literal string",
+            lines("[package]", "name = 'a#b'", "flix = \"1.0.0\""), "1.0.0"));
+        c.add(new Case("a quoted decoy in the trailing comment",
+            lines("[package]", "flix = \"1.0.0\" # \"9.9.9\""), "1.0.0"));
         c.add(new Case("unterminated quoted key", lines("\"package.flix = \"1.0.0\""), "!"));
         // A dotted key is relative to the table it sits under, so this one is
         // [package.package].flix -- not a second [package].flix. tomllib agrees.

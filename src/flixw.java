@@ -224,9 +224,19 @@ public final class flixw {
         List<String> tables = new ArrayList<>();
         String current = "";
         String mlDelim = null;
+        int arrayDepth = 0;
         String[] lines = text.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
+            // Inside a value that spans lines as an array, nothing is a key. A line-based
+            // reader took an authors entry holding `flix = "9.9.9"` for an assignment, and
+            // an unbalanced quote in one made the whole manifest unreadable -- a legal file
+            // this wrapper simply refused to work with. Depth counts brackets outside
+            // quotes, so a bracket inside a string stays text.
+            if (arrayDepth > 0) {
+                arrayDepth += bracketDelta(line);
+                continue;
+            }
             if (mlDelim != null) {                       // inside """ or ''': find the close
                 int e = line.indexOf(mlDelim);
                 if (e < 0) continue;
@@ -272,6 +282,7 @@ public final class flixw {
             String v = t.substring(eq + 1).trim();
             String delim = v.startsWith("\"\"\"") ? "\"\"\"" : v.startsWith("'''") ? "'''" : null;
             if (delim != null && !v.substring(3).contains(delim)) mlDelim = delim;
+            else if (delim == null) arrayDepth = Math.max(0, bracketDelta(v));
             entries.add(new TomlEntry(i, tbl, k, v, delim != null));
         }
         return new TomlScan(entries, tables);
@@ -338,6 +349,27 @@ public final class flixw {
         if (tables > 1) throw w002(where + ": duplicate [" + table + "] table");
         if (hits > 1) throw w002(where + ": duplicate " + q(key) + " key in [" + table + "]");
         return value;
+    }
+
+    /**
+     * How much this line opens or closes an inline array, counting only brackets outside
+     * quotes. Used to skip a value that spans lines; it never goes below zero, because a
+     * stray closing bracket is not this scanner's business to diagnose.
+     */
+    static int bracketDelta(String line) {
+        String t = stripComment(line);
+        int depth = 0;
+        boolean sq = false, dq = false;
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c == '\'' && !dq) sq = !sq;
+            else if (c == '"' && !sq) dq = !dq;
+            else if (!sq && !dq) {
+                if (c == '[') depth++;
+                else if (c == ']') depth--;
+            }
+        }
+        return depth;
     }
 
     /** Strips a trailing comment, ignoring '#' inside quotes. */
