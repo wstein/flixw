@@ -1,6 +1,10 @@
 @echo off
-rem flixw cmd.exe trampoline -- invariant file.  Finds an initial java, prefers the
-rem compiled stage 0 in the user cache, else launches the source.
+rem flixw cmd.exe trampoline -- GENERATED; DO NOT EDIT.  `flixw install` writes it,
+rem `flixw doctor --fix` restores it, and `flixw validate` compares it byte for
+rem byte.  To change it, edit the CMD text block in flixw.java; src/flixw.cmd in
+rem that repository is only the checked-in copy, and tests/lint.sh fails if the two
+rem disagree.  Finds an initial java, prefers the compiled stage 0 in the user
+rem cache, else launches the source.
 setlocal enabledelayedexpansion
 set "ROOT=%~dp0"
 set "SRC=%ROOT%.flixw\flixw.java"

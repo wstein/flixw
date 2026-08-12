@@ -1,5 +1,10 @@
 #!/bin/sh
-# flixw shim -- invariant file, byte-identical across projects for a wrapper release.
+# flixw shim -- GENERATED; DO NOT EDIT.  `flixw install` writes this file,
+# `flixw doctor --fix` restores it, and `flixw validate` compares it byte for byte,
+# so an edit here is first reported and then overwritten.  It is byte-identical
+# across every project on a given flixw release.  To change it, edit the SHIM text
+# block in flixw.java -- src/flixw in that repository is only the checked-in copy,
+# and tests/lint.sh fails if the two disagree.
 # Finds an initial java, prefers the compiled stage 0, else launches the source.
 set -e
 self=$0
