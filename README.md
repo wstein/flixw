@@ -192,9 +192,11 @@ The digest line is a check you run, not a comparison you eyeball: it prints `OK`
 On Windows, `Get-FileHash flixw-0.20.0.tar.gz` and `Expand-Archive` are the equivalents.
 
 Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
-own field and flixw reads it as a **minimum**, so pinning the same version or anything newer
-is fine and pinning something older is refused, naming both numbers. `pin` never edits the
-manifest — if you want a different floor, that is your edit to make.
+own field and flixw reads it as a **minimum**, so the same version or anything newer is
+fine. Pinning something older is allowed but warned about, and every later command that
+needs the compiler refuses until it is resolved, naming both numbers and the repair — `pin`
+is deliberately still usable in that state, because lowering the floor in `flix.toml` may
+be exactly what you meant. flixw never edits the manifest itself.
 
 A `.zip` with the same contents is attached for machines without `tar`. The archives leave
 `.gitattributes` alone rather than overwriting the one your project already has, which is

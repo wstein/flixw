@@ -300,6 +300,15 @@ t 0  "pin leaves flix.toml alone"                               sh -c '
   cmp -s flix.toml "$1/toml.before"' sh "$work"
 t 0  "the exact version lands in the lock"                      sh -c '
   grep -q "^version = \"'"$version"'+build.4\"" .flixw/lock.toml'
+# pin below the manifest floor is allowed -- lowering the floor may be the plan, and pin
+# has to stay usable in a broken state -- but it must say so when it happens rather than
+# leaving it to be discovered by the next command that needs a compiler.
+g 0 'will not run until' "pin below the floor warns at pin time"  sh -c '
+  cp flix.toml "$1/toml.keep"
+  sed "s/^flix .*/flix        = \"0.99.0\"/" "$1/toml.keep" > flix.toml
+  ./flixw pin '"$version"' 2>&1; rc=$?
+  cp "$1/toml.keep" flix.toml; exit $rc' sh "$work"
+
 # A manifest floor below the pinned compiler is the normal case, not drift.
 t 0  "a lower floor in flix.toml is satisfied, not drift"       sh -c '
   cp flix.toml "$1/toml.keep"

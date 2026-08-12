@@ -2309,6 +2309,15 @@ public final class flixw {
             if (!repo.equals(UPSTREAM_REPO))
                 System.err.println("       a fork is not stock-compatibility evidence;"
                                  + " see docs/LIMITATIONS.md");
+            // Said now rather than only on the next command. pin still writes it -- the
+            // floor lives in the project's own file and lowering it may be exactly the
+            // plan -- but "accepted, and every later run will refuse" is not something to
+            // find out later.
+            String floor = null;
+            try { floor = manifestVersion(root.resolve("flix.toml")); } catch (Fail ignored) { }
+            if (floor != null && !olderOrSame(triple(floor), triple(version)))
+                System.err.println("       note: flix.toml asks for " + floor + " or newer,"
+                                 + " so this lock will not run until one of them moves");
         } catch (IOException e) {
             if (snapshot) restore(lockFile, oldLock);
             throw w009("pin failed: " + why(e));
