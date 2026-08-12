@@ -14,6 +14,8 @@ flixw                 POSIX shim
 flixw.cmd             cmd.exe shim
 .flixw/flixw.java     stage 0
 .flixw/lock.toml      the pin: version, URL, SHA-256
+.flixw/.gitignore     keeps .flixw/local/ out of git
+.flixw/local/java     the JDK this machine resolved to; NOT committed
 ```
 
 `flixw install` also merges a marked block into `.gitattributes`, preserving unrelated
@@ -140,11 +142,27 @@ for a project that asked for 25 downloads a JDK that then cannot be selected.
 `./flixw info` prints the pin, and `doctor`/`validate` check it against the JDK the run
 actually selected — "there is a 21 somewhere on this machine" is not the question.
 
-The pin does not reach the shims, and does not need to: they choose a Java to run *stage
+The pin does not reach the shims by being parsed there — they choose a Java to run *stage
 0*, which needs only `SOURCE_FLOOR`, while the compiler is launched as a child process
-under the JDK stage 0 selected. When the two differ, stage 0 relaunches itself under the
-selected JDK first, so a pinned project on a machine whose ambient Java is something else
-pays one extra stage-0 start per command.
+under the JDK stage 0 selected. Where the two differ, stage 0 relaunches itself under the
+selected JDK, which costs a whole extra process.
+
+So stage 0 leaves a note. `.flixw/local/java` holds the absolute path of the JDK this
+project last resolved to, and a shim that has not been given `FLIX_JAVA_HOME` or
+`JAVA_HOME` starts there instead of on whatever `java` comes first on `PATH`. That is one
+file read and no parsing: the shims still make one decision, and the reasoning behind the
+answer stays in stage 0, which can be tested.
+
+Everything about it degrades to the old behaviour. A missing note, an unreadable one, or
+one naming a JDK that has since been removed is a cache miss rather than an error, and the
+next run through the compiler path rewrites it. An explicitly named JDK still outranks it,
+because the note records what flixw worked out and not what the caller asked for.
+
+`.flixw/local/` is machine-specific and must not be committed, so flixw ships
+`.flixw/.gitignore` covering it rather than editing the project's own ignore file — the
+wrapper directory is flixw's to manage. The note names an executable the shim will run,
+which is not a new trust boundary: anyone who can write into `.flixw/local/` can edit
+`./flixw` itself, which is easier and does more.
 
 ## Integrity
 

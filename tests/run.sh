@@ -425,6 +425,52 @@ g 83 'lock.toml pins java' "an explicit JDK against the pin is refused" sh -c '
   JAVA_HOME=$2 ./flixw -- --version; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work" "$(dirname "$(dirname "$realjava")")"
 
+# --- the resolved-JDK note ------------------------------------------------
+echo "resolved-JDK note"
+# Stage 0 leaves the shim a note naming the JDK this project resolved to, so the next run
+# starts on it rather than starting on PATH and relaunching. It is machine-specific, so it
+# is git-ignored rather than committed, and it is only ever an optimisation: every failure
+# to read, write or use it must land back on the old behaviour.
+t 0  "a run records the JDK it selected"                        sh -c '
+  ./flixw -- --version >/dev/null 2>&1
+  test -x "$(cat .flixw/local/java)"'
+t 0  ".flixw/.gitignore keeps the note out of git"              sh -c '
+  grep -q "^local/$" .flixw/.gitignore
+  git check-ignore -q .flixw/local/java'
+if [ -n "$realjava" ]; then
+  # The shim must actually start on the note. A stand-in that records being run proves it
+  # without needing a second real JDK on the machine.
+  mkdir -p "$work/notedjdk/bin"
+  printf '#!/bin/sh\nprintf x >> "%s/noted.log"\nexec %s "$@"\n' "$work" "$realjava" \
+    > "$work/notedjdk/bin/java"
+  chmod +x "$work/notedjdk/bin/java"
+  t 0  "the shim starts on the noted JDK"                       sh -c '
+    cp .flixw/local/java "$1/note.keep"
+    printf "%s\n" "$1/notedjdk/bin/java" > .flixw/local/java
+    : > "$1/noted.log"
+    env -u JAVA_HOME -u FLIX_JAVA_HOME ./flixw wrapper --version >/dev/null 2>&1
+    rc=1; [ -s "$1/noted.log" ] && rc=0
+    cp "$1/note.keep" .flixw/local/java; exit $rc' sh "$work"
+  # An explicitly named JDK still outranks it: the note records what flixw worked out,
+  # not what the caller asked for.
+  t 0  "an explicit JAVA_HOME outranks the note"                sh -c '
+    cp .flixw/local/java "$1/note.keep"
+    printf "%s\n" "$1/notedjdk/bin/java" > .flixw/local/java
+    : > "$1/noted.log"
+    JAVA_HOME=$2 ./flixw wrapper --version >/dev/null 2>&1
+    rc=0; [ -s "$1/noted.log" ] && rc=1
+    cp "$1/note.keep" .flixw/local/java; exit $rc' sh "$work" "$(dirname "$(dirname "$realjava")")"
+else
+  s "the shim starts on the noted JDK"                          "no real java to stand in for"
+  s "an explicit JAVA_HOME outranks the note"                   "no real java to stand in for"
+fi
+# A note naming something that is gone is not an error, it is a cache miss -- and the next
+# run through the compiler path rewrites it.
+t 0  "a stale note falls back, then heals"                      sh -c '
+  printf "/nope/nowhere/java\n" > .flixw/local/java
+  env -u JAVA_HOME -u FLIX_JAVA_HOME ./flixw -- --version >/dev/null 2>&1 || exit 1
+  test -x "$(cat .flixw/local/java)"'
+
 # --- lock validation -------------------------------------------------------
 echo "lock validation"
 t 81 "a non-https url in the lock is refused"                    sh -c '
@@ -499,6 +545,9 @@ if [ "$posix" = yes ]; then
   for u in uname dirname readlink cat sed cut head grep tr shasum sha256sum openssl; do
     p=$(command -v "$u" 2>/dev/null) && ln -sf "$p" "$work/tools/$u"
   done
+  # The note is a java source in its own right, so a case meaning "nothing at all" has to
+  # take it away as well, or it is testing a machine that still has a JDK.
+  mv .flixw/local/java "$work/note.aside" 2>/dev/null || true
   g 127 'Temurin' "no java at all names a JDK to install"       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flixw check
   g 127 'install-jdk' "and says how flixw can fetch one" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flixw check
   # A recorded JDK is used when nothing else answers. The fixture stands in for a real
@@ -536,6 +585,7 @@ if [ "$posix" = yes ]; then
   g 0 'stage0 compiled' "an unidentifiable below-floor java defers to the recorded JDK" \
       env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/jdkbare17/bin:$work/tools" ./flixw wrapper --version
   rm -rf "$cache/jdks/default" "$cache/jdks/fake"
+  mv "$work/note.aside" .flixw/local/java 2>/dev/null || true
 else
   s "explicit Java below the floor is fatal"                    "needs a runnable fake bin/java.exe"
   s "above the ceiling warns and proceeds"                      "needs a runnable fake bin/java.exe"

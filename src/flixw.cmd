@@ -26,6 +26,14 @@ rem metacharacters in it would run before anything could validate the path. The
 rem containment test uses delayed expansion alone -- strip the expected prefix,
 rem then require the original to be exactly prefix plus remainder, which is a
 rem starts-with test that never re-parses the value.
+rem The JDK stage 0 resolved for this project last time -- the one that satisfies
+rem its java pin. Starting on it avoids the relaunch stage 0 would otherwise need.
+rem Machine-specific and git-ignored; writable only by someone who could edit this
+rem file anyway, so it adds no trust boundary.
+if not defined CHOSEN if exist "%ROOT%.flixw\local\java" (
+  for /f "usebackq delims=" %%J in ("%ROOT%.flixw\local\java") do (
+    if exist "%%J" set "JAVA0=%%J" ) )
+
 set "MINE="
 if exist "%CACHE%\jdks\default" (
   for /f "usebackq delims=" %%J in ("%CACHE%\jdks\default") do (

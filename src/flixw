@@ -50,6 +50,18 @@ cached_jdk() {
   printf '%s\n' "$cj"
 }
 
+# The JDK stage 0 resolved for *this project* last time, which is the one that
+# satisfies its java pin. Starting on it is the whole point: otherwise the shim
+# starts whatever java is first on PATH and stage 0 has to spend a second process
+# correcting it, on every command. Machine-specific, so it is not committed --
+# .flixw/.gitignore keeps it out. It names something this script executes, and
+# that is not a new trust boundary: anyone able to write .flixw/local/ can edit
+# this file instead, which is easier and does more.
+if [ "$chosen" = no ] && [ -r "$root/.flixw/local/java" ]; then
+  noted=$(cat "$root/.flixw/local/java" 2>/dev/null || true)
+  if [ -n "$noted" ] && [ -x "$noted" ]; then java0=$noted; fi
+fi
+
 # Nothing on PATH: fall back to that JDK.
 [ -n "$java0" ] || java0=$(cached_jdk)
 

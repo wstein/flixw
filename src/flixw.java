@@ -1703,6 +1703,18 @@ public final class flixw {
           printf '%s\\n' "$cj"
         }
 
+        # The JDK stage 0 resolved for *this project* last time, which is the one that
+        # satisfies its java pin. Starting on it is the whole point: otherwise the shim
+        # starts whatever java is first on PATH and stage 0 has to spend a second process
+        # correcting it, on every command. Machine-specific, so it is not committed --
+        # .flixw/.gitignore keeps it out. It names something this script executes, and
+        # that is not a new trust boundary: anyone able to write .flixw/local/ can edit
+        # this file instead, which is easier and does more.
+        if [ "$chosen" = no ] && [ -r "$root/.flixw/local/java" ]; then
+          noted=$(cat "$root/.flixw/local/java" 2>/dev/null || true)
+          if [ -n "$noted" ] && [ -x "$noted" ]; then java0=$noted; fi
+        fi
+
         # Nothing on PATH: fall back to that JDK.
         [ -n "$java0" ] || java0=$(cached_jdk)
 
@@ -1822,6 +1834,14 @@ public final class flixw {
         rem containment test uses delayed expansion alone -- strip the expected prefix,
         rem then require the original to be exactly prefix plus remainder, which is a
         rem starts-with test that never re-parses the value.
+        rem The JDK stage 0 resolved for this project last time -- the one that satisfies
+        rem its java pin. Starting on it avoids the relaunch stage 0 would otherwise need.
+        rem Machine-specific and git-ignored; writable only by someone who could edit this
+        rem file anyway, so it adds no trust boundary.
+        if not defined CHOSEN if exist "%ROOT%.flixw\\local\\java" (
+          for /f "usebackq delims=" %%J in ("%ROOT%.flixw\\local\\java") do (
+            if exist "%%J" set "JAVA0=%%J" ) )
+
         set "MINE="
         if exist "%CACHE%\\jdks\\default" (
           for /f "usebackq delims=" %%J in ("%CACHE%\\jdks\\default") do (
@@ -2157,7 +2177,8 @@ public final class flixw {
         // Generated wrapper files are only reproducible for a collaborator if git actually
         // carries them.  A .gitignore rule that swallows the lock is silent otherwise.
         List<String> generated = List.of("flixw", "flixw.cmd",
-                                         WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml");
+                                         WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml",
+                                         WRAPPER_DIR + "/.gitignore");
         Integer isRepo = git(root, "rev-parse", "--is-inside-work-tree");
         if (isRepo == null || isRepo != 0) {
             System.out.println("warn  not a git work tree; cannot check tracked status");
@@ -2327,12 +2348,29 @@ public final class flixw {
             shim.toFile().setExecutable(true, false);
             Files.writeString(target.resolve("flixw.cmd"), CMD.replace("\n", "\r\n"),
                               StandardCharsets.UTF_8);
+            writeLocalIgnore(target);
             migrateFromFlixNames(target);
             mergeGitattributes(target.resolve(".gitattributes"));
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
                              + "/flixw.java into " + target);
             System.out.println("next: ./flixw pin <version>   then commit all four files");
         } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
+    }
+
+    /**
+     * `.flixw/local/` holds what only this machine knows -- currently the resolved JDK --
+     * and must not be committed. The ignore rule lives inside the directory flixw owns, so
+     * adopting the wrapper does not edit a file the project maintains.
+     */
+    static final String LOCAL_IGNORE =
+        "# Written by flixw. Machine-specific; nothing here belongs in git.\nlocal/\n";
+
+    static void writeLocalIgnore(Path target) throws IOException {
+        Path f = target.resolve(WRAPPER_DIR).resolve(".gitignore");
+        if (Files.isRegularFile(f)
+            && Files.readString(f, StandardCharsets.UTF_8).equals(LOCAL_IGNORE)) return;
+        Files.createDirectories(f.getParent());
+        writeAtomic(f, LOCAL_IGNORE);
     }
 
     /**
@@ -2411,6 +2449,11 @@ public final class flixw {
                 Files.writeString(cmd, cmdBytes, StandardCharsets.UTF_8);
                 System.out.println("rewrote  ./flixw.cmd"); changed++;
             }
+            Path ign = root.resolve(WRAPPER_DIR).resolve(".gitignore");
+            boolean hadIgnore = Files.isRegularFile(ign)
+                && Files.readString(ign, StandardCharsets.UTF_8).equals(LOCAL_IGNORE);
+            writeLocalIgnore(root);
+            if (!hadIgnore) { System.out.println("wrote    " + WRAPPER_DIR + "/.gitignore"); changed++; }
             Path ga = root.resolve(".gitattributes");
             String before = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
             mergeGitattributes(ga);
@@ -2712,6 +2755,7 @@ public final class flixw {
 
         Jvm jvm = selectJava(lock == null ? null : lock.java());
         tr("java " + jvm.exe() + " (" + jvm.feature() + ")");
+        recordJava(root, jvm.exe());
         if (relaunch(jvm, argv)) return;
         List<String> opts = jvmOpts();
 
@@ -2878,6 +2922,33 @@ public final class flixw {
             if (Files.isRegularFile(p)) return Paths.get(Files.readString(p).trim());
         } catch (Exception ignored) { }
         return null;
+    }
+
+    /**
+     * Leaves the shim a note saying which JDK this project resolved to, so the next run can
+     * start on it instead of starting on whatever `java` is first on PATH and then
+     * relaunching. Without it a project that pins a Java the machine does not use by
+     * default pays a whole extra stage 0 -- about 100ms -- on every command.
+     *
+     * Machine-specific, therefore not committed: `.flixw/.gitignore` keeps `local/` out of
+     * git, and flixw writes that file itself rather than editing the project's own
+     * .gitignore. It names an executable the shim will run, which sounds like a new trust
+     * boundary and is not one: anyone who can write `.flixw/local/` can edit `./flixw`
+     * itself, which is simpler and does more.
+     *
+     * Every failure here is discarded. A read-only checkout, a directory someone deleted,
+     * a race with another run -- none of it is worth a diagnostic for a cache whose only
+     * job is to save a process start, and whose absence is already the old behaviour.
+     */
+    static void recordJava(Path root, Path exe) {
+        Path marker = root.resolve(WRAPPER_DIR).resolve("local").resolve("java");
+        try {
+            String want = exe + System.lineSeparator();
+            if (Files.isRegularFile(marker)
+                && Files.readString(marker, StandardCharsets.UTF_8).equals(want)) return;
+            Files.createDirectories(marker.getParent());
+            writeAtomic(marker, want);
+        } catch (IOException | RuntimeException ignored) { }
     }
 
     /** At most one relaunch, guarded by an env marker, so a stale release file cannot loop. */

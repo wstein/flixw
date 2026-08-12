@@ -104,6 +104,7 @@ flixw                 the wrapper you actually run; a POSIX sh shim
 flixw.cmd             the same, for cmd.exe and PowerShell
 .flixw/flixw.java     stage 0: the whole bootstrap, one dependency-free Java file
 .flixw/lock.toml      the pin — repository, version, URL and SHA-256 of the compiler
+.flixw/.gitignore     keeps the line below out of git
 .gitattributes        line endings for the four files above, as a marked block
 flix.toml             your project: name, dependencies, and the minimum Flix
 src/Main.flix         your code
@@ -114,6 +115,8 @@ The first four are byte-identical in every project on the same flixw release; on
 `lock.toml` is yours. Not committed, and safe to delete at any time:
 
 ```text
+.flixw/local/java                        the JDK this machine resolved to, so the
+                                         shim can start on it directly
 build/  lib/  artifact/  .flix-cache/    Flix's own output and dependency cache
 <cache>/                                 verified compiler JARs and JDKs, shared
                                          across every project on the machine
