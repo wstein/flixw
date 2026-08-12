@@ -119,9 +119,20 @@ set "H="
 for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
   if not defined H set "H=%%L" )
 if defined H set "H=!H: =!"
-if not defined SLOWPATH if defined H if exist "!CACHE!\stage0\!H!\flixw.class" (
-  set "FLIXW_SOURCE=%SRC%"
-  "%JAVA0%" -cp "!CACHE!\stage0\!H!" flixw %*
-  exit /b !ERRORLEVEL! )
+rem Everything that needed delayed expansion is now in ordinary variables, so it
+rem is switched off before the launch. With it on, `%*` is rescanned for !...!
+rem *after* substitution, and an argument containing an exclamation mark loses
+rem part of itself before java is even started: `flixw run "a!b"` arrives as `ab`.
+rem The two commands are also kept out of parentheses, because a `)` inside a
+rem quoted argument can close a block that a `%*` sits in.
+set "CP=!CACHE!\stage0\!H!"
+set "FAST="
+if not defined SLOWPATH if defined H if exist "!CP!\flixw.class" set "FAST=1"
+if defined FAST set "FLIXW_SOURCE=%SRC%"
+setlocal disabledelayedexpansion
+if defined FAST goto :flixw_fast
 "%JAVA0%" "%SRC%" %*
-exit /b !ERRORLEVEL!
+exit /b %ERRORLEVEL%
+:flixw_fast
+"%JAVA0%" -cp "%CP%" flixw %*
+exit /b %ERRORLEVEL%

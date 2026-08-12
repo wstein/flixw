@@ -89,6 +89,18 @@ jobs:
           call flixw.cmd run || exit /b 1
           call flixw.cmd validate || exit /b 1
 
+      # Argument fidelity through cmd.exe has no other coverage anywhere, and the failure
+      # is silent: under delayed expansion `%*` is rescanned and `!x` disappears, so java
+      # is started with an argument nobody typed. stage 0 quotes an unknown operation back,
+      # which makes the whole path observable from outside.
+      - name: an argument containing ! survives the shim
+        shell: cmd
+        working-directory: scratch
+        run: |
+          call flixw.cmd wrapper --frob!x 2>err.txt
+          type err.txt
+          findstr /c:"--frob!x" err.txt >nul || exit /b 1
+
       - name: the lossless fallback needs no shim
         shell: cmd
         working-directory: scratch
