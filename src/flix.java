@@ -871,6 +871,21 @@ public final class flix {
             roots.add(Paths.get(home, "scoop", "apps"));          // scoop
             String localApp = env("LOCALAPPDATA");                // per-user installers
             if (localApp != null) roots.add(Paths.get(localApp, "Programs"));
+            // Chocolatey nests one level deeper than everyone else -- lib\<package>\tools
+            // -- and puts the JDK either in tools itself or in a single directory under
+            // it. Expanding each package's tools directory into a root keeps the search
+            // one shape rather than two, since the loop below tries every root as a home
+            // as well as listing it.
+            String progData = env("ProgramData");
+            if (progData != null) {
+                Path lib = Paths.get(progData, "chocolatey", "lib");
+                if (Files.isDirectory(lib)) {
+                    try (var s = Files.list(lib)) {
+                        s.sorted().map(pkg -> pkg.resolve("tools"))
+                                  .filter(Files::isDirectory).forEach(roots::add);
+                    } catch (IOException ignored) { }
+                }
+            }
         }
         // Version managers hold the JDKs of anyone who keeps more than one, and none of
         // them registers with the OS -- which is exactly the case this search exists for.
@@ -879,14 +894,19 @@ public final class flix {
                                         ".gradle/jdks" })
             roots.add(Paths.get(home, vm.split("/")));
 
+        String exe = isWindows() ? "java.exe" : "java";
         for (Path r : roots) {
             if (!Files.isDirectory(r)) continue;
+            // A root that is itself a JDK: chocolatey's tools directory sometimes is one.
+            // Everywhere else this costs a single stat that fails.
+            Path self = r.resolve("bin").resolve(exe);
+            if (Files.isExecutable(self)) out.add(self);
             try (var s = Files.list(r)) {
                 s.sorted().forEach(d -> {
                     for (Path h : new Path[] { d, d.resolve("Contents/Home"),
                                                d.resolve("libexec/openjdk.jdk/Contents/Home"),
                                                d.resolve("current") }) {   // scoop's shim
-                        Path e = h.resolve("bin").resolve(isWindows() ? "java.exe" : "java");
+                        Path e = h.resolve("bin").resolve(exe);
                         if (Files.isExecutable(e)) { out.add(e); return; }
                     }
                 });
@@ -1080,17 +1100,27 @@ public final class flix {
                 if (findJavaUnder(staging) == null)
                     throw w007("no bin/java after unpacking " + p.name()
                              + (log.isBlank() ? "" : "\n       " + log.strip()));
+                boolean moved = false;
                 try {
                     Files.move(staging, dest, StandardCopyOption.ATOMIC_MOVE);
                     staging = null;
+                    moved = true;
                 } catch (IOException e) {
                     // Another process may have finished the same install first. That is a
                     // win, not a collision: content is addressed by the archive name, so
                     // what is there is what we were about to put there.
                     if (findJavaUnder(dest) == null) throw e;
                 }
-                try { Files.writeString(origin, p.sha256() + System.lineSeparator()); }
-                catch (IOException ignored) { }   // a read-only cache is still usable
+                // Only the process that unpacked the tree may vouch for it. The loser of
+                // that race verified an archive it then threw away, so signing a tree it
+                // never wrote would turn the note from "flixw unpacked a verified archive
+                // here" into "some flixw once verified an archive of this name" -- and if
+                // the winner dies before writing its own note, the next run replacing an
+                // unvouched tree is the outcome worth having.
+                if (moved) {
+                    try { Files.writeString(origin, p.sha256() + System.lineSeparator()); }
+                    catch (IOException ignored) { }   // a read-only cache is still usable
+                }
             } catch (IOException e) {
                 throw w007("cannot install a JDK into " + dir + ": " + why(e));
             } finally {
