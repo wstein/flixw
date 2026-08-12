@@ -657,8 +657,10 @@ g 88 'rewrote' "doctor --fix survives an unreadable lock"        sh -c '
     echo broken > flix.cmd; ./flix doctor --fix; rc=$?
   cp "$1/lock.keep" .flix-wrapper/lock.toml; exit $rc' sh "$work"
 
-# --upgrade moves to the newest published flixw. The suite runs a version no release has
-# yet, so what it can assert offline is the guard that keeps that from walking backwards.
+# --upgrade moves to the newest published flixw. What the suite can assert is the guard
+# that keeps it from walking backwards -- and it must hold whether this version is newer
+# than the newest release (working on flixw) or exactly it (the commit a release was cut
+# from), which is why both no-op paths end in the same sentence.
 g 0 'Nothing to do' "upgrade declines to downgrade"             ./flix wrapper --upgrade
 
 # --- git integration -------------------------------------------------------

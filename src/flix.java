@@ -2140,7 +2140,11 @@ public final class flix {
 
         Path current = root.resolve(WRAPPER_DIR).resolve("flix.java");
         if (Files.isRegularFile(current) && sha256(current).equals(want)) {
-            System.out.println("already on the latest flixw (" + WRAPPER_VERSION + ")");
+            // Same sentence as the version guard below, because it is the same outcome:
+            // nothing was changed and nothing needed to be. They differ only in how it was
+            // established -- a matching digest here, a version comparison there.
+            System.out.println("flixw " + WRAPPER_VERSION
+                             + " is the newest release. Nothing to do.");
             return;
         }
         Path dir = null;
@@ -2161,8 +2165,8 @@ public final class flix {
                                .matcher(Files.readString(fresh, StandardCharsets.UTF_8));
             String published = m.find() ? m.group(1) : null;
             if (published != null && olderOrSame(published, WRAPPER_VERSION)) {
-                System.out.println("this project is on flixw " + WRAPPER_VERSION
-                                 + "; the newest release is " + published + ". Nothing to do.");
+                System.out.println("flixw " + WRAPPER_VERSION + " is newer than the newest"
+                                 + " release (" + published + "). Nothing to do.");
                 return;
             }
             System.err.println("flixw: " + WRAPPER_VERSION + " -> "
