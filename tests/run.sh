@@ -113,6 +113,21 @@ mkdir -p "$work/jdkbare/bin"
 printf '#!/bin/sh\nexec %s "$@"\n' "$realjava" > "$work/jdkbare/bin/java"
 chmod +x "$work/jdkbare/bin/java"
 
+# The same shape, but the JVM behind it is below the floor -- the case that actually
+# hurts: no release file to read, and a JVM that cannot compile stage 0. It answers
+# -version as Java 17 and otherwise defers to the real one, so the swap it should
+# trigger can be observed without a second JDK on the machine.
+mkdir -p "$work/jdkbare17/bin"
+cat > "$work/jdkbare17/bin/java" <<EOF
+#!/bin/sh
+if [ "\$1" = "-version" ]; then
+  echo 'openjdk version "17.0.9" 2023-10-17' >&2
+  exit 0
+fi
+exec $realjava "\$@"
+EOF
+chmod +x "$work/jdkbare17/bin/java"
+
 # A JAR that answers --help in a format flixw cannot parse, and exits 0 for anything
 # else. Used to prove that unparseable help degrades instead of bricking the wrapper.
 mkdir -p "$work/impostor"
@@ -464,6 +479,20 @@ if [ "$posix" = yes ]; then
   # binary, not a record of an install.
   printf '%s\n' "$realjava" > "$cache/jdks/default"
   g 127 'no java executable' "a marker outside the cache is ignored"  env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix check
+  # ...and a marker that walks back out of it with `..` is the same instruction wearing
+  # the right prefix, which a starts-with test alone accepts.
+  printf '%s\n' "$cache/jdks/../../../../../../..$realjava" > "$cache/jdks/default"
+  g 127 'no java executable' "a marker escaping the cache with .. is ignored" env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/tools" ./flix check
+  # A java with no release file leaves the shim unable to read a version. That is
+  # harmless above the floor, and below 15 it means the JVM cannot compile stage 0 at
+  # all -- so when a recorded JDK exists, the shim asks the JVM itself rather than
+  # source-launching into a class-version error stage 0 would never get to explain.
+  printf '%s\n' "$cache/jdks/fake/bin/java" > "$cache/jdks/default"
+  # 'compiled' is the discriminating word: the recorded JDK declares 21 in its release
+  # file, so the shim may hand it the compiled class. Had the swap not happened, the
+  # unidentifiable java would have taken the source path and said so.
+  g 0 'stage0 compiled' "an unidentifiable below-floor java defers to the recorded JDK" \
+      env -u JAVA_HOME -u FLIX_JAVA_HOME PATH="$work/jdkbare17/bin:$work/tools" ./flix wrapper --version
   rm -rf "$cache/jdks/default" "$cache/jdks/fake"
 else
   s "explicit Java below the floor is fatal"                    "needs a runnable fake bin/java.exe"
@@ -478,6 +507,8 @@ else
   s "a recorded JDK outranks a below-floor PATH java"           "PATH cannot be stripped the same way"
   s "an explicit below-floor JDK is not silently replaced"      "needs a runnable fake bin/java.exe"
   s "a marker outside the cache is ignored"                     "PATH cannot be stripped the same way"
+  s "a marker escaping the cache with .. is ignored"            "PATH cannot be stripped the same way"
+  s "an unidentifiable below-floor java defers to the recorded JDK" "PATH cannot be stripped the same way"
 fi
 
 # --- jvm options -----------------------------------------------------------

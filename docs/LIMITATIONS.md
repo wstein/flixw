@@ -173,7 +173,9 @@ deliberately free of them for candidates that are already found.
 install `java` as a script rather than a symlink into a JDK, so there is no `release` file
 beside it and the shim cannot tell which version it is. Since it cannot tell, it declines
 the compiled stage 0 and launches the source instead — correct, and about 400 ms slower
-per command. Setting `JAVA_HOME` to the real JDK restores it.
+per command. Setting `JAVA_HOME` to the real JDK restores it. If flixw installed a JDK of
+its own, one `java -version` decides between them instead; that costs about 100 ms and only
+happens when a recorded JDK exists to switch to.
 
 **Below Java 15 the diagnostic degrades badly.** Stage 0 is a single source file compiled
 at launch by whatever JVM the shim found, and it uses text blocks and records. On Java 17

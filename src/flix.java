@@ -1538,15 +1538,27 @@ public final class flix {
         elif [ -n "${JAVA_HOME:-}" ]; then java0=$JAVA_HOME/bin/java
         else java0=$(command -v java 2>/dev/null || true); chosen=no; fi
 
-        # Nothing on PATH: fall back to the JDK flixw installed, if there is one. Its path
-        # is read from a file rather than guessed, because every vendor nests differently.
-        if [ -z "$java0" ] && [ -r "$cache/jdks/default" ]; then
-          java0=$(cat "$cache/jdks/default" 2>/dev/null || true)
-          # It names something the shim will execute, so it may only name something
-          # inside the directory flixw unpacks into.
-          case $java0 in "$cache/jdks/"*) ;; *) java0= ;; esac
-          [ -x "$java0" ] || java0=
-        fi
+        # The JDK flixw installed, if there is one. Its path is read from a file rather than
+        # guessed, because every vendor nests differently -- and the marker names something
+        # this script will execute, so it may only name something inside the directory flixw
+        # unpacks into. A prefix test alone does not say that: `$cache/jdks/../../bin/java`
+        # passes one and is not inside anything. Containment is a guardrail rather than the
+        # security boundary, which is who can write the cache at all -- `doctor` checks that
+        # -- but a guardrail that a plain `..` walks through is not one.
+        cached_jdk() {
+          [ -r "$cache/jdks/default" ] || return 0
+          cj=$(cat "$cache/jdks/default" 2>/dev/null || true)
+          case $cj in
+            *"/../"* | */.. ) return 0 ;;
+            "$cache/jdks/"* ) ;;
+            * ) return 0 ;;
+          esac
+          [ -x "$cj" ] || return 0
+          printf '%s\\n' "$cj"
+        }
+
+        # Nothing on PATH: fall back to that JDK.
+        [ -n "$java0" ] || java0=$(cached_jdk)
 
         if [ -z "$java0" ]; then
           echo "FLIXW003: no java executable found. Flix needs Java 21+." >&2
@@ -1589,11 +1601,21 @@ public final class flix {
         # A java below the floor is worse than none: below 15 it cannot even compile stage
         # 0, so nothing flixw knows -- its own installed JDK included -- is ever reached.
         # When one is recorded, prefer it and let stage 0 speak.
-        if [ "$chosen" = no ] && [ -n "$jfeature" ] && [ "$jfeature" -lt 21 ] \\
-           && [ -r "$cache/jdks/default" ]; then
-          mine=$(cat "$cache/jdks/default" 2>/dev/null || true)
-          case $mine in "$cache/jdks/"*) ;; *) mine= ;; esac
-          if [ -n "$mine" ] && [ -x "$mine" ]; then
+        # A version manager's `java` is a shim script with no JDK layout around it, so there
+        # is no release file and the feature version stays unknown. Ordinarily that is fine --
+        # stage 0 asks the JVM itself -- but below 15 the JVM cannot compile stage 0, so the
+        # question is never reached and the user gets a javac error instead of FLIXW003, and
+        # instead of the JDK flixw installed for precisely this case. Ask the JVM once, and
+        # only when there is something better to switch to, so the cost falls on the machines
+        # that need it rather than on every run.
+        if [ "$chosen" = no ] && [ -z "$jfeature" ] && [ -n "$(cached_jdk)" ]; then
+          jfeature=$("$java0" -version 2>&1 \\
+                     | sed -n 's/^[A-Za-z ]*version "\\([0-9][0-9]*\\).*/\\1/p' | head -1)
+        fi
+
+        if [ "$chosen" = no ] && [ -n "$jfeature" ] && [ "$jfeature" -lt 21 ]; then
+          mine=$(cached_jdk)
+          if [ -n "$mine" ]; then
             java0=$mine
             jhome=${mine%/bin/java}
             jfeature=
@@ -1660,6 +1682,10 @@ public final class flix {
           set "TAIL=!MINE:%CACHE%\\jdks\\=!"
           if not "!MINE!"=="%CACHE%\\jdks\\!TAIL!" set "MINE="
         )
+        rem A starts-with test does not say "inside": %CACHE%\\jdks\\..\\..\\evil.exe passes one.
+        rem Any .. at all is refused rather than resolved, since resolving it here would mean
+        rem handing cache-controlled text back to the parser.
+        if defined MINE if not "!MINE!"=="!MINE:..=!" set "MINE="
         if defined MINE if not exist "!MINE!" set "MINE="
         if not defined JAVA0 if defined MINE set "JAVA0=!MINE!"
         if not defined JAVA0 (
@@ -1689,6 +1715,15 @@ public final class flix {
         rem Unknown is not good enough: a java that is a shim script rather than a JDK
         rem layout has no release file, and running the class blind fails on class file
         rem version with no way back.  Default to the source path; earn the fast one.
+        rem A version manager's java.exe is a shim with no JDK layout around it, so there is
+        rem no release file and the version stays unknown. Below 15 that java cannot compile
+        rem stage 0 either, so the user would see a javac error rather than FLIXW003 or the
+        rem JDK flixw installed for this case. Ask the JVM once, and only when there is a
+        rem recorded JDK to switch to, so ordinary runs pay nothing.
+        if not defined CHOSEN if not defined JFEATURE if defined MINE (
+          for /f "tokens=3" %%v in ('cmd /c ""%JAVA0%" -version" 2^>^&1') do (
+            if not defined JFEATURE (
+              for /f "tokens=1 delims=.-_" %%w in ("%%~v") do set "JFEATURE=%%~w" ) ) )
         rem A java below the floor is worse than none: it cannot load the compiled class
         rem and, far enough below, cannot compile stage 0 either. Prefer a recorded JDK --
         rem but never over an explicitly named one, which must fail loudly instead.

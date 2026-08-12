@@ -331,7 +331,10 @@ subprocess. A Java the shim cannot place is not good enough: `asdf`, `mise` and 
 install `java` as a shim script rather than a symlink into a JDK, so no `release` file sits
 beside it, and running the class blind under one of those pointing at an old JVM fails on
 class file version with no way back. Such setups always take the source path, which costs
-them the fast path and is the deliberate trade. Below the floor
+them the fast path and is the deliberate trade. With one exception: if a JDK flixw
+installed is recorded and Java was not named explicitly, the shim spends one
+`java -version` to find out, because a version manager pointing at Java 11 cannot compile
+stage 0 either — the source path fails too, and the recorded JDK is right there. Below the floor
 the shim silently declines the cached class and launches the source instead, where stage 0
 produces the ordinary `FLIXW003`/`FLIXW004` diagnostic; `exec` is one-way, so a class the
 JVM refuses to load would otherwise surface as a bare `UnsupportedClassVersionError` with no

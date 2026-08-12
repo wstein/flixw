@@ -93,6 +93,18 @@ a Java *policy* decision — stage 0 still owns every diagnostic — it is the s
 `exec` a class the JVM cannot load, because `exec` leaves no way back. The floor therefore
 appears in `MIN_JAVA` and in both shims, and `tests/lint.sh` fails if the three disagree.
 
+There is exactly one subprocess in a shim, and it is guarded three ways: when the version
+is *unknown* (no `release` file — a version-manager shim), and Java was not named
+explicitly, and a JDK flixw installed is recorded, the shim runs `java -version` once. Below
+Java 15 the JVM cannot compile stage 0 at all, so without this the user gets `javac` noise
+instead of `FLIXW003` and the JDK flixw installed for that exact case is never reached. The
+guards are what keep it off every other run.
+
+Whatever the marker at `<cache>/jdks/default` names, both shims execute it, so both require
+it to be *inside* `<cache>/jdks/` — prefix **and** no `..`, since `…/jdks/../../evil` has
+the right prefix. That is a guardrail, not the security boundary: the boundary is who can
+write the cache, which `doctor` checks.
+
 ### The shims exist twice
 
 `src/flix` and `src/flix.cmd` are the checked-in copies of the `SHIM` and `CMD` text blocks

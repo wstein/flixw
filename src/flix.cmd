@@ -34,6 +34,10 @@ if defined MINE (
   set "TAIL=!MINE:%CACHE%\jdks\=!"
   if not "!MINE!"=="%CACHE%\jdks\!TAIL!" set "MINE="
 )
+rem A starts-with test does not say "inside": %CACHE%\jdks\..\..\evil.exe passes one.
+rem Any .. at all is refused rather than resolved, since resolving it here would mean
+rem handing cache-controlled text back to the parser.
+if defined MINE if not "!MINE!"=="!MINE:..=!" set "MINE="
 if defined MINE if not exist "!MINE!" set "MINE="
 if not defined JAVA0 if defined MINE set "JAVA0=!MINE!"
 if not defined JAVA0 (
@@ -63,6 +67,15 @@ if exist "%JHOME%\release" (
 rem Unknown is not good enough: a java that is a shim script rather than a JDK
 rem layout has no release file, and running the class blind fails on class file
 rem version with no way back.  Default to the source path; earn the fast one.
+rem A version manager's java.exe is a shim with no JDK layout around it, so there is
+rem no release file and the version stays unknown. Below 15 that java cannot compile
+rem stage 0 either, so the user would see a javac error rather than FLIXW003 or the
+rem JDK flixw installed for this case. Ask the JVM once, and only when there is a
+rem recorded JDK to switch to, so ordinary runs pay nothing.
+if not defined CHOSEN if not defined JFEATURE if defined MINE (
+  for /f "tokens=3" %%v in ('cmd /c ""%JAVA0%" -version" 2^>^&1') do (
+    if not defined JFEATURE (
+      for /f "tokens=1 delims=.-_" %%w in ("%%~v") do set "JFEATURE=%%~w" ) ) )
 rem A java below the floor is worse than none: it cannot load the compiled class
 rem and, far enough below, cannot compile stage 0 either. Prefer a recorded JDK --
 rem but never over an explicitly named one, which must fail loudly instead.
