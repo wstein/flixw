@@ -409,7 +409,10 @@ t 81 "a java pin below the floor is refused"                    ./flixw pin --ja
 t 81 "a java pin that is not a number is refused"               ./flixw pin --java latest
 t 87 "an unknown pin option is refused"                         ./flixw pin --jaba 21
 # A lock asking for a Java this machine does not have stops before any compiler work.
-g 82 'no Java 99' "an unsatisfiable java pin fails, saying so"   sh -c '
+# JAVA_HOME is unset deliberately: with it set this takes the explicit-JDK branch below
+# and reports the conflict there instead, which is a different diagnostic and a different
+# exit. Leaving it to the environment made the expected code depend on the runner.
+g 82 'no Java 99' "an unsatisfiable java pin fails, saying so"   env -u JAVA_HOME -u FLIX_JAVA_HOME sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
   printf "\n[java]\nversion = \"99\"\n" >> .flixw/lock.toml
   ./flixw -- --version; rc=$?
