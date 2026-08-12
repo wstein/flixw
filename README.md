@@ -25,7 +25,7 @@ A new project, from an empty directory. Every command and every line of output b
 from an actual run.
 
 ```console
-mkdir hello && cd hello
+git init hello && cd hello
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.0/flixw.java
 java flixw.java install .    # writes flixw, flixw.cmd, .flixw/, and merges .gitattributes
 rm flixw.java
@@ -99,8 +99,20 @@ The first four are byte-identical in every project on the same flixw release; on
 
 ```text
 build/  lib/  artifact/  .flix-cache/    Flix's own output and dependency cache
-~/Library/Caches/flixw/                  verified compiler JARs, shared across projects
+<cache>/                                 verified compiler JARs and JDKs, shared
+                                         across every project on the machine
 ```
+
+`<cache>` is `FLIX_CACHE_HOME` if you set it, and otherwise the place the platform keeps
+caches:
+
+| | |
+|---|---|
+| Linux, BSD | `${XDG_CACHE_HOME:-~/.cache}/flixw` |
+| macOS | `~/Library/Caches/flixw` |
+| Windows | `%LOCALAPPDATA%\flixw` |
+
+`./flixw info` prints the one in use.
 
 A real project on this: [`flix-invaders`](https://github.com/wstein/flix-invaders), by
 the same author, which type-checks, tests, formats and packages through `./flixw` on
