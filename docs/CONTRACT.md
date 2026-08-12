@@ -68,10 +68,10 @@ mean anything.
 
 `[package].flix` is Flix's own field, not flixw's, and Flix accepts only `x.x.x` there —
 anything else is *"a Flix version number of the wrong length"*. It also accepts `99.99.99`
-against a 0.75.2 compiler, so it reads as a coarse floor rather than a pin. `pin` therefore
-writes the `x.x.x` form to the manifest and keeps the exact version — a fork build, a
-prerelease — in the lock, which is flixw's file and can say so. Drift compares the two at
-`x.x.x`, because that is all the manifest is able to express.
+against a 0.75.2 compiler, so it reads as a coarse floor rather than a pin. The exact
+version — a fork build, a prerelease — therefore lives in the lock, which is flixw's file
+and can say so, and the floor is compared at `x.x.x`, because that is all the manifest is
+able to express.
 
 A pin may carry SemVer build metadata — `0.75.2+fork.wstein.1` — which the lock records
 in full and which is stripped from the release tag and the cache coordinate. That
