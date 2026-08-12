@@ -67,6 +67,14 @@ flixw's own smoke job. Specific risks:
   running.
 - The `certutil` hash used to find the compiled stage 0 is best-effort; if it fails the
   shim falls back to the source launch, which is slower but correct.
+- Three decisions in `flix.cmd` have **no** automated coverage on Windows: choosing the
+  JDK named by `<cache>\jdks\default`, refusing a marker that points outside that
+  directory, and falling back to it when the `java` on `PATH` is below the floor. The
+  POSIX suite tests all three and skips them on Windows, because each needs a fake
+  `bin\java.exe` that is a real executable — a batch file will not do, and building a
+  native stub in CI is a larger piece of work than the rest of the suite put together.
+  The two shims are written and reviewed against each other line by line, which is the
+  only assurance those paths currently have on Windows.
 
 `java .flix-wrapper\flix.java <args>` is the lossless fallback on Windows: it needs no
 shim, no shell, and no execution policy. Git Bash also works, and is present on every
