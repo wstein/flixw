@@ -515,6 +515,7 @@ public final class flixw {
     /** Returns { repo, compiler version or null, java pin or null, "clear-java" or null }. */
     static String[] parsePin(List<String> args, Lock existing) {
         String repo = null, version = null, java = null, clearJava = null;
+        boolean repoGiven = false;
         for (int i = 0; i < args.size(); i++) {
             String a = args.get(i);
             if (a.equals("--java")) {
@@ -530,6 +531,7 @@ public final class flixw {
             } else if (a.contains("/")) {
                 if (repo != null) throw w009("pin: two repositories given");
                 repo = checkRepo(a, "pin");
+                repoGiven = true;
             } else {
                 if (version != null) throw w009("pin: two versions given");
                 version = a;
@@ -540,6 +542,14 @@ public final class flixw {
         if (version == null && java == null && clearJava == null)
             throw w002("pin: no version\n       usage: ./flixw pin [<owner>/<repo>] [<version>]"
                      + " [--java <version>]");
+        // Naming a repository without a version was accepted and then quietly dropped: a
+        // --java-only pin rewrites one line and does not re-resolve the compiler, so the
+        // repository had nowhere to go. Changing where the compiler comes from means
+        // fetching it, which means saying which version to fetch.
+        if (version == null && repoGiven)
+            throw w002("pin: a repository needs a version -- changing it means fetching"
+                     + " that compiler\n       for example: ./flixw pin " + repo
+                     + " <version> --java " + (java == null ? MIN_JAVA + "" : java));
         if (version == null && existing == null)
             throw w002("pin: --java needs an existing lock, or a compiler version to write"
                      + " one\n       for example: ./flixw pin 0.75.2 --java " + MIN_JAVA);
@@ -1712,6 +1722,15 @@ public final class flixw {
         # this file instead, which is easier and does more.
         if [ "$chosen" = no ] && [ -r "$root/.flixw/local/java" ]; then
           noted=$(cat "$root/.flixw/local/java" 2>/dev/null || true)
+          # Shape first: stage 0 writes a normalized absolute path ending in bin/java, so
+          # anything else is not a note this wrapper left. It is a cheap sanity check
+          # rather than a security boundary -- whoever can write here can edit this file
+          # -- but a note is not the place to discover you are running something else.
+          case $noted in
+            *"/../"* | */.. ) noted= ;;
+            /*/bin/java ) ;;
+            * ) noted= ;;
+          esac
           if [ -n "$noted" ] && [ -x "$noted" ]; then java0=$noted; fi
         fi
 
@@ -1838,9 +1857,21 @@ public final class flixw {
         rem its java pin. Starting on it avoids the relaunch stage 0 would otherwise need.
         rem Machine-specific and git-ignored; writable only by someone who could edit this
         rem file anyway, so it adds no trust boundary.
+        set "NOTED="
         if not defined CHOSEN if exist "%ROOT%.flixw\\local\\java" (
           for /f "usebackq delims=" %%J in ("%ROOT%.flixw\\local\\java") do (
-            if exist "%%J" set "JAVA0=%%J" ) )
+            if not defined NOTED set "NOTED=%%J" ) )
+        rem Shape first, and by substring arithmetic rather than by echoing the value:
+        rem stage 0 writes a normalized path ending in bin\\java.exe, so anything else is
+        rem not a note this wrapper left.
+        if defined NOTED (
+          set "TAIL=!NOTED:bin\\java.exe=!"
+          if "!TAIL!"=="!NOTED!" set "NOTED="
+        )
+        if defined NOTED if not "!NOTED!"=="!TAIL!bin\\java.exe" set "NOTED="
+        if defined NOTED if not "!NOTED!"=="!NOTED:..=!" set "NOTED="
+        if defined NOTED if not exist "!NOTED!" set "NOTED="
+        if defined NOTED set "JAVA0=!NOTED!"
 
         set "MINE="
         if exist "%CACHE%\\jdks\\default" (
@@ -2952,7 +2983,9 @@ public final class flixw {
     static void recordJava(Path root, Path exe) {
         Path marker = root.resolve(WRAPPER_DIR).resolve("local").resolve("java");
         try {
-            String want = exe + System.lineSeparator();
+            // Normalized, so the shim can reject anything with a `..` in it without ever
+            // refusing a path flixw itself wrote.
+            String want = exe.toAbsolutePath().normalize() + System.lineSeparator();
             if (Files.isRegularFile(marker)
                 && Files.readString(marker, StandardCharsets.UTF_8).equals(want)) return;
             Files.createDirectories(marker.getParent());

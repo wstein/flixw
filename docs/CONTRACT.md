@@ -155,7 +155,11 @@ answer stays in stage 0, which can be tested.
 
 Everything about it degrades to the old behaviour. A missing note, an unreadable one, or
 one naming a JDK that has since been removed is a cache miss rather than an error, and the
-next run through the compiler path rewrites it. An explicitly named JDK still outranks it,
+next run through the compiler path rewrites it. The shims check its *shape* before using
+it — stage 0 writes a normalized absolute path ending in `bin/java`, so anything else was
+not written by this wrapper and is ignored. That is sanity rather than security, since
+whoever can write the note can edit the shim, but a note is not where anyone should
+discover they are running something else. An explicitly named JDK still outranks it,
 because the note records what flixw worked out and not what the caller asked for.
 
 `.flixw/local/` is machine-specific and must not be committed, so flixw ships

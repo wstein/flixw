@@ -30,9 +30,21 @@ rem The JDK stage 0 resolved for this project last time -- the one that satisfie
 rem its java pin. Starting on it avoids the relaunch stage 0 would otherwise need.
 rem Machine-specific and git-ignored; writable only by someone who could edit this
 rem file anyway, so it adds no trust boundary.
+set "NOTED="
 if not defined CHOSEN if exist "%ROOT%.flixw\local\java" (
   for /f "usebackq delims=" %%J in ("%ROOT%.flixw\local\java") do (
-    if exist "%%J" set "JAVA0=%%J" ) )
+    if not defined NOTED set "NOTED=%%J" ) )
+rem Shape first, and by substring arithmetic rather than by echoing the value:
+rem stage 0 writes a normalized path ending in bin\java.exe, so anything else is
+rem not a note this wrapper left.
+if defined NOTED (
+  set "TAIL=!NOTED:bin\java.exe=!"
+  if "!TAIL!"=="!NOTED!" set "NOTED="
+)
+if defined NOTED if not "!NOTED!"=="!TAIL!bin\java.exe" set "NOTED="
+if defined NOTED if not "!NOTED!"=="!NOTED:..=!" set "NOTED="
+if defined NOTED if not exist "!NOTED!" set "NOTED="
+if defined NOTED set "JAVA0=!NOTED!"
 
 set "MINE="
 if exist "%CACHE%\jdks\default" (

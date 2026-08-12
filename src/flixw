@@ -59,6 +59,15 @@ cached_jdk() {
 # this file instead, which is easier and does more.
 if [ "$chosen" = no ] && [ -r "$root/.flixw/local/java" ]; then
   noted=$(cat "$root/.flixw/local/java" 2>/dev/null || true)
+  # Shape first: stage 0 writes a normalized absolute path ending in bin/java, so
+  # anything else is not a note this wrapper left. It is a cheap sanity check
+  # rather than a security boundary -- whoever can write here can edit this file
+  # -- but a note is not the place to discover you are running something else.
+  case $noted in
+    *"/../"* | */.. ) noted= ;;
+    /*/bin/java ) ;;
+    * ) noted= ;;
+  esac
   if [ -n "$noted" ] && [ -x "$noted" ]; then java0=$noted; fi
 fi
 

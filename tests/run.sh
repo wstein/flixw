@@ -417,6 +417,9 @@ t 0  "pin --java none removes it"                               sh -c '
 t 81 "a java pin below the floor is refused"                    ./flixw pin --java 17
 t 81 "a java pin that is not a number is refused"               ./flixw pin --java latest
 t 87 "an unknown pin option is refused"                         ./flixw pin --jaba 21
+# A repository with no version parsed and was then dropped: a --java-only pin rewrites one
+# line and never re-resolves the compiler, so there was nowhere for it to go.
+t 81 "a repository without a version is refused"                ./flixw pin wstein/flix-fork --java 21
 # A lock asking for a Java this machine does not have stops before any compiler work.
 # JAVA_HOME is unset deliberately: with it set this takes the explicit-JDK branch below
 # and reports the conflict there instead, which is a different diagnostic and a different
@@ -472,6 +475,26 @@ if [ -n "$realjava" ]; then
 else
   s "the shim starts on the noted JDK"                          "no real java to stand in for"
   s "an explicit JAVA_HOME outranks the note"                   "no real java to stand in for"
+fi
+# Shape is checked before the note is used: stage 0 writes a normalized absolute path
+# ending in bin/java, so anything else was not written by this wrapper. Cheap sanity
+# rather than a boundary -- whoever can write the note can edit the shim -- but a note is
+# not where anyone should discover they are running something else.
+if [ -n "$realjava" ]; then
+  t 0 "a note of the wrong shape is ignored"                    sh -c '
+    cp .flixw/local/java "$1/note.keep"
+    : > "$1/noted.log"
+    printf "%s\n" "$(command -v cat)" > .flixw/local/java
+    env -u JAVA_HOME -u FLIX_JAVA_HOME ./flixw wrapper --version >/dev/null 2>&1; rc=$?
+    cp "$1/note.keep" .flixw/local/java; exit $rc' sh "$work"
+  t 0 "a note that walks out with .. is ignored"                sh -c '
+    cp .flixw/local/java "$1/note.keep"
+    printf "%s/../../bin/java\n" "$1/notedjdk" > .flixw/local/java
+    env -u JAVA_HOME -u FLIX_JAVA_HOME ./flixw wrapper --version >/dev/null 2>&1; rc=$?
+    cp "$1/note.keep" .flixw/local/java; exit $rc' sh "$work"
+else
+  s "a note of the wrong shape is ignored"                      "no real java to stand in for"
+  s "a note that walks out with .. is ignored"                  "no real java to stand in for"
 fi
 # A note naming something that is gone is not an error, it is a cache miss -- and the next
 # run through the compiler path rewrites it.

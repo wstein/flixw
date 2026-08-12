@@ -174,8 +174,13 @@ established.
 
 ## Adding it to an existing project
 
-A project that already has sources and a `flix.toml` takes the same route, or the archive
-one — which reaches the same state without running anything first:
+A project that already has sources and a `flix.toml` takes the quickstart route unchanged
+— `curl` the single file, `java flixw.java install .`, then `pin`. `install` adds the
+wrapper without touching anything else: it merges its block into an existing
+`.gitattributes` rather than replacing it, and it never writes `flix.toml`.
+
+The archive is the alternative, for when you would rather not run a downloaded program to
+install a program:
 
 ```console
 base=https://github.com/wstein/flixw/releases/download/v0.20.0
