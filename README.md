@@ -70,6 +70,18 @@ ok    .flixw/flixw.java  sha256=11854c8776a6885d...
 ok    the lock satisfies flix.toml
 ```
 
+The JDK can be pinned too, in the same file and for the same reason — a version, not a
+path, since a path is true on one machine only:
+
+```console
+$ ./flixw pin --java 21
+flixw: pinned java 21
+```
+
+Any vendor's JDK satisfies it, `21.0.12` pins harder than `21`, and a machine without a
+match is told so before anything is downloaded. Leave it out and flixw picks the newest
+tested JDK it can find, which is what it has always done.
+
 Commit, and a collaborator with nothing but a JDK gets the same compiler you have:
 
 ```console

@@ -102,6 +102,50 @@ and moving it is a decision only a human should make. The floor check reads the 
 through the same table- and multi-line-string-aware scanner used everywhere else, so a
 `flix = "…"` sitting inside a `"""` description is invisible to it.
 
+### The java pin
+
+`[java] version` in the lock says which Java runs the compiler, and is optional. Absent,
+the selection picks the newest tested JDK, which is the old behaviour and stays the
+default.
+
+```toml
+[java]
+version = "21"        # or "21.0.12", to be exact
+```
+
+It is a *version*, not a path, because a path is true on one machine and the lock is
+committed. Any vendor satisfies it: the pin says which Java the project needs, not whose.
+Matching is a prefix cut at a dot — `21` accepts every 21.x and nothing else, `21.0.12`
+accepts only that build — so how exact a pin is, is the writer's choice rather than a
+second syntax.
+
+```console
+./flixw pin --java 21          # pin the Java, leave the compiler alone
+./flixw pin 0.75.2 --java 21   # both at once
+./flixw pin --java none        # unpin
+```
+
+A pin below `MIN_JAVA` is refused where it is written: the compiler cannot run there at
+all, so accepting it would produce a lock that fails on every later run instead of on the
+command that created it. Re-pinning the compiler carries the java pin over unchanged —
+`pin 0.75.3` is not a request to unpin the Java.
+
+Resolution, in order: `FLIX_JAVA_HOME` or `JAVA_HOME` if set — obeyed as always, but a
+named JDK that contradicts the pin is an error naming both sides rather than a silent
+substitution; then the running JVM; then a JDK flixw installed; then any known
+installation. A machine with nothing matching gets `FLIXW003`, and the offer to fetch one
+is for the *pinned* feature release rather than the wrapper's floor, since installing 21
+for a project that asked for 25 downloads a JDK that then cannot be selected.
+
+`./flixw info` prints the pin, and `doctor`/`validate` check it against the JDK the run
+actually selected — "there is a 21 somewhere on this machine" is not the question.
+
+The pin does not reach the shims, and does not need to: they choose a Java to run *stage
+0*, which needs only `SOURCE_FLOOR`, while the compiler is launched as a child process
+under the JDK stage 0 selected. When the two differ, stage 0 relaunches itself under the
+selected JDK first, so a pinned project on a machine whose ambient Java is something else
+pays one extra stage-0 start per command.
+
 ## Integrity
 
 The cached JAR is hashed on **every** invocation and compared with the lock. There is no

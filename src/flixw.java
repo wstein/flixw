@@ -182,7 +182,7 @@ public final class flixw {
 
     // ---- lock and manifest ------------------------------------------------
 
-    record Lock(String version, String url, String sha256, String repo) {}
+    record Lock(String version, String url, String sha256, String repo, String java) {}
 
     /**
      * One `key = value` occurrence, the table it was found in, and the line it sits on.
@@ -372,7 +372,11 @@ public final class flixw {
         // Optional: locks written before forks were supported do not carry it, and a
         // missing repository simply means the stock one.
         String r = tomlLookup(text, "compiler", "repo", w);
-        return new Lock(v, u, s, r == null ? null : checkRepo(r, w));
+        // Optional in the same way, and for the same reason: a project that does not care
+        // which Java runs the compiler says nothing, and gets the newest tested one.
+        String j = tomlLookup(text, "java", "version", w);
+        if (j != null) validateJavaPin(j, w);
+        return new Lock(v, u, s, r == null ? null : checkRepo(r, w), j);
     }
 
     /**
@@ -499,7 +503,7 @@ public final class flixw {
         }
     }
     /**
-     * `./flixw pin [<owner>/<repo>] <version>`.
+     * `./flixw pin [<owner>/<repo>] [<version>] [--java <version>]`.
      *
      * The two are told apart by the slash, which a version can never contain -- the
      * grammar rejects it -- so the order does not matter and neither does a flag.  An
@@ -508,10 +512,22 @@ public final class flixw {
      * moved such a project back to stock, and because both are honestly version 0.75.2,
      * nothing about it looked wrong.
      */
+    /** Returns { repo, compiler version or null, java pin or null, "clear-java" or null }. */
     static String[] parsePin(List<String> args, Lock existing) {
-        String repo = null, version = null;
-        for (String a : args) {
-            if (a.contains("/")) {
+        String repo = null, version = null, java = null, clearJava = null;
+        for (int i = 0; i < args.size(); i++) {
+            String a = args.get(i);
+            if (a.equals("--java")) {
+                if (java != null || clearJava != null) throw w009("pin: two --java values given");
+                if (i + 1 >= args.size())
+                    throw w002("pin: --java needs a version\n       for example:"
+                             + " ./flixw pin --java " + MIN_JAVA + "   (or --java none)");
+                String v = args.get(++i);
+                if (v.equals("none")) clearJava = "yes"; else { validateJavaPin(v, "pin"); java = v; }
+            } else if (a.startsWith("--")) {
+                throw w008("pin: unknown option " + q(a)
+                         + "\n       usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]");
+            } else if (a.contains("/")) {
                 if (repo != null) throw w009("pin: two repositories given");
                 repo = checkRepo(a, "pin");
             } else {
@@ -519,12 +535,18 @@ public final class flixw {
                 version = a;
             }
         }
-        if (version == null)
-            throw w002("pin: no version\n       usage: ./flixw pin [<owner>/<repo>] <version>");
-        validateVersion(version, "pin");
+        // A compiler version is required unless this is only a Java pin, in which case
+        // the compiler stays exactly as it was -- rewriting the lock is not repinning it.
+        if (version == null && java == null && clearJava == null)
+            throw w002("pin: no version\n       usage: ./flixw pin [<owner>/<repo>] [<version>]"
+                     + " [--java <version>]");
+        if (version == null && existing == null)
+            throw w002("pin: --java needs an existing lock, or a compiler version to write"
+                     + " one\n       for example: ./flixw pin 0.75.2 --java " + MIN_JAVA);
+        if (version != null) validateVersion(version, "pin");
         if (repo == null) repo = existing != null && existing.repo() != null
                                ? existing.repo() : UPSTREAM_REPO;
-        return new String[] { repo, version };
+        return new String[] { repo, version, java, clearJava };
     }
 
     // ---- acquisition ------------------------------------------------------
@@ -732,6 +754,17 @@ public final class flixw {
 
     /** Reads <home>/release when it is present and parseable; otherwise runs the candidate once. */
     static int probe(Path exe) {
+        Integer f = feature(probeVersion(exe));
+        return f == null ? -1 : f;
+    }
+
+    /**
+     * The candidate's own version string -- `21.0.12` rather than `21` -- so a pin can be
+     * as exact as the person who wrote it chose to be. Same two sources as probe(), in the
+     * same order and for the same reasons: the release file costs one read, and executing
+     * the candidate is the fallback for a java that is not laid out like a JDK.
+     */
+    static String probeVersion(Path exe) {
         Path home = exe.getParent() == null ? null : exe.getParent().getParent();
         if (home != null) {
             Path rel = home.resolve("release");
@@ -739,10 +772,7 @@ public final class flixw {
                 try {
                     String t = Files.readString(rel, StandardCharsets.UTF_8);
                     Matcher m = Pattern.compile("(?m)^JAVA_VERSION=\"([^\"]+)\"").matcher(t);
-                    if (m.find()) {
-                        Integer f = feature(m.group(1));
-                        if (f != null) return f;
-                    }
+                    if (m.find() && feature(m.group(1)) != null) return m.group(1);
                 } catch (IOException ignored) { }
             }
         }
@@ -752,11 +782,46 @@ public final class flixw {
             String out = runCapture(List.of(exe.toString(), "-XshowSettings:properties", "-version"),
                                     PROBE_TIMEOUT, 1 << 18);
             if (out != null) {
-                Matcher m = Pattern.compile("java\\.specification\\.version = ([0-9.]+)").matcher(out);
-                if (m.find()) { Integer f = feature(m.group(1)); if (f != null) return f; }
+                // java.version, not java.specification.version: the latter is "21" and
+                // says nothing a pin like 21.0.12 could be checked against.
+                Matcher m = Pattern.compile("(?m)^\\s*java\\.version = ([0-9][0-9.+_-]*)").matcher(out);
+                if (m.find() && feature(m.group(1)) != null) return m.group(1);
+                m = Pattern.compile("java\\.specification\\.version = ([0-9.]+)").matcher(out);
+                if (m.find() && feature(m.group(1)) != null) return m.group(1);
             }
         } catch (Exception ignored) { }
-        return -1;
+        return null;
+    }
+
+    /**
+     * Does this JDK satisfy `[java] version` in the lock?
+     *
+     * A pin is a prefix of the version, cut at a dot: `21` accepts 21.0.12, `21.0` accepts
+     * 21.0.12, and neither accepts 21.1 or 2. Prefix rather than equality because the
+     * useful pin is nearly always "this feature release", and the exact one is available
+     * to whoever wants it by writing more of the number. Vendor is deliberately not part
+     * of it -- the pin says which Java the project needs, not whose.
+     */
+    static boolean satisfiesJavaPin(String pin, String version) {
+        if (pin == null) return true;
+        if (version == null) return false;
+        if (version.equals(pin)) return true;
+        return version.startsWith(pin) && version.charAt(pin.length()) == '.';
+    }
+
+    /**
+     * A pin is a dotted number and nothing else: no ranges, no `latest`, no vendor. It must
+     * also be a Java the pinned compiler can actually run under, so a pin below MIN_JAVA is
+     * refused at the point it is written rather than at every run afterwards.
+     */
+    static void validateJavaPin(String v, String where) {
+        if (!v.matches("[0-9]+(\\.[0-9]+)*"))
+            throw w002(where + ": java version " + q(v) + " is not a dotted number"
+                     + "\n       write a feature release (21) or an exact one (21.0.12)");
+        Integer f = feature(v);
+        if (f == null || f < MIN_JAVA)
+            throw w002(where + ": java " + q(v) + " is below Java " + MIN_JAVA
+                     + ", which the compiler needs");
     }
 
     static Integer feature(String v) {
@@ -809,7 +874,7 @@ public final class flixw {
         return tested != null ? tested : above;
     }
 
-    static Jvm selectJava() {
+    static Jvm selectJava(String pin) {
         for (String var : new String[] { "FLIX_JAVA_HOME", "JAVA_HOME" }) {
             String h = env(var);
             if (h == null) continue;
@@ -818,17 +883,28 @@ public final class flixw {
                 throw w004(var + "=" + h + " has no " + exe.getFileName() + " at " + exe);
             if (!Files.isExecutable(exe))
                 throw w004(var + "=" + h + ": " + exe + " is not executable");
+            String full = probeVersion(exe);
             int f = probe(exe);
             if (!acceptable(f, var))
                 throw w004(var + "=" + h + " is Java " + (f < 0 ? "unidentifiable" : f)
                          + "; flixw needs [" + MIN_JAVA + ", " + TESTED_CEILING + "]"
                          + (strictJava() ? " (FLIXW_STRICT_JAVA is set)" : ""));
+            // An explicitly named JDK is still obeyed rather than replaced -- but not
+            // quietly against a pin the project committed. Saying which two things
+            // disagree is the whole job here; picking a winner is not.
+            if (!satisfiesJavaPin(pin, full))
+                throw w004(var + "=" + h + " is Java " + (full == null ? "unidentifiable" : full)
+                         + ", but " + WRAPPER_DIR + "/lock.toml pins java " + pin
+                         + "\n       unset " + var + ", or run: ./flixw pin --java "
+                         + (full == null ? "<version>" : full));
             return new Jvm(exe, f, var);
         }
         int self = Runtime.version().feature();
         Path selfExe = ProcessHandle.current().info().command()
                 .map(Paths::get).orElse(exeIn(System.getProperty("java.home")));
-        if (acceptable(self, "running JVM")) return new Jvm(selfExe, self, "running JVM");
+        if (acceptable(self, "running JVM")
+            && satisfiesJavaPin(pin, Runtime.version().toString().split("[+-]")[0]))
+            return new Jvm(selfExe, self, "running JVM");
 
         // Every candidate is probed before any is chosen.  probe() reads the JDK's own
         // release file first and only executes a candidate that has none, so this is
@@ -837,15 +913,17 @@ public final class flixw {
         Path mine = installedJdk();
         if (mine != null) {
             int f = probe(mine);
-            if (f >= MIN_JAVA) found.add(new Jvm(mine, f, "installed by flixw"));
+            if (f >= MIN_JAVA && satisfiesJavaPin(pin, probeVersion(mine)))
+                found.add(new Jvm(mine, f, "installed by flixw"));
         }
         for (Path cand : knownInstalls()) {
             int f = probe(cand);
-            if (f >= MIN_JAVA) found.add(new Jvm(cand, f, "known installation"));
+            if (f >= MIN_JAVA && satisfiesJavaPin(pin, probeVersion(cand)))
+                found.add(new Jvm(cand, f, "known installation"));
         }
         Jvm pick = chooseInstall(found, strictJava());
         if (pick != null) return pick;
-        return noJavaFound(self);
+        return noJavaFound(self, pin);
     }
 
     /**
@@ -1033,17 +1111,17 @@ public final class flixw {
      * its own digest: consistently, and uselessly.  The fields are read out of the
      * `package` object for that reason.
      */
-    static JdkPackage resolveTemurin() {
+    static JdkPackage resolveTemurin(int feature) {
         String arch = jdkArch();
         if (arch == null)
             throw w003("no Temurin build is published for " + System.getProperty("os.name")
                      + " " + System.getProperty("os.arch") + "; install a JDK by hand");
         String os = isWindows() ? "windows" : isMac() ? "mac" : "linux";
-        String body = httpGet(ADOPTIUM_API + MIN_JAVA + "/hotspot?architecture=" + arch
+        String body = httpGet(ADOPTIUM_API + feature + "/hotspot?architecture=" + arch
                             + "&image_type=jdk&os=" + os + "&vendor=eclipse");
         String pkg = jsonObject(body, "package");
         if (pkg == null)
-            throw w005("Adoptium published no JDK " + MIN_JAVA + " for " + os + "/" + arch);
+            throw w005("Adoptium published no JDK " + feature + " for " + os + "/" + arch);
         String name = jsonField(pkg, "name");
         String url = jsonField(pkg, "link");
         String sha = jsonField(pkg, "checksum");
@@ -1257,16 +1335,27 @@ public final class flixw {
     }
 
     /** Nothing usable was found: say how to fix it, then offer to do it. */
-    static Jvm noJavaFound(int self) {
-        System.err.println("FLIXW003: no Java in [" + MIN_JAVA + ", " + TESTED_CEILING
-                         + "] found; this JVM is " + self);
+    static Jvm noJavaFound(int self, String pin) {
+        System.err.println(pin == null
+            ? "FLIXW003: no Java in [" + MIN_JAVA + ", " + TESTED_CEILING
+              + "] found; this JVM is " + self
+            : "FLIXW003: no Java " + pin + " found, which " + WRAPPER_DIR
+              + "/lock.toml pins; this JVM is " + self);
         jdkInstructions();
         if (!offerJdk()) throw w003("no usable Java; see the instructions above");
-        Path exe = installJdk(resolveTemurin());
+        // A pinned project gets the pinned feature release, not the wrapper's floor:
+        // fetching 21 for a project that asked for 25 would install something that
+        // cannot then be selected, which is worse than not fetching at all.
+        Path exe = installJdk(resolveTemurin(pin == null ? MIN_JAVA : feature(pin)));
         int f = probe(exe);
         if (f < MIN_JAVA)
             throw w003("the JDK just installed reports Java " + f + ", which is below "
                      + MIN_JAVA + "; install one by hand");
+        if (!satisfiesJavaPin(pin, probeVersion(exe)))
+            throw w003("the JDK just installed reports Java " + probeVersion(exe)
+                     + ", which does not satisfy the pinned java " + pin
+                     + "\n       Adoptium publishes feature releases, not every patch;"
+                     + " pin the feature release, or install that build by hand");
         System.err.println("flixw: using " + exe);
         System.err.println("       flixw owns this JDK; set JAVA_HOME to it to use it elsewhere.");
         return new Jvm(exe, f, "flixw-installed Temurin");
@@ -1276,7 +1365,18 @@ public final class flixw {
     static void installJdkVerb(List<String> argv) {
         if (argv.size() > 1)
             throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
-        Path exe = installJdk(resolveTemurin());
+        // Inside a project that pins a Java, fetch that one: installing the wrapper's
+        // floor instead would download a JDK this project is then not allowed to select.
+        // Outside one -- this namespace works anywhere -- the floor is the honest answer.
+        Integer want = null;
+        try {
+            Path lf = lockPath(findRoot(wrapperAnchor()));
+            if (Files.isRegularFile(lf)) {
+                String j = readLock(lf).java();
+                if (j != null) want = feature(j);
+            }
+        } catch (Fail ignored) { }
+        Path exe = installJdk(resolveTemurin(want == null ? MIN_JAVA : want));
         int f = probe(exe);
         if (f < MIN_JAVA)
             throw w003("the JDK just installed reports Java " + f + ", below " + MIN_JAVA);
@@ -1806,16 +1906,16 @@ public final class flixw {
         switch (verb) {
             case "pin" -> {
                 if (rest.isEmpty())
-                    throw w009("usage: ./flixw pin [<owner>/<repo>] <version>");
+                    throw w009("usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]");
                 String[] t = parsePin(rest, lock);
-                pin(root, t[0], t[1]);
+                pin(root, t[0], t[1], t[2], t[3] != null);
             }
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
             case "info" -> report(root, lock, jar, jvm, compilerVerbs);
             case "validate" -> {
-                int bad = check(root, lock, jar);
+                int bad = check(root, lock, jar, jvm);
                 if (bad > 0) throw w009(bad + " validation failure(s)");
             }
             case "doctor" -> {
@@ -1827,7 +1927,7 @@ public final class flixw {
                 if (fix) { updateWrapper(root); System.out.println(); }
                 report(root, lock, jar, jvm, compilerVerbs);
                 System.out.println();
-                int bad = check(root, lock, jar);
+                int bad = check(root, lock, jar, jvm);
                 if (bad > 0)
                     throw w009(bad + " problem(s); ./flixw doctor --fix repairs the wrapper"
                              + " files, ./flixw pin <version> repairs a drifted lock");
@@ -1848,6 +1948,8 @@ public final class flixw {
         System.out.println("jar              " + (jar == null ? "-" : jar));
         System.out.println("java             " + (jvm == null ? "-" : jvm.exe() + "  (" + jvm.feature()
                                                   + ", via " + jvm.how() + ")"));
+        System.out.println("java pin         " + (lock == null || lock.java() == null
+            ? "-  (any tested JDK)" : lock.java()));
         System.out.println("cache            " + cacheHome());
         System.out.println("dist url         " + (lock == null ? "-" : redact(rewriteBase(lock.url()))));
         if (env("FLIX_DIST_URL") != null) System.out.println("mirror           FLIX_DIST_URL is set");
@@ -1977,7 +2079,7 @@ public final class flixw {
     }
 
     /** Every check, printed; the count is the caller's to act on. */
-    static int check(Path root, Lock lock, Path jar) {
+    static int check(Path root, Lock lock, Path jar, Jvm jvm) {
         int bad = 0;
         // The shims are invariant for a wrapper release, and this stage 0 carries their
         // canonical bytes, so drift is detectable here rather than merely reportable.
@@ -2015,6 +2117,19 @@ public final class flixw {
             System.out.println("FAIL  flix.toml asks for " + mv + " or newer, lock pins "
                              + lock.version()); bad++;
         } else System.out.println("ok    the lock satisfies flix.toml");
+
+        // A java pin is checked against the JDK this run actually selected, not against
+        // the machine in general: "there is a 21 somewhere" is not the question.
+        if (lock != null && lock.java() != null) {
+            String got = jvm == null ? null : probeVersion(jvm.exe());
+            if (satisfiesJavaPin(lock.java(), got))
+                System.out.println("ok    java " + got + " satisfies the pinned java " + lock.java());
+            else {
+                System.out.println("FAIL  java " + (got == null ? "unidentifiable" : got)
+                                 + " does not satisfy the pinned java " + lock.java()
+                                 + " (./flixw wrapper --install-jdk)"); bad++;
+            }
+        }
 
         if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
 
@@ -2093,7 +2208,34 @@ public final class flixw {
         } catch (IOException ignored) { }
     }
 
-    static void pin(Path root, String repo, String version) {
+    static void pin(Path root, String repo, String version, String java, boolean clearJava) {
+        Path lockFile0 = lockPath(root);
+        // Defensively: `pin` is the documented repair for a lock that does not parse, so
+        // reading the old one must not be able to stop it. What is lost when it cannot be
+        // read is the java pin it carried, and a lock nobody can parse has no java pin
+        // worth preserving.
+        Lock had = null;
+        if (Files.isRegularFile(lockFile0)) {
+            try { had = readLock(lockFile0); } catch (Fail ignored) { }
+        }
+        // Carry the java pin unless this run changes it: `pin 0.75.3` on a project that
+        // pinned java 21 must not silently unpin the Java as well.
+        String javaPin = clearJava ? null : (java != null ? java : had == null ? null : had.java());
+        // A --java-only run rewrites one line and touches nothing else: no download, no
+        // digest, no network. Repinning the compiler is a different request.
+        if (version == null) {
+            if (had == null)
+                throw w002("pin: --java needs a lock that parses"
+                         + "\n       run: ./flixw pin <version> --java <version>");
+            String lock = lockText(WRAPPER_VERSION, had.repo() == null ? UPSTREAM_REPO : had.repo(),
+                                   had.version(), had.url(), had.sha256(), javaPin);
+            try { writeAtomic(lockFile0, lock); }
+            catch (IOException e) { throw w009("pin failed: " + why(e)); }
+            System.err.println(javaPin == null
+                ? "flixw: unpinned java; the newest tested JDK will be used"
+                : "flixw: pinned java " + javaPin);
+            return;
+        }
         Asset asset = resolveRelease(repo, version);
         String url = asset.url();
         Path wrapperDir = root.resolve(WRAPPER_DIR);
@@ -2120,16 +2262,7 @@ public final class flixw {
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
-            String lock = """
-                # Generated by ./flixw pin. Do not edit by hand; commit this file.
-                wrapperVersion = "%s"
-
-                [compiler]
-                repo    = "%s"
-                version = "%s"
-                url     = "%s"
-                sha256  = "%s"
-                """.formatted(WRAPPER_VERSION, repo, version, url, digest);
+            String lock = lockText(WRAPPER_VERSION, repo, version, url, digest, javaPin);
 
             // The cache is filled first and every failure in it is discarded, which keeps
             // it out of the transaction below.  It is an optimisation -- the next run
@@ -2160,6 +2293,28 @@ public final class flixw {
             throw w009("pin failed: " + why(e));
         } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
     }
+    /** One place that knows what a lock looks like, so the writer cannot drift by table. */
+    static String lockText(String wrapper, String repo, String version, String url,
+                           String sha256, String java) {
+        String body = """
+            # Generated by ./flixw pin. Do not edit by hand; commit this file.
+            wrapperVersion = "%s"
+
+            [compiler]
+            repo    = "%s"
+            version = "%s"
+            url     = "%s"
+            sha256  = "%s"
+            """.formatted(wrapper, repo, version, url, sha256);
+        // Absent rather than empty when unpinned: a project that does not care which JDK
+        // runs the compiler should not have to read a line telling it so.
+        return java == null ? body : body + """
+
+            [java]
+            version = "%s"
+            """.formatted(java);
+    }
+
     static void install(Path target, Path source) {
         try {
             Path fw = target.resolve(WRAPPER_DIR);
@@ -2535,7 +2690,7 @@ public final class flixw {
             routingNotice(first, lock == null ? "none" : lock.version());
             if (first.equals("pin")) {
                 String[] t = parsePin(argv.subList(1, argv.size()), lock);
-                pin(root, t[0], t[1]);
+                pin(root, t[0], t[1], t[2], t[3] != null);
             }
             else
                 wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null);
@@ -2551,11 +2706,11 @@ public final class flixw {
         if ("pin".equals(first) && !forcedCompiler) {
             routingNotice("pin", lock.version());
             String[] t = parsePin(argv.subList(1, argv.size()), lock);
-            pin(root, t[0], t[1]);
+            pin(root, t[0], t[1], t[2], t[3] != null);
             return;
         }
 
-        Jvm jvm = selectJava();
+        Jvm jvm = selectJava(lock == null ? null : lock.java());
         tr("java " + jvm.exe() + " (" + jvm.feature() + ")");
         if (relaunch(jvm, argv)) return;
         List<String> opts = jvmOpts();
@@ -2649,7 +2804,7 @@ public final class flixw {
         System.out.println("  ./flixw help | --help            this table, then the compiler's own help");
         System.out.println("  ./flixw <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flixw -- <args>                forced compiler pass-through");
-        System.out.println("  ./flixw pin [<owner>/<repo>] <version>   write the lock, fetch the compiler");
+        System.out.println("  ./flixw pin [<owner>/<repo>] [<version>] [--java <v>]  write the lock");
         System.out.println("  ./flixw info                     project, compiler, java, cache");
         System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flixw validate                 the checks alone, for CI");

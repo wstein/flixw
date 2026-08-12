@@ -332,7 +332,9 @@ t 0  "pin repairs a lock that does not parse"                    sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
   sed "s/^sha256.*/sha256  = \"not-a-digest\"/" "$1/lock.keep" > .flixw/lock.toml
   ./flixw pin '"$version"' >/dev/null 2>&1
-  grep -q "^sha256" .flixw/lock.toml' sh "$work"
+  # The digest, not merely the key: this case once passed against the corrupted line it
+  # was supposed to have replaced, and every test after it inherited a broken lock.
+  grep -qE "^sha256  = \"[0-9a-f]{64}\"" .flixw/lock.toml' sh "$work"
 t 81 "a lock that does not parse still blocks the compiler"      sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
   sed "s/^sha256.*/sha256  = \"not-a-digest\"/" "$1/lock.keep" > .flixw/lock.toml
@@ -382,6 +384,43 @@ t 0  "the floor reader ignores a flix key inside a description"  sh -c '
   ./flixw doctor >/dev/null 2>&1; rc=$?
   cp "$1/toml.keep" flix.toml; exit $rc' sh "$work"
 cp "$work/flix.toml.good" flix.toml
+
+# --- the java pin ----------------------------------------------------------
+echo "java pin"
+# The lock pins which Java runs the compiler, in the same file and for the same reason as
+# the compiler itself. It is a version, not a path: a path is true on one machine.
+t 0  "pin --java writes the java table"                         sh -c '
+  ./flixw pin --java 21 >/dev/null 2>&1 || exit 1
+  grep -q "^\[java\]" .flixw/lock.toml && grep -q "^version = \"21\"" .flixw/lock.toml'
+t 0  "a java pin does not disturb the compiler pin"             sh -c '
+  grep -q "^version = \"'"$version"'\"" .flixw/lock.toml'
+t 0  "the compiler still runs under a satisfied pin"            ./flixw -- --version
+g 0  'java 2[0-9]' "doctor reports the satisfied pin"           ./flixw doctor
+# Re-pinning the compiler must not quietly unpin the Java.
+t 0  "repinning the compiler keeps the java pin"                sh -c '
+  ./flixw pin '"$version"' >/dev/null 2>&1 || exit 1
+  grep -q "^version = \"21\"" .flixw/lock.toml'
+t 0  "pin --java none removes it"                               sh -c '
+  ./flixw pin --java none >/dev/null 2>&1 || exit 1
+  ! grep -q "^\[java\]" .flixw/lock.toml'
+# A pin below the floor is a contradiction: the compiler cannot run there at all, so it is
+# refused where it is written rather than at every run afterwards.
+t 81 "a java pin below the floor is refused"                    ./flixw pin --java 17
+t 81 "a java pin that is not a number is refused"               ./flixw pin --java latest
+t 87 "an unknown pin option is refused"                         ./flixw pin --jaba 21
+# A lock asking for a Java this machine does not have stops before any compiler work.
+g 82 'no Java 99' "an unsatisfiable java pin fails, saying so"   sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  printf "\n[java]\nversion = \"99\"\n" >> .flixw/lock.toml
+  ./flixw -- --version; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# An explicitly named JDK is still obeyed rather than replaced -- but not silently against
+# a pin the project committed.
+g 83 'lock.toml pins java' "an explicit JDK against the pin is refused" sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  printf "\n[java]\nversion = \"99\"\n" >> .flixw/lock.toml
+  JAVA_HOME=$2 ./flixw -- --version; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work" "$(dirname "$(dirname "$realjava")")"
 
 # --- lock validation -------------------------------------------------------
 echo "lock validation"

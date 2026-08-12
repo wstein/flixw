@@ -366,7 +366,7 @@ public final class UnitCheck {
      */
     static void pinTargets() {
         flixw.Lock forked = new flixw.Lock("0.75.2+f.1", "https://x/y.jar", "a".repeat(64),
-                                         "wstein/flix-fork");
+                                         "wstein/flix-fork", null);
         String[] t = flixw.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);
         eq("pin: repository then version", "wstein/flix-fork", t[0]);
         eq("pin: version survives its build metadata", "0.75.2+f.1", t[1]);
@@ -394,7 +394,46 @@ public final class UnitCheck {
             catch (flixw.Fail e) { ok(); }
         }
 
-        System.out.println("  ok   pin targets: repository and version parsing");
+        // --- the java pin ---------------------------------------------------
+        t = flixw.parsePin(java.util.List.of("0.75.2", "--java", "21"), null);
+        eq("pin: --java rides along with a compiler version", "21", t[2]);
+        t = flixw.parsePin(java.util.List.of("--java", "21.0.12"), forked);
+        eq("pin: --java alone needs no compiler version", null, t[1]);
+        eq("pin: ...and keeps the repository", "wstein/flix-fork", t[0]);
+        eq("pin: ...and takes an exact version", "21.0.12", t[2]);
+        t = flixw.parsePin(java.util.List.of("--java", "none"), forked);
+        eq("pin: --java none clears it", null, t[2]);
+        if (t[3] != null) ok(); else bad("pin: --java none", "did not ask to clear");
+
+        for (java.util.List<String> bad : java.util.List.of(
+                java.util.List.of("--java"),                    // no value
+                java.util.List.of("--java", "17"),              // below the compiler's floor
+                java.util.List.of("--java", "21+"),             // not a dotted number
+                java.util.List.of("--java", "latest"),
+                java.util.List.of("--jaba", "21"),              // not an option we know
+                java.util.List.of("--java", "21", "--java", "22"))) {
+            try { flixw.parsePin(bad, forked); bad("pin: " + bad, "accepted"); }
+            catch (flixw.Fail e) { ok(); }
+        }
+        // A --java-only pin with no lock has nothing to keep, and says so rather than
+        // inventing a compiler.
+        try { flixw.parsePin(java.util.List.of("--java", "21"), null); bad("pin: --java with no lock", "accepted"); }
+        catch (flixw.Fail e) { ok(); }
+
+        // Matching is a prefix cut at a dot, so 21 accepts every 21.x and nothing else.
+        record M(String pin, String version, boolean want) {}
+        for (M m : java.util.List.of(
+                new M("21", "21.0.12", true), new M("21", "21", true),
+                new M("21.0", "21.0.12", true), new M("21.0.12", "21.0.12", true),
+                new M("21", "2", false), new M("2", "21", false),
+                new M("21", "22.0.1", false), new M("21.0.12", "21.0.1", false),
+                new M("21.1", "21.10.0", false), new M(null, "17", true),
+                new M("21", null, false))) {
+            if (flixw.satisfiesJavaPin(m.pin(), m.version()) == m.want()) ok();
+            else bad("java pin: " + m.pin() + " vs " + m.version(), "wrong verdict");
+        }
+
+        System.out.println("  ok   pin targets: repository, version and java parsing");
     }
 
     public static void main(String[] args) throws IOException {
