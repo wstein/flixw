@@ -54,12 +54,25 @@ That is one project and one compiler release, which is not yet evidence that pin
 ## Getting it into a project
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.18.0/flix.java
-shasum -a 256 flix.java           # compare with the release notes before running it
-java flix.java install .          # writes flix, flix.cmd, .flix-wrapper/, .gitattributes
-rm flix.java
-./flix pin 0.75.2                 # writes the lock, fetches and verifies the compiler
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.0/flixw-0.19.0.tar.gz
+shasum -a 256 flixw-0.19.0.tar.gz   # compare with the release notes before extracting it
+tar -xzf flixw-0.19.0.tar.gz        # writes flix, flix.cmd, .flix-wrapper/flix.java
+rm flixw-0.19.0.tar.gz
+./flix doctor --fix                 # merges the .gitattributes block
+./flix pin 0.75.2                   # writes the lock, fetches and verifies the compiler
 git add flix flix.cmd .flix-wrapper .gitattributes
+```
+
+A `.zip` with the same contents is attached to every release for machines without `tar`.
+The archives leave `.gitattributes` alone rather than overwriting the one your project
+already has, which is why `doctor --fix` — which *merges* the block — is a step of its own.
+
+`flix.java` is published on its own as well, for the equivalent route through the installer:
+
+```console
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.19.0/flix.java
+java flix.java install .          # writes all four files, merging .gitattributes
+rm flix.java
 ```
 
 Install from a release rather than from `main`: a tool that asks you to pin an exact
@@ -100,6 +113,8 @@ sh tests/run.sh     # regression suite (needs network on first run)
 ```
 
 Both are required before a commit, and both run in CI on Linux, macOS and Windows.
+`sh tests/pack.sh <dir>` builds the release archives locally, by the same script the
+release workflow runs — so a published digest can be reproduced rather than trusted.
 `sh tests/fetch-corpus.sh` refreshes the manifest corpus; it is a maintenance tool rather
 than a test, and needs `gh`, `curl` and python3. See
 [`tests/corpus/README.md`](tests/corpus/README.md).

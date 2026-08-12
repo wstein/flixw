@@ -46,6 +46,11 @@ cd /tmp/proj && ./flix pin 0.75.2         # writes .flix-wrapper/lock.toml, down
 ./flix validate                           # wrapper files, lock/manifest agreement, git tracked status
 ```
 
+A release ships the same three files as two archives plus `flix.java`; `sh tests/pack.sh
+<dir>` builds them by running `install` into a staging directory and packing the result, so
+the archive route cannot drift from the install route. `.github/workflows/release.yaml`
+runs it on a `v*` tag and refuses to publish if the tag and `WRAPPER_VERSION` disagree.
+
 The repository's configured checks, both required before a commit:
 
 ```sh

@@ -1,0 +1,78 @@
+name: release
+
+# Tag-driven, because the version a release publishes is the one compiled into
+# src/flix.java: the tag says which commit, and the commit says which version. The job
+# refuses to publish if the two disagree, which is the mistake this automation makes
+# possible in the first place.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "existing tag to (re)build the assets for"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build and publish the release assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # The assets must not be able to disagree with the source they were cut from, so
+      # the same checks that gate a commit gate a release. Nothing here is a smoke test:
+      # run.sh is what proves the archives unpack to exactly what `install` writes.
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: sh tests/lint.sh
+      - run: sh tests/run.sh
+
+      - name: the tag must match WRAPPER_VERSION
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version=$(java src/flix.java wrapper --version | head -1 | cut -d' ' -f2)
+          if [ "$tag" != "v$version" ]; then
+            echo "tag $tag does not match WRAPPER_VERSION $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_ENV"
+
+      - run: sh tests/pack.sh dist
+
+      # softprops and friends are third-party actions with write scope on the repository;
+      # gh is preinstalled and does the same job with no supply chain to audit.
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          notes=$(mktemp)
+          {
+            printf '## Install into an existing project\n\n'
+            printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-%s.tar.gz\n' \
+                   "$GITHUB_REPOSITORY" "$TAG" "$version"
+            printf 'tar -xzf flixw-%s.tar.gz     # writes flix, flix.cmd, .flix-wrapper/flix.java\n' "$version"
+            printf './flix doctor --fix           # merges the .gitattributes block\n'
+            printf './flix pin <flix-version>     # writes the lock and fetches the compiler\n```\n\n'
+            printf 'A `.zip` with the same contents is attached for machines without `tar`, and '
+            printf '`flix.java` on its own for the `java flix.java install .` route.\n\n'
+            printf 'Verify before you run it -- these digests are the ones this workflow built:\n\n'
+            printf '```\n'
+            cat dist/SHA256SUMS
+            printf '```\n'
+          } > "$notes"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --notes-file "$notes"
+          else
+            gh release create "$TAG" dist/* --title "flixw $version" --notes-file "$notes"
+          fi

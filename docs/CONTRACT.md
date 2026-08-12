@@ -26,6 +26,14 @@ last matching pattern, so an override silently un-pins the line endings the bloc
 to fix. All four files must be committed; `flix validate` fails if a gitignore rule
 swallows one, because a collaborator would then get a project that cannot bootstrap.
 
+**Installing from an archive.** A release also ships `flixw-<version>.tar.gz` and
+`flixw-<version>.zip`, whose contents are byte-identical to what `install` writes and are
+extracted at a project root. They carry three of the four files: `.gitattributes` is
+omitted, because `install` *merges* its block into whatever the project already has and an
+archive can only overwrite. `./flix doctor --fix` performs that merge afterwards, and
+`./flix validate` reports the block as missing if it was skipped. The executable bit on
+`flix` is carried by both archive formats.
+
 ## The pin
 
 `.flix-wrapper/lock.toml` is the pin: it is flixw's own file, it is generated, and it

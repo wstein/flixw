@@ -669,6 +669,40 @@ g 88 'gitignore' "validate fails when the lock is ignored"      sh -c '
   ./flix validate; rc=$?
   rm -f .gitignore; exit $rc'
 
+# --- release archives ------------------------------------------------------
+# The archives exist so an existing project can adopt flixw by extracting one. That is only
+# true if what comes out of them is exactly what `install` writes -- an archive that is one
+# CRLF or one permission bit off produces a project that fails in a way nobody will connect
+# back to the tarball. So both are unpacked and diffed against a fresh install.
+echo "release archives"
+if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+  pk="$work/pack"
+  rm -rf "$pk" && mkdir -p "$pk/out" "$pk/ref" "$pk/tar" "$pk/zip"
+  if sh "$root/tests/pack.sh" "$pk/out" >"$pk/log" 2>&1; then
+    t 0 "pack builds both archives and SHA256SUMS"               sh -c '
+      set -e
+      ls "$1"/flixw-*.tar.gz "$1"/flixw-*.zip "$1"/flix.java "$1"/SHA256SUMS' sh "$pk/out"
+    # install into ref, minus the file the archives deliberately leave out.
+    java "$root/src/flix.java" install "$pk/ref" >/dev/null 2>&1 || true
+    rm -f "$pk/ref/.gitattributes"
+    t 0 "the tarball unpacks to exactly what install writes"     sh -c '
+      tar -xzf "$1"/flixw-*.tar.gz -C "$2" && diff -r "$3" "$2"' sh "$pk/out" "$pk/tar" "$pk/ref"
+    t 0 "the zip unpacks to exactly what install writes"         sh -c '
+      unzip -qo "$1"/flixw-*.zip -d "$2" && diff -r "$3" "$2"' sh "$pk/out" "$pk/zip" "$pk/ref"
+    # The shim is useless without this, and an archive is the classic way to lose it.
+    t 0 "the shim keeps its executable bit through the tarball"  test -x "$pk/tar/flix"
+    t 0 "the shim keeps its executable bit through the zip"      test -x "$pk/zip/flix"
+    # Extraction leaves .gitattributes alone; doctor --fix is what merges the block, and
+    # the archive route is documented as needing it.
+    t 0 "the archives do not carry .gitattributes"               sh -c '
+      ! test -e "$1/.gitattributes" && ! test -e "$2/.gitattributes"' sh "$pk/tar" "$pk/zip"
+  else
+    s "pack builds both archives" "pack.sh failed: $(tail -1 "$pk/log")"
+  fi
+else
+  s "release archives" "zip/unzip not installed"
+fi
+
 echo
 echo "passed=$pass failed=$fail skipped=$skipped"
 [ "$fail" -eq 0 ]
