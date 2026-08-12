@@ -2468,7 +2468,17 @@ public final class flixw {
             mergeGitattributes(target.resolve(".gitattributes"));
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
                              + "/flixw.java into " + target);
-            System.out.println("next: ./flixw pin <version>   then commit all five files");
+            // `install` is reached two ways, and they need different sentences. First
+            // contact has nothing pinned and the next step is pinning; an upgrade arrives
+            // here through `wrapper --upgrade` with a lock already in place, and telling
+            // that reader to pin reads as though the upgrade lost their compiler.
+            if (Files.isRegularFile(lockPath(target))) {
+                System.out.println("the compiler pin is untouched; commit the wrapper files"
+                                 + " that changed:");
+                System.out.println("  git add flixw flixw.cmd " + WRAPPER_DIR);
+            } else {
+                System.out.println("next: ./flixw pin <version>   then commit all five files");
+            }
         } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
     }
 

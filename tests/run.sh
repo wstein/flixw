@@ -871,6 +871,20 @@ case $rc:$upg in
     printf '       %s\n' "$(printf '%s' "$upg" | head -3 | tr '\n' '|')" ;;
 esac
 
+# --- what install says afterwards -----------------------------------------
+echo "install advice"
+# `install` is reached two ways. First contact has nothing pinned and the next step is
+# pinning. `wrapper --upgrade` arrives here with a lock already in place, and telling that
+# reader to pin reads as though the upgrade had lost their compiler.
+g 0 'commit all five files' "first contact says to pin"          sh -c '
+  d=$1/advice-new; rm -rf "$d"; mkdir -p "$d"
+  java "$2/src/flixw.java" install "$d" 2>&1' sh "$work" "$root"
+g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
+  d=$1/advice-pinned; rm -rf "$d"; mkdir -p "$d"
+  java "$2/src/flixw.java" install "$d" >/dev/null 2>&1
+  cp "$3/.flixw/lock.toml" "$d/.flixw/lock.toml"
+  java "$2/src/flixw.java" install "$d" 2>&1' sh "$work" "$root" "$proj"
+
 # --- git integration -------------------------------------------------------
 echo "git integration"
 t 0  "validate warns when generated files are untracked"        sh -c 'git init -q . 2>/dev/null; ./flixw validate'
