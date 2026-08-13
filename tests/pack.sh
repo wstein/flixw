@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the release payload into <output-dir>:
 #
-#   flixw-<version>.tar.gz   the wrapper files, extracted over a project root
+#   flixw-<version>.tar.gz   the wrapper files and .envrc.example, over a project root
 #   flixw-<version>.zip      the same, for a machine without tar
 #   flixw.java                stage 0 on its own, for the `java flixw.java install .` route
 #   SHA256SUMS               digests of all three
@@ -51,6 +51,12 @@ java "$root/src/flixw.java" install "$stage" >/dev/null
 # after extraction, and `./flixw validate` says so if it was skipped.
 rm -f "$stage/.gitattributes"
 
+# .envrc.example is packed, unlike .gitattributes, because the archive is how an existing
+# project adopts flixw and a template nobody receives is not a template. It is the one
+# member the two routes do not treat identically: `install` writes it only when absent,
+# extraction overwrites it. That is the right way round -- edits belong in the .envrc you
+# copy it to, and an adopter extracting a newer release should get the newer template.
+#
 # Timestamps are normalised so that repacking the same commit yields the same bytes, and a
 # published digest can be reproduced rather than merely trusted. zip stores DOS times,
 # whose epoch is 1980; tar and gzip are given a real zero.
@@ -63,7 +69,7 @@ if tar --version 2>/dev/null | head -1 | grep -q GNU; then
   tar_flags='--sort=name --owner=0 --group=0 --numeric-owner --mtime=@0'
 fi
 # shellcheck disable=SC2086  # word splitting is the point; the flags are ours
-(cd "$stage" && tar $tar_flags -cf - flixw flixw.cmd .flixw) \
+(cd "$stage" && tar $tar_flags -cf - flixw flixw.cmd .flixw .envrc.example) \
   | gzip -9 -n > "$out/flixw-$version.tar.gz"
 
 rm -f "$out/flixw-$version.zip"
@@ -71,7 +77,7 @@ rm -f "$out/flixw-$version.zip"
 # permission bits that carry the executable flag are not extra fields and survive it.
 # TZ=UTC again: zip stores wall-clock local time, so the same tree packed in Berlin and in
 # UTC would otherwise differ in four bytes per member.
-(cd "$stage" && TZ=UTC zip -qrX "$out/flixw-$version.zip" flixw flixw.cmd .flixw)
+(cd "$stage" && TZ=UTC zip -qrX "$out/flixw-$version.zip" flixw flixw.cmd .flixw .envrc.example)
 
 cp "$root/src/flixw.java" "$out/flixw.java"
 # The same bytes again under the pre-0.20 name. `wrapper --upgrade` in a wrapper older

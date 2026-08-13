@@ -226,6 +226,9 @@ echo "dispatch"
 t 0  "rule 1  -- pass-through"                                  ./flixw -- --version
 t 0  "rule 2  wrapper --version"                                ./flixw wrapper --version
 t 0  "rule 2  wrapper --help"                                   ./flixw wrapper --help
+# FLIX_JAR worked for years and was findable only by reading one table row in
+# docs/CONTRACT.md. The routing table is where someone looks instead; keep it there.
+g 0 'FLIX_JAR' "the routing table names the local-build route"   ./flixw wrapper --help
 t 87 "an operation with trailing arguments"                     ./flixw wrapper --help check
 t 87 "an unknown wrapper operation"                                  ./flixw wrapper --frobnicate
 # The install itself is a 200MB download and is verified by hand; what the suite can
@@ -683,6 +686,13 @@ t 0  "a nested project runs once it has its own lock"           sh -c 'cd nested
 echo "degradation"
 g 0 'FLIXW010' "unparseable --help falls back, does not brick"  env FLIX_JAR="$work/impostor/impostor.jar" ./flixw check
 t 87 "FLIX_JAR pointing at nothing is a usage error"            env FLIX_JAR=/nonexistent/x.jar ./flixw check
+# The lock is read and drift checked before the override is, so an override cannot stand in
+# for a pin -- not even one naming a jar that exists. It is the first thing someone testing
+# a local build runs into, so it is documented in docs/CONTRACT.md and asserted here.
+g 81 'lock.toml' "FLIX_JAR does not substitute for a pin"       sh -c '
+  d=$1/nolock; rm -rf "$d"; mkdir -p "$d"
+  java "$2/src/flixw.java" install "$d" >/dev/null 2>&1
+  cd "$d" && FLIX_JAR="$1/impostor/impostor.jar" ./flixw check' sh "$work" "$root"
 t 0  "a read-only verb cache stays silent"                      sh -c '
   chmod -R a-w "$FLIX_CACHE_HOME/verbs"
   ./flixw check; rc=$?
@@ -884,6 +894,28 @@ g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
   java "$2/src/flixw.java" install "$d" >/dev/null 2>&1
   cp "$3/.flixw/lock.toml" "$d/.flixw/lock.toml"
   java "$2/src/flixw.java" install "$d" 2>&1' sh "$work" "$root" "$proj"
+
+# --- the .envrc.example template -------------------------------------------
+echo "envrc template"
+# The one file install writes and then never rewrites. It sits at the project root among
+# files the project owns, nothing reads it, and its whole purpose is to be copied and
+# edited -- so restoring it on drift would be overwriting someone's notes to repair a file
+# that does nothing.
+t 0 "install writes .envrc.example"                             sh -c '
+  d=$1/envrc-new; rm -rf "$d"; mkdir -p "$d"
+  java "$2/src/flixw.java" install "$d" >/dev/null 2>&1
+  grep -q FLIX_JAVA_HOME "$d/.envrc.example"' sh "$work" "$root"
+t 0 "re-installing leaves an edited template alone"             sh -c '
+  d=$1/envrc-edit; rm -rf "$d"; mkdir -p "$d"
+  java "$2/src/flixw.java" install "$d" >/dev/null 2>&1
+  echo "# edited by hand" >> "$d/.envrc.example"
+  cp "$d/.envrc.example" "$d/before"
+  java "$2/src/flixw.java" install "$d" >/dev/null 2>&1
+  cmp -s "$d/before" "$d/.envrc.example"' sh "$work" "$root"
+# Deliberately outside the wrapper contract: no canonical-bytes comparison, no tracked-file
+# audit, no .gitattributes rule. Deleting it is a valid answer and nothing should nag.
+t 0 "no check mentions the template"                            sh -c '
+  ! ./flixw validate 2>&1 | grep -q envrc'
 
 # --- git integration -------------------------------------------------------
 echo "git integration"

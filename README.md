@@ -219,6 +219,39 @@ Once installed, `./flixw wrapper --upgrade` moves the project to the newest rele
 `./flixw wrapper --help` prints the routing table: which verbs go to the compiler, which to
 the wrapper, and how to force either.
 
+## Testing a locally built compiler
+
+If you build Flix yourself — a fork, or a patch you have not tagged yet — run it with:
+
+```sh
+FLIX_JAR=/path/to/flix.jar ./flixw run
+```
+
+Two caveats. The jar is **not** digest-verified, every such run says so on stderr, and
+those runs are not evidence about the stock compiler. And a valid `.flixw/lock.toml` is
+still required: the lock is read and drift is checked before the override is, so pin a
+release first even if you intend to override it every time.
+
+`install` writes an `.envrc.example` into the project root with this and the other
+variables — `FLIX_JAVA_HOME`, `FLIX_CACHE_HOME`, `FLIX_DIST_URL`, `FLIX_JVM_OPTS` — as
+commented-out [direnv](https://direnv.net) exports. Copy it to `.envrc`, uncomment what you
+need, and run `direnv allow`. direnv needs its hook in your shell's startup file first:
+
+```sh
+eval "$(direnv hook bash)"   # ~/.bashrc
+eval "$(direnv hook zsh)"    # ~/.zshrc
+direnv hook fish | source    # ~/.config/fish/config.fish
+```
+
+The `.envrc` is bash whatever your own shell is — direnv evaluates it with bash and exports
+the difference — so fish users still write `export FOO=bar` in it, not `set -x FOO bar`.
+
+flixw itself never reads either file; direnv sets the variables in your shell before flixw
+starts, which is why it works in a terminal but not for an editor-spawned `flixw lsp`, and
+why there is no `cmd.exe` equivalent. The template is safe to delete — nothing checks for
+it. See [`docs/CONTRACT.md`](docs/CONTRACT.md#running-a-locally-built-compiler) for the full
+rules.
+
 ## Documentation
 
 - [`docs/CONTRACT.md`](docs/CONTRACT.md) — what is guaranteed, and the diagnostics table

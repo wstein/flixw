@@ -2489,6 +2489,7 @@ public final class flixw {
             Files.writeString(target.resolve("flixw.cmd"), CMD.replace("\n", "\r\n"),
                               StandardCharsets.UTF_8);
             writeLocalIgnore(target);
+            writeEnvrcExample(target);
             migrateFromFlixNames(target);
             mergeGitattributes(target.resolve(".gitattributes"));
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
@@ -2523,6 +2524,120 @@ public final class flixw {
             && Files.readString(f, StandardCharsets.UTF_8).equals(LOCAL_IGNORE)) return;
         Files.createDirectories(f.getParent());
         writeAtomic(f, LOCAL_IGNORE);
+    }
+
+    /**
+     * A template for the one supported way to run a compiler flixw did not download.
+     *
+     * `FLIX_JAR` has always worked, and was findable only by reading one table row in
+     * docs/CONTRACT.md -- so in practice the people who needed it did not know it existed.
+     * A file sitting in the project says so without being read.
+     *
+     * The name is `.envrc.example`, not `.envrc`, and that is the whole point of the file
+     * rather than a detail of it. direnv refuses an `.envrc` it has not been shown, and
+     * reprints `direnv: error ... is blocked` on every cd into the directory until someone
+     * runs `direnv allow` or deletes it. The refusal is keyed on the file's hash, so a
+     * fully commented-out `.envrc` is blocked exactly like a live one: shipping one would
+     * hand recurring noise to the only population it could help. `.example` is inert.
+     */
+    static final String ENVRC_EXAMPLE =
+        "# .envrc.example -- copy to .envrc, then run: direnv allow\n"
+      + "#\n"
+      + "# Requires direnv (https://direnv.net); flixw itself never reads this file.\n"
+      + "# direnv exports these into your shell before ./flixw ever starts, which is\n"
+      + "# also why it reaches a terminal and not an editor-spawned `flixw lsp`.\n"
+      + "#\n"
+      + "# One-time setup per machine. direnv does nothing until its hook is in your\n"
+      + "# shell's startup file, and until then an .envrc is an inert text file:\n"
+      + "#\n"
+      + "#   bash   in ~/.bashrc:                  eval \"$(direnv hook bash)\"\n"
+      + "#   zsh    in ~/.zshrc:                   eval \"$(direnv hook zsh)\"\n"
+      + "#   fish   in ~/.config/fish/config.fish: direnv hook fish | source\n"
+      + "#\n"
+      + "# This file is bash whatever your own shell is: direnv evaluates it with bash\n"
+      + "# and exports the difference. So fish users still write `export FOO=bar` here\n"
+      + "# -- `set -x FOO bar` is a syntax error in this file.\n"
+      + "#\n"
+      + "# Everything here is optional and every line is commented out. flixw works with\n"
+      + "# none of it set; the full table is in docs/CONTRACT.md.\n"
+      + "\n"
+      + "# ---- which JDK runs the compiler ------------------------------------------\n"
+      + "# Prefer pinning it for everyone in " + WRAPPER_DIR + "/lock.toml:\n"
+      + "#   ./flixw pin <version> --java 21\n"
+      + "# That is committed and reproducible. Use this only when *your* machine keeps\n"
+      + "# that JDK somewhere the search would not find. An invalid value is fatal, on\n"
+      + "# purpose: a silently ignored JDK selection is worse than a stopped build.\n"
+      + "#\n"
+      + "# export FLIX_JAVA_HOME=\"$HOME/.sdkman/candidates/java/21.0.5-tem\"\n"
+      + "\n"
+      + "# ---- running a compiler flixw did not download ----------------------------\n"
+      + "# The jar is NOT digest-verified, every such run says so on stderr, and those\n"
+      + "# runs are not stock-compatibility evidence. A valid lock is still required:\n"
+      + "# " + WRAPPER_DIR + "/lock.toml is read, and drift checked, before the override is.\n"
+      + "#\n"
+      + "# export FLIX_JAR=\"$PWD/../flix/build/libs/flix.jar\"\n"
+      + "\n"
+      + "# ---- where downloads land -------------------------------------------------\n"
+      + "# A cache inside the project, rather than the shared one under your home\n"
+      + "# directory. Useful for a throwaway container, or to keep one project's\n"
+      + "# compilers off a small home volume; the compiler is then downloaded once\n"
+      + "# per project instead of once per machine.\n"
+      + "#\n"
+      + "# Put it under local/ if you put it here at all -- that is the one path\n"
+      + "# " + WRAPPER_DIR + "/.gitignore already keeps out of git, and a cache holds a\n"
+      + "# ~33MB jar that must never reach a commit.\n"
+      + "#\n"
+      + "# export FLIX_CACHE_HOME=\"$PWD/" + WRAPPER_DIR + "/local/cache\"\n"
+      + "\n"
+      + "# ---- fetching through a mirror --------------------------------------------\n"
+      + "# Rewrites the download base only. The pinned digest is unchanged and still\n"
+      + "# verified, so a mirror serving different bytes fails rather than substitutes.\n"
+      + "# Must be https.\n"
+      + "#\n"
+      + "# export FLIX_DIST_URL=\"https://artifacts.example.com/flix\"\n"
+      + "# export HTTPS_PROXY=\"http://proxy.example.com:3128\"\n"
+      + "# export NO_PROXY=\"localhost,127.0.0.1,.example.com\"\n"
+      + "\n"
+      + "# ---- options for the compiler JVM -----------------------------------------\n"
+      + "# For a project big enough to need more heap than the default. These go to the\n"
+      + "# compiler's JVM, not to flixw's; a deny-list rejects the ones that would\n"
+      + "# change what code the JVM loads or runs (-cp, -javaagent:, @argfiles).\n"
+      + "#\n"
+      + "# export FLIX_JVM_OPTS=\"-Xmx4g\"\n"
+      + "\n"
+      + "# ---- while debugging flixw itself -----------------------------------------\n"
+      + "# Per-phase timings on stderr. Transient by nature -- if this is still on in a\n"
+      + "# month, that is the sign it belongs in your shell for one command instead.\n"
+      + "#\n"
+      + "# export FLIXW_TRACE=1\n"
+      + "\n"
+      + "# ---- keeping this file honest ---------------------------------------------\n"
+      + "# Anything machine-specific belongs in an ignored file, not in the one you\n"
+      + "# might be tempted to commit:\n"
+      + "#\n"
+      + "# source_env_if_exists .envrc.local\n"
+      + "#\n"
+      + "# flixw does not edit your .gitignore. Add these yourself if you use them:\n"
+      + "#   .envrc\n"
+      + "#   .envrc.local\n";
+
+    /**
+     * Written once, then never touched again -- unlike every other file install writes.
+     *
+     * The others are flixw's: they are executed or parsed, drift in them breaks a run, and
+     * `doctor --fix` restoring them is a repair. This one sits at the project root among
+     * files the project owns, nothing reads it, and its whole purpose is to be copied and
+     * edited. Rewriting it on drift would be overwriting someone's notes to restore a file
+     * that does nothing. For the same reason it is absent from SHIPPED, from doctor's
+     * canonical comparison and tracked-file audit, and from the .gitattributes block:
+     * deleting it is a valid answer, and nothing should nag about that.
+     */
+    static void writeEnvrcExample(Path target) throws IOException {
+        Path f = target.resolve(".envrc.example");
+        if (Files.exists(f)) return;
+        writeAtomic(f, ENVRC_EXAMPLE);
+        System.out.println("wrote    ./.envrc.example  (direnv template for FLIX_JAR;"
+                         + " safe to delete)");
     }
 
     /**
@@ -3009,6 +3124,9 @@ public final class flixw {
         System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flixw validate                 the checks alone, for CI");
         System.out.println("  ./flixw wrapper [--help | --version | --upgrade | --install-jdk]");
+        System.out.println();
+        System.out.println("  FLIX_JAR=<path> ./flixw <verb>   run a locally built compiler"
+                         + " (unverified; see ./.envrc.example)");
 
         System.out.println();
         System.out.println("cache            " + cacheHome());

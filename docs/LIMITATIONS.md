@@ -29,6 +29,42 @@ anything else says nothing about those. `doctor` labels it, and `pin` says so on
 The wrapper files have the same shape of problem one level up: published hashes protect a
 release you already have, not the first copy you obtained.
 
+## No persistent local-compiler override
+
+`FLIX_JAR` is the only way to run a compiler flixw did not download, and it is an
+environment variable on purpose. It dies with the shell, so its blast radius is one
+terminal session.
+
+That has real costs, and they are not hypothetical. It does not reach an editor-spawned
+`flixw lsp`, because a GUI editor never passes through a shell prompt. `.envrc` covers the
+POSIX-terminal case, but needs direnv installed and allowed per clone, and has no
+`cmd.exe` or PowerShell equivalent — so on Windows there is no project-scoped answer at
+all. The `.envrc.example` that `install` writes narrows the gap; it does not close it.
+
+A persistent per-project override — a `wrapper --dev-jar` verb writing a gitignored marker
+under `.flixw/local/` — was designed in full and rejected. The reason is not that it is hard;
+it is about eight lines of resolution plus a `doctor` line. It is that flixw sells exactly
+one property, *the jar you run is the jar in the lock*, and every affordance for not doing
+that turns the sentence into one with a footnote. An override you have to type is a
+decision; one that persists in a file is a state you can forget you are in, and the failure
+mode — debugging a compiler bug for a week against a jar from `~/Downloads` that predates
+two releases — is expensive and quiet.
+
+The counter-argument was good enough to record rather than bury: an override flixw
+*represents* is one `doctor` can report, and an override hidden in a VS Code settings blob
+is invisible to every diagnostic flixw has. Visibility beats prohibition. It was not
+accepted, on the grounds that the population it helps is small and the property it costs is
+the whole product — but if the editor-launch case turns out to be common in practice, this
+is the argument that should reopen the decision, and reopening it is legitimate.
+
+Also rejected, and for narrower reasons: `pin --local` (a machine-specific absolute path in
+a file that is committed and reviewed is a lock that is true on one machine); a top-level
+`./flixw dev` verb (compiler-first dispatch would silently reassign it the day Flix ships a
+`dev` verb of its own); and any expiry or time-to-live on a dev mode (a tool whose behaviour
+changes because you were on holiday is worse than the problem). Out of scope in the same
+breath: `--dev-classpath`, `--dev-src`, rebuild watching, and relaxing either the lock
+requirement or the manifest floor for override runs.
+
 ## SIGKILL to stage 0 orphans the compiler
 
 Java has no `exec(2)`. Stage 0 therefore spawns the compiler and stays resident for its
