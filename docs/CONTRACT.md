@@ -290,10 +290,18 @@ The verb set is captured once per compiler identity from `flix --help` and cache
 noticing that a pinned compiler has claimed a wrapper verb. It is bounded in both output
 size and wall clock — as is the one-shot probe of a candidate `java` — because a `FLIX_JAR`
 may point at any JAR at all, and a child that starts but never answers must cost a
-timeout rather than the session. If `--help` cannot be parsed,
-stage 0 warns once with `FLIXW010`, falls back to a built-in table, and carries on —
-otherwise one upstream help reformat would brick every project pinned to a compiler this
-wrapper has not seen, including for `check`, which never consults the verb set.
+timeout rather than the session.
+
+Two help renderers are read, because two are in circulation and neither is a contract:
+scopt's, which stock Flix uses — a single-line `Usage: flix [a|b|c]` plus one `Command: a`
+line per verb — and picocli's, used by a fork, which wraps that bracket across lines and
+lists the verbs in an indented `Commands:` block instead. Three independent parses run and
+their results are merged; any one of them reaching three verbs is enough.
+
+If none of them can parse `--help`, stage 0 warns once with `FLIXW010`, falls back to a
+built-in table, and carries on — otherwise one upstream help reformat would brick every
+project pinned to a compiler this wrapper has not seen, including for `check`, which never
+consults the verb set.
 
 Rule 5 exists because unknown first words may be filenames or future verbs. Note that
 Flix does not currently produce a good unknown-command message — `flix doctro` reports

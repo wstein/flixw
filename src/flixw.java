@@ -1651,16 +1651,60 @@ public final class flixw {
         }
         if (out == null)
             throw w009("`flix --help` did not finish within " + HELP_TIMEOUT.toSeconds() + "s");
-        // Two independent parses.  `Command: lsp-vscode port` carries an argument, so a
-        // whole-line parse yields a phantom verb; take the first token only.
+        List<String> verbs = parseVerbs(out);
+        if (verbs.size() < 3)
+            throw w009("cannot parse verbs from `flix --help` of " + jar
+                     + " (got " + verbs.size() + " candidate(s))");
+        return verbs;
+    }
+
+    /** Two-space indent, a lowercase name, then the column gap before its description. */
+    static final Pattern COMMAND_ENTRY = Pattern.compile("^ {2}([a-z][a-z0-9_-]*)(?:\\s|$)");
+
+    /**
+     * The verbs a help screen advertises, by three independent parses.
+     *
+     * Two help renderers are in play and neither is a contract. Stock Flix is scopt: the
+     * verb list is one `Usage: flix [a|b|c]` line, and each verb repeats as `Command: a`.
+     * The picocli-based fork wraps that same bracket across several lines and replaces the
+     * per-verb lines with one indented `Commands:` block. A parser that handles only the
+     * first reports zero candidates on the second, which is what FLIXW010 was saying.
+     *
+     * Kept separate from the subprocess that produces the text so it can be tested against
+     * both renderers' real output without a JAR; `tests/UnitCheck.java` does exactly that.
+     */
+    static List<String> parseVerbs(String out) {
         Set<String> set = new LinkedHashSet<>();
-        Matcher usage = Pattern.compile("(?m)^Usage:.*?\\[([a-z0-9|_-]+)\\]").matcher(out);
-        if (usage.find()) for (String s : usage.group(1).split("\\|")) if (!s.isBlank()) set.add(s.trim());
+
+        // DOTALL, because picocli breaks the bracket after a `|` and indents what follows:
+        // a line-bounded match never reaches the closing `]` and so matches nothing at all.
+        Matcher usage = Pattern.compile("(?ms)^Usage:.*?\\[([a-z0-9|_\\-\\s]+)\\]").matcher(out);
+        if (usage.find()) {
+            String list = usage.group(1).replaceAll("\\s", "");
+            // A bracket with no alternation is `[options]`, not a verb list. Worth
+            // excluding now that the match may span lines and so reaches further.
+            if (list.contains("|"))
+                for (String s : list.split("\\|")) if (!s.isBlank()) set.add(s);
+        }
+
+        // `Command: lsp-vscode port` carries an argument, so a whole-line parse yields a
+        // phantom verb; take the first token only.
         Matcher cmd = Pattern.compile("(?m)^Command:\\s+([A-Za-z][A-Za-z0-9_-]*)").matcher(out);
         while (cmd.find()) set.add(cmd.group(1));
-        if (set.size() < 3)
-            throw w009("cannot parse verbs from `flix --help` of " + jar
-                     + " (got " + set.size() + " candidate(s))");
+
+        // picocli's block. The indent is what separates an entry from the wrapped rest of
+        // a description -- continuations are indented far deeper -- so this needs no
+        // knowledge of how wide the name column happens to be. It stops at the first line
+        // that is neither, which for Flix is the trailing note about `--Xhelp`; without
+        // that stop a later section could contribute phantom verbs.
+        boolean inBlock = false;
+        for (String line : out.split("\n", -1)) {
+            if (!inBlock) { inBlock = line.startsWith("Commands:"); continue; }
+            Matcher m = COMMAND_ENTRY.matcher(line);
+            if (m.find()) set.add(m.group(1));
+            else if (!line.isBlank() && !line.startsWith("   ")) break;
+        }
+
         return new ArrayList<>(set);
     }
 

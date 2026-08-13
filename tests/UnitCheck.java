@@ -3,13 +3,15 @@
 //   javac -d <out> src/flixw.java tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
-// Compiled and run by tests/run.sh; not a separate CI entry point. Four groups:
+// Compiled and run by tests/run.sh; not a separate CI entry point. Five groups:
 //
 //   1. the manifest scanner over a corpus of real published flix.toml files, compared
 //      against what python3's tomllib -- a conforming parser -- read from each of them
 //   2. the pin rewrite as a property over that same corpus: it changes exactly one line
 //   3. hand-written adversarial manifests, which the real corpus does not contain
-//   4. the bounds on runCapture, which end to end would cost a 30-second test case
+//   4. verb capture against both help renderers, which needs no JAR once the parsing is
+//      separated from the subprocess that produces the text
+//   5. the bounds on runCapture, which end to end would cost a 30-second test case
 //
 // Groups 1 and 2 are the corpus test docs/LIMITATIONS.md calls for: the scanner is
 // hand-written and fails closed, so the question worth answering is whether it disagrees
@@ -470,6 +472,89 @@ public final class UnitCheck {
         System.out.println("  ok   pin targets: repository, version and java parsing");
     }
 
+    // ---- 5: the two help renderers ----------------------------------------
+
+    /**
+     * Verb capture has to read two help screens that share no layout.
+     *
+     * Stock Flix renders with scopt: the verb list is one long `Usage:` line, and every
+     * verb repeats as its own `Command:` line. The picocli-based fork wraps that same
+     * bracket across four lines and replaces the per-verb lines with an indented
+     * `Commands:` block -- against which the scopt-only parser found nothing at all, so
+     * the wrapper fell back to its built-in 0.75.x table and lost every verb the fork
+     * added. Both fixtures below are the real output of each compiler, abridged in the
+     * middle only; the shapes that matter -- the wrap, the indents, the trailing note --
+     * are verbatim.
+     */
+    static void verbs() {
+        String scopt = lines(
+            "The Flix Programming Language 0.75.2",
+            "Usage: flix [init|check|build|build-jar|clean|doc|run|test|repl|eff-lock] [options] <args>...",
+            "",
+            "Command: init",
+            "  creates a new project in the current directory.",
+            "Command: check",
+            "  checks the current project for errors.",
+            "Command: lsp-vscode port",
+            "  starts the LSP server and listens on the given port.");
+        List<String> got = flixw.parseVerbs(scopt);
+        eq("verbs: scopt usage line and Command: lines agree",
+           "init check build build-jar clean doc run test repl eff-lock lsp-vscode",
+           String.join(" ", got));
+        // `Command: lsp-vscode port` carries an argument; only the verb is the verb.
+        if (got.contains("port")) bad("verbs: scopt argument is not a verb", "captured 'port'");
+        else ok();
+
+        String picocli = lines(
+            "The Flix Programming Language",
+            "0.75.2+fork.wstein.260807.1.88.ge3027b3e2.dirty",
+            "Usage: flix [init|check|capabilities|stubs|build|build-jar|",
+            "             clean|doc|run|test|repl|bsp|bsp-install|",
+            "             eff-lock] [options] <file>...",
+            "      <file>...             input Flix source code files.",
+            "  -h, --help                prints this usage information.",
+            "      --threads=<n>         number of threads to use for compilation.",
+            "Commands:",
+            "  init          interactively creates a new project in an optional directory.",
+            "  check         checks the current project for errors.",
+            "  capabilities  reports the tooling contract this compiler speaks.",
+            "  stubs         writes compile-only Java stubs for the @Export-ed defs.",
+            "  build         builds (i.e. compiles) the current project.",
+            "  build-jar     builds a jar-file from the current project.",
+            "  clean         recursively removes class files from the build directory.",
+            "  doc           generates API documentation.",
+            "  run           runs main for the current project.",
+            "  test          runs the tests for the current project.",
+            "  repl          starts a repl for the current project, or provided Flix source",
+            "                  files.",
+            "  bsp           starts the Build Server Protocol server on stdio.",
+            "  bsp-install   writes '.bsp/flix.json' so an editor can find the BSP server.",
+            "  eff-lock      locks the current effect signatures.",
+            "Experimental options and commands are omitted. Run 'flix --Xhelp' to list them.");
+        List<String> fork = flixw.parseVerbs(picocli);
+        eq("verbs: picocli wrapped usage and Commands: block agree",
+           "init check capabilities stubs build build-jar clean doc run test repl"
+         + " bsp bsp-install eff-lock",
+           String.join(" ", fork));
+        // The wrapped description line is indented far deeper than an entry, and the
+        // closing note is not indented at all. Neither is a verb.
+        for (String phantom : List.of("files.", "Experimental", "h", "help", "threads", "file"))
+            if (fork.contains(phantom)) bad("verbs: picocli phantom", "captured '" + phantom + "'");
+            else ok();
+
+        // An options-only bracket is not a verb list, and must not be mistaken for one now
+        // that the usage match may span lines and so reaches further than it used to.
+        eq("verbs: [options] alone yields nothing", "",
+           String.join(" ", flixw.parseVerbs(lines("Usage: flix [options] <args>..."))));
+
+        // Degradation is the contract: unreadable help returns too few verbs, and
+        // captureVerbs turns that into FLIXW010 rather than a dead wrapper.
+        eq("verbs: unparseable help yields nothing", "",
+           String.join(" ", flixw.parseVerbs(lines("impostor: no usage here"))));
+
+        System.out.println("  ok   verb capture: scopt and picocli help renderers");
+    }
+
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         List<Row> rows = rows(dir);
@@ -478,6 +563,7 @@ public final class UnitCheck {
         chooser();
         provisioning();
         pinTargets();
+        verbs();
         bounded();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);

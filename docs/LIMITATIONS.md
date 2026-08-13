@@ -123,16 +123,33 @@ administratively unrunnable in exactly the corporate environments where it would
 ## Help introspection is not a contract
 
 Compiler-first dispatch needs to know which verbs the pinned compiler implements, and the
-only source is `flix --help`, whose format is `scopt`'s renderer output. Nothing upstream
-promises it. Flix 0.75.1 and 0.75.2 are byte-identical here apart from one experimental
-option line, which is evidence about two adjacent patch releases and nothing more.
+only source is `flix --help`. Nothing upstream promises its format. Flix 0.75.1 and 0.75.2
+are byte-identical here apart from one experimental option line, which is evidence about
+two adjacent patch releases and nothing more.
 
-When parsing fails, stage 0 warns once with `FLIXW010` and uses a built-in table, so a
+That the format is not a contract is no longer hypothetical. Two renderers are now in
+circulation and they share no layout:
+
+- **scopt**, which stock Flix uses — the verb list is one long `Usage: flix [a|b|c]` line,
+  and every verb repeats as its own `Command: a` line.
+- **picocli**, which a fork uses — the same bracket wraps across several lines, and the
+  per-verb lines are replaced by one indented `Commands:` block.
+
+A parser written for the first finds *nothing* in the second: not a degraded set, zero
+candidates. So flixw reads both, by three independent parses, and any one of them reaching
+three verbs is enough. Adding a third renderer would need the same treatment; that is the
+cost of introspecting output meant for humans.
+
+When every parse fails, stage 0 warns once with `FLIXW010` and uses a built-in table, so a
 future reformat costs accuracy on one narrow question rather than bricking every pinned
-project. Worst case the wrapper is one release stale about whether Flix has claimed a
-wrapper verb — a fact that changes rarely and is announced in release notes.
+project. That fallback is genuinely narrow but not harmless: against a fork it means the
+wrapper knows only the stock 0.75.x verbs, so anything the fork added stops being
+recognised as a compiler verb. It still *runs* — rule 5 sends unknown verbs to the compiler
+anyway — but the verb no longer displaces a wrapper verb of the same name, and `info` and
+`--help` under-report what the compiler can do.
 
-A machine-readable command list from upstream would remove this entirely.
+A machine-readable command list from upstream would remove this entirely. The fork's
+`capabilities` verb is a step in that direction.
 
 ## JDK provisioning is opt-in, and cannot bootstrap from nothing
 

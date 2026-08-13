@@ -55,13 +55,14 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
-sh tests/run.sh     # 121-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 164-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 17 adversarial
-manifests, and the bounds on `runCapture` — 363 assertions in total. Refresh the corpus
+manifests, verb capture against both help renderers, and the bounds on `runCapture` — 200
+assertions in total. Refresh the corpus
 with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
@@ -158,6 +159,11 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   user program may return the same integer.
 - **Degrade, don't brick.** Verb capture is an optimisation: an unparseable `--help` falls back
   to `BUILTIN_VERBS`, an unwritable cache stays silent, a missing `javac` stays on the source path.
+- **Two help renderers, three parses.** `parseVerbs` reads scopt's layout (stock Flix: one
+  `Usage: flix [a|b|c]` line, one `Command: a` line per verb) *and* picocli's (a fork: that
+  bracket wrapped across lines, verbs in an indented `Commands:` block). A parser for one
+  finds zero candidates in the other. Parsing is deliberately split from the subprocess so
+  `tests/UnitCheck.java` can assert both layouts without a JAR.
 - **Single file, no dependencies, Java 21.** No preview features, no JBang, no shebang tricks.
   `MIN_JAVA` is fatal; above `TESTED_CEILING` warns unless `FLIXW_STRICT_JAVA=1`.
 

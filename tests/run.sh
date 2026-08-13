@@ -140,6 +140,37 @@ javac -d "$work/impostor" "$work/impostor/Impostor.java"
 printf 'Main-Class: Impostor\n' > "$work/impostor/mf"
 (cd "$work/impostor" && jar cfm impostor.jar mf Impostor.class)
 
+# A JAR whose --help is picocli's layout rather than scopt's: the usage bracket wraps
+# across lines, and the verbs are an indented `Commands:` block instead of one `Command:`
+# line each. The picocli-based fork renders this. A scopt-only parser finds nothing in it
+# at all, so the wrapper reported FLIXW010 and silently fell back to the built-in 0.75.x
+# table -- losing every verb the fork had added.
+mkdir -p "$work/picocli"
+cat > "$work/picocli/Picocli.java" <<'EOF'
+public final class Picocli {
+    public static void main(String[] a) {
+        if (a.length == 0 || !a[0].equals("--help")) return;
+        System.out.println("The Flix Programming Language");
+        System.out.println("Usage: flix [init|check|capabilities|stubs|build|");
+        System.out.println("             clean|run|test|repl] [options] <file>...");
+        System.out.println("      <file>...             input Flix source code files.");
+        System.out.println("  -h, --help                prints this usage information.");
+        System.out.println("Commands:");
+        System.out.println("  init          creates a new project.");
+        System.out.println("  check         checks the current project for errors.");
+        System.out.println("  capabilities  reports the tooling contract this compiler speaks.");
+        System.out.println("  stubs         writes compile-only Java stubs for @Export-ed defs.");
+        System.out.println("  clean         recursively removes class files from the build");
+        System.out.println("                  directory.");
+        System.out.println("  run           runs main for the current project.");
+        System.out.println("Experimental options and commands are omitted.");
+    }
+}
+EOF
+javac -d "$work/picocli" "$work/picocli/Picocli.java"
+printf 'Main-Class: Picocli\n' > "$work/picocli/mf"
+(cd "$work/picocli" && jar cfm picocli.jar mf Picocli.class)
+
 # A JAR that sleeps, so the reaper can be tested: Java has no exec(2), so stage 0 stays
 # resident and must destroy its child when it is itself terminated. Without the shutdown
 # hook a SIGTERM to stage 0 leaves the compiler running forever.
@@ -697,6 +728,18 @@ t 0  "a read-only verb cache stays silent"                      sh -c '
   chmod -R a-w "$FLIX_CACHE_HOME/verbs"
   ./flixw check; rc=$?
   chmod -R u+w "$FLIX_CACHE_HOME/verbs"; exit $rc'
+
+# --- verb capture across help renderers ------------------------------------
+echo "verb capture"
+# Neither renderer is a contract, so both are read. The unit checks assert the parse
+# itself against both layouts; these two prove the whole capture path -- subprocess,
+# parse, cache -- reaches a picocli screen, which is what FLIXW010 used to answer.
+g 0 'capabilities' "picocli Commands: block is captured"        env FLIX_JAR="$work/picocli/picocli.jar" ./flixw info
+t 0 "picocli help does not degrade to the built-in table"       sh -c '
+  ! FLIX_JAR="$1/picocli/picocli.jar" ./flixw info 2>&1 | grep -q FLIXW010' sh "$work"
+# The stock renderer must keep working unchanged; the sleeper answers scopt's one-line
+# form, and its three verbs are the whole set it advertises.
+g 0 'check run test' "scopt usage line is still captured"       env FLIX_JAR="$work/sleeper/sleeper.jar" ./flixw info
 
 # --- process behaviour -----------------------------------------------------
 echo "process behaviour"
