@@ -527,11 +527,32 @@ public final class flixw {
                  + "\n       the version must match the tag exactly, build metadata included");
     }
 
-    /** Does this release asset exist? A HEAD, so the download itself stays a single attempt. */
-    static boolean assetExists(String url) {
-        HttpClient client = HttpClient.newBuilder()
+    /**
+     * The one HTTP client, pinned to HTTP/1.1.
+     *
+     * Every request flixw makes is a single one-shot HEAD or GET, so HTTP/2 buys nothing
+     * here -- there are no concurrent streams to multiplex onto one connection -- and it
+     * costs a failure mode that only shows up as a red CI run. When a server sends GOAWAY
+     * while a stream is being opened, the JDK client raises `request not processed by
+     * peer`; because acquisition is one attempt with no retry loop, that lands on the user
+     * as a failed download and, through the missing lock, as fifteen further failures.
+     * That is a real observation, not a theoretical one: it took out the whole windows
+     * smoke job on ccba32b while ubuntu and macos passed the same commit.
+     *
+     * Pinning 1.1 deletes the race rather than retrying around it, which is the trade this
+     * project already makes everywhere else -- a retry would have to be bounded, logged
+     * and explained, and would still leave the request that *was* processed ambiguous.
+     */
+    static HttpClient httpClient() {
+        return HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(30)).build();
+    }
+
+    /** Does this release asset exist? A HEAD, so the download itself stays a single attempt. */
+    static boolean assetExists(String url) {
+        HttpClient client = httpClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .method("HEAD", HttpRequest.BodyPublishers.noBody())
                 .timeout(Duration.ofSeconds(60))
@@ -695,9 +716,7 @@ public final class flixw {
 
     static void download(String url, Path dest) {
         if (!url.startsWith("https://")) throw w005("refusing non-https url " + redact(url));
-        HttpClient client = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(Duration.ofSeconds(30)).build();
+        HttpClient client = httpClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofMinutes(10))
                 .header("User-Agent", "flixw/" + WRAPPER_VERSION).build();
@@ -1095,9 +1114,7 @@ public final class flixw {
 
     /** One bounded HTTPS GET returning text.  Metadata only; bytes go through download(). */
     static String httpGet(String url) {
-        HttpClient client = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(Duration.ofSeconds(30)).build();
+        HttpClient client = httpClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(60))
                 .header("User-Agent", "flixw/" + WRAPPER_VERSION).build();
