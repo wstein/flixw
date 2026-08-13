@@ -36,7 +36,7 @@ you your first Java. Java 21+ is what the compiler needs — see
 
 ```console
 git init hello && cd hello
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.3/flixw.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.20.4/flixw.java
 java flixw.java install .
 rm flixw.java
 ```
@@ -47,7 +47,7 @@ rm flixw.java
 ```powershell
 git init hello; cd hello
 Invoke-WebRequest -OutFile flixw.java `
-  https://github.com/wstein/flixw/releases/download/v0.20.3/flixw.java
+  https://github.com/wstein/flixw/releases/download/v0.20.4/flixw.java
 java flixw.java install .
 Remove-Item flixw.java
 ```
@@ -95,8 +95,8 @@ $ ./flixw test
 Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 
 $ ./flixw validate
-ok    ./flixw matches flixw 0.20.3
-ok    ./flixw.cmd matches flixw 0.20.3
+ok    ./flixw matches flixw 0.20.4
+ok    ./flixw.cmd matches flixw 0.20.4
 ok    .flixw/flixw.java  sha256=11854c8776a6885d...
 ok    the lock satisfies flix.toml
 ```
@@ -116,7 +116,7 @@ tested JDK it can find, which is what it has always done.
 Commit, and a collaborator with nothing but a JDK gets the same compiler you have:
 
 ```console
-git add flixw flixw.cmd .flixw .gitattributes flix.toml src test
+git add flixw flixw.cmd .flixw .gitattributes .envrc.example flix.toml src test
 ```
 
 Verify what you downloaded before you run it: every release publishes the SHA-256 of
@@ -125,10 +125,11 @@ compare it against the release you meant to install.
 
 ### What the project looks like
 
-Nine committed files and one that stays on your machine. flixw writes five of the nine and
-shares a sixth; all of them are committed on purpose, so a clone needs no bootstrap step of
-its own and no `flix` on `PATH`. (`init` also scaffolds a `README.md`, a `LICENSE.md`, a
-`.gitignore` and a CI workflow, which are yours to keep or delete.)
+Nine committed files and one that stays on your machine, plus a template you may keep or
+delete. flixw writes five of the nine and shares a sixth; all of them are committed on
+purpose, so a clone needs no bootstrap step of its own and no `flix` on `PATH`. (`init`
+also scaffolds a `README.md`, a `LICENSE.md`, a `.gitignore` and a CI workflow, which are
+yours to keep or delete.)
 
 ```text
 hello/
@@ -140,6 +141,7 @@ hello/
 │   ├── lock.toml          the pin — repository, version, URL, SHA-256
 │   └── local/java         the JDK this machine resolved to — not committed
 ├── .gitattributes         line endings for the five above, as a block in your file
+├── .envrc.example         optional direnv template; nothing reads it, delete at will
 ├── flix.toml              your project: name, dependencies, the minimum Flix
 ├── src/Main.flix          your code
 └── test/TestMain.flix     your tests
@@ -186,18 +188,18 @@ The archive is the alternative, for when you would rather not run a downloaded p
 install a program:
 
 ```console
-base=https://github.com/wstein/flixw/releases/download/v0.20.3
-curl -fsSLO $base/flixw-0.20.3.tar.gz
-curl -fsSL  $base/SHA256SUMS | grep flixw-0.20.3.tar.gz | shasum -a 256 -c -
-tar -xzf flixw-0.20.3.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java, .envrc.example
-rm flixw-0.20.3.tar.gz
+base=https://github.com/wstein/flixw/releases/download/v0.20.4
+curl -fsSLO $base/flixw-0.20.4.tar.gz
+curl -fsSL  $base/SHA256SUMS | grep flixw-0.20.4.tar.gz | shasum -a 256 -c -
+tar -xzf flixw-0.20.4.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java, .envrc.example
+rm flixw-0.20.4.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
 ./flixw doctor --fix                # merges the .gitattributes block
 git add flixw flixw.cmd .flixw .gitattributes
 ```
 
 The digest line is a check you run, not a comparison you eyeball: it prints `OK` or fails.
-On Windows, `Get-FileHash flixw-0.20.3.tar.gz` and `Expand-Archive` are the equivalents.
+On Windows, `Get-FileHash flixw-0.20.4.tar.gz` and `Expand-Archive` are the equivalents.
 
 Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
 own field and flixw reads it as a **minimum**, so the same version or anything newer is
