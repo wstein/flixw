@@ -107,6 +107,40 @@ and moving it is a decision only a human should make. The floor check reads the 
 through the same table- and multi-line-string-aware scanner used everywhere else, so a
 `flix = "…"` sitting inside a `"""` description is invisible to it.
 
+### The lock schema
+
+The lock's shape is published as a JSON Schema:
+
+```
+https://wstein.github.io/flixw/schema/lock-v1.schema.json
+```
+
+`v1` is the *lock format's* major version, not the wrapper's. It moves only when a lock an
+older flixw wrote would stop being readable; adding an optional key is not that, and does
+not move it.
+
+The schema is not a second description of the lock kept alongside the code — it is
+rendered from the same list stage 0 validates against, and `./flixw wrapper --schema`
+prints it. That command is offline, needs no project and touches nothing, so a build that
+validates locks can carry its own copy of the schema instead of fetching one:
+
+```console
+./flixw wrapper --schema > lock.schema.json
+```
+
+Every key below is what the schema declares. `[compiler]` is required; within it,
+`version`, `url` and `sha256` are required and `repo` is not. `wrapperVersion` records the
+release that last wrote the file. `[java]` is optional entirely.
+
+| key | required | value |
+|---|---|---|
+| `wrapperVersion` | no | the flixw release that last wrote this lock |
+| `[compiler] repo` | no | `owner/repository`; absent means the stock one |
+| `[compiler] version` | yes | an exact version: `x.y.z`, optionally with prerelease and build metadata |
+| `[compiler] url` | yes | the `https` URL the JAR is downloaded from |
+| `[compiler] sha256` | yes | that JAR's SHA-256, 64 lowercase hex digits |
+| `[java] version` | no | a feature release (`21`) or an exact one (`21.0.12`) |
+
 ### The java pin
 
 `[java] version` in the lock says which Java runs the compiler, and is optional. Absent,

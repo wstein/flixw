@@ -3,15 +3,20 @@
 //   javac -d <out> src/flixw.java tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
-// Compiled and run by tests/run.sh; not a separate CI entry point. Five groups:
+// Compiled and run by tests/run.sh; not a separate CI entry point. The groups, in the
+// order they appear below:
 //
-//   1. the manifest scanner over a corpus of real published flix.toml files, compared
-//      against what python3's tomllib -- a conforming parser -- read from each of them
-//   2. the pin rewrite as a property over that same corpus: it changes exactly one line
-//   3. hand-written adversarial manifests, which the real corpus does not contain
-//   4. verb capture against both help renderers, which needs no JAR once the parsing is
-//      separated from the subprocess that produces the text
-//   5. the bounds on runCapture, which end to end would cost a 30-second test case
+//   1, 2. the manifest scanner over a corpus of real published flix.toml files, compared
+//         against what python3's tomllib -- a conforming parser -- read from each of them,
+//         and the pin rewrite as a property over that same corpus: it changes one line
+//      3. hand-written adversarial manifests, which the real corpus does not contain
+//      4. the bounds on runCapture, which end to end would cost a 30-second test case
+//   5, 6. JDK selection and provisioning, none of which may touch the network
+//      7. pin targets: which release URL a repository and version resolve to
+//      8. verb capture against both help renderers, which needs no JAR once the parsing
+//         is separated from the subprocess that produces the text
+//      9. the lock schema: that the published JSON Schema and the hand-written validators
+//         reach the same verdict on the same values
 //
 // Groups 1 and 2 are the corpus test docs/LIMITATIONS.md calls for: the scanner is
 // hand-written and fails closed, so the question worth answering is whether it disagrees
@@ -472,7 +477,7 @@ public final class UnitCheck {
         System.out.println("  ok   pin targets: repository, version and java parsing");
     }
 
-    // ---- 5: the two help renderers ----------------------------------------
+    // ---- 8: the two help renderers ----------------------------------------
 
     /**
      * Verb capture has to read two help screens that share no layout.
@@ -555,6 +560,115 @@ public final class UnitCheck {
         System.out.println("  ok   verb capture: scopt and picocli help renderers");
     }
 
+    // ---- 9: the lock schema -----------------------------------------------
+
+    /**
+     * The published JSON Schema is rendered from the same list stage 0 validates against,
+     * so the interesting question is not whether the renderer works -- lint diffs its
+     * output against the committed file every run -- but whether the two dialects agree.
+     *
+     * Every pattern is compiled by Java on each invocation and by an ECMA-262 engine in
+     * whoever's editor. They cannot be compared directly, so they are compared through
+     * behaviour: each pattern is exercised against values the hand-written validators
+     * already have an opinion about, and the two must reach the same verdict.
+     */
+    static void lockSchema() {
+        for (flixw.LockField f : flixw.LOCK_SCHEMA) {
+            String label = "schema " + f.name();
+            // Anchors are added when the pattern is rendered into JSON, because Java's
+            // matches() implies them and JSON Schema's "pattern" does not. One carried in
+            // the field itself would be doubled in the published file.
+            if (f.pattern().startsWith("^") || f.pattern().endsWith("$"))
+                bad(label, "pattern carries its own anchor: " + f.pattern());
+            else ok();
+            try { java.util.regex.Pattern.compile(f.pattern()); ok(); }
+            catch (RuntimeException e) { bad(label, "pattern does not compile: " + e.getMessage()); }
+            // A description is what an editor shows on hover, and what a diagnostic reads
+            // out; an empty one makes both useless.
+            if (f.what().isBlank()) bad(label, "no description");
+            else ok();
+        }
+
+        // The schema and the validators must not be able to disagree about a value. Each
+        // pair below is a pattern and the hand-written check that guards the same key.
+        String repo = pattern("compiler", "repo");
+        agree("repo", repo, "flix/flix", true);
+        agree("repo", repo, "wstein/flix-fork", true);
+        agree("repo", repo, "not/a/repo", false);
+        agree("repo", repo, "flix", false);
+        for (String r : new String[] {"flix/flix", "wstein/flix-fork", "not/a/repo", "flix"}) {
+            boolean byPattern = r.matches(repo);
+            boolean byValidator = accepts(() -> flixw.checkRepo(r, "unit"));
+            if (byPattern != byValidator)
+                bad("schema/checkRepo agree on " + q(r), byPattern ? "pattern only" : "validator only");
+            else ok();
+        }
+
+        String version = pattern("compiler", "version");
+        for (String v : new String[] {"0.75.2", "0.75.2+fork.wstein.1", "0.75.2-rc.1",
+                                      "v0.75.2", "0.75", "0.75.2+", "latest"}) {
+            boolean byPattern = v.matches(version);
+            boolean byValidator = accepts(() -> flixw.validateVersion(v, "unit"));
+            if (byPattern != byValidator)
+                bad("schema/validateVersion agree on " + q(v), byPattern ? "pattern only" : "validator only");
+            else ok();
+        }
+
+        // validateJavaPin is deliberately stricter than the pattern: it also refuses a
+        // Java the compiler cannot run under. The pattern must accept everything it does.
+        String java = pattern("java", "version");
+        for (String v : new String[] {"21", "21.0.12", "26", "17", "twenty-one", "21+"}) {
+            if (accepts(() -> flixw.validateJavaPin(v, "unit")) && !v.matches(java))
+                bad("schema/validateJavaPin agree on " + q(v), "validator accepts, pattern rejects");
+            else ok();
+        }
+
+        // The rendered file is what an editor fetches; these are the parts of it that
+        // something outside this repository depends on by name.
+        String json = flixw.lockSchemaJson();
+        for (String must : new String[] {
+                "\"$id\": \"" + flixw.LOCK_SCHEMA_URL + "\"",
+                "\"$schema\": \"https://json-schema.org/draft/2020-12/schema\"",
+                "\"required\": [\"compiler\"]",
+                "\"additionalProperties\": false"}) {
+            if (json.contains(must)) ok();
+            else bad("schema json", "does not contain " + must);
+        }
+        if (flixw.LOCK_SCHEMA_URL.contains("/lock-" + flixw.LOCK_SCHEMA_VERSION + ".schema.json")) ok();
+        else bad("schema url", "does not carry the format version: " + flixw.LOCK_SCHEMA_URL);
+
+        // Every declared key has to reach the file, and reach it escaped: the patterns are
+        // full of backslashes, and a literal one would make the JSON unparseable.
+        for (flixw.LockField f : flixw.LOCK_SCHEMA) {
+            String want = "\"pattern\": \"^" + f.pattern().replace("\\", "\\\\") + "$\"";
+            if (json.contains("\"" + f.key() + "\": {") && json.contains(want)) ok();
+            else bad("schema json " + f.name(), "missing key or unescaped pattern");
+        }
+        eq("schema json escapes a quote", "\"a\\\"b\"", flixw.jsonString("a\"b"));
+        eq("schema json escapes a backslash", "\"a\\\\b\"", flixw.jsonString("a\\b"));
+
+        System.out.println("  ok   lock schema: " + flixw.LOCK_SCHEMA.size()
+                         + " keys, rendered and cross-checked against the validators");
+    }
+
+    /** The pattern the schema declares for one key, so a case reads as the key it tests. */
+    static String pattern(String table, String key) {
+        for (flixw.LockField f : flixw.LOCK_SCHEMA)
+            if (f.table().equals(table) && f.key().equals(key)) return f.pattern();
+        throw new IllegalStateException("no schema field for [" + table + "] " + key);
+    }
+
+    /** True when a validator returns rather than throwing FLIXW. */
+    static boolean accepts(Runnable check) {
+        try { check.run(); return true; }
+        catch (RuntimeException e) { return false; }
+    }
+
+    static void agree(String key, String pattern, String value, boolean want) {
+        if (value.matches(pattern) == want) ok();
+        else bad("schema " + key + " pattern on " + q(value), want ? "rejected" : "accepted");
+    }
+
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         List<Row> rows = rows(dir);
@@ -564,6 +678,7 @@ public final class UnitCheck {
         provisioning();
         pinTargets();
         verbs();
+        lockSchema();
         bounded();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);

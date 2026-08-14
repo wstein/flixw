@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wstein.github.io/flixw/schema/lock-v1.schema.json",
+  "title": "flixw lock.toml",
+  "description": "The pin written by `./flixw pin`: the repository, exact version, distribution URL and SHA-256 of the Flix compiler a project runs. Generated and verified by flixw; committed, and not edited by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["compiler"],
+  "properties": {
+    "wrapperVersion": {
+      "type": "string",
+      "description": "the flixw release that last wrote this lock",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?(?:\\+[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?$"
+    },
+    "compiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "url", "sha256"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "the owner/repository the compiler was fetched from",
+          "pattern": "^[A-Za-z0-9._-]{1,64}/[A-Za-z0-9._-]{1,100}$"
+        },
+        "version": {
+          "type": "string",
+          "description": "the exact compiler version: x.y.z, optionally with a prerelease and build metadata",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?(?:\\+[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?$"
+        },
+        "url": {
+          "type": "string",
+          "description": "the https URL the compiler JAR is downloaded from",
+          "pattern": "^https://[^\\s]+$"
+        },
+        "sha256": {
+          "type": "string",
+          "description": "the SHA-256 of that JAR: 64 lowercase hex digits",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "java": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "the Java that runs the compiler: a feature release (21) or an exact one (21.0.12)",
+          "pattern": "^[0-9]+(\\.[0-9]+)*$"
+        }
+      }
+    }
+  }
+}

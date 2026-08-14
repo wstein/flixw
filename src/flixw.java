@@ -192,6 +192,184 @@ public final class flixw {
             "(?i)(-D[^=\\s]*(?:pass|secret|token|credential)[^=\\s]*=)\\S+", "$1***");
     }
 
+    // ---- the lock schema --------------------------------------------------
+
+    /**
+     * The lock format's major version, which is not the wrapper's. It changes only when a
+     * lock this stage 0 writes would stop being readable under the rules below; adding an
+     * optional key is not such a change, and does not move it.
+     */
+    static final String LOCK_SCHEMA_VERSION = "v1";
+
+    /** Where the generated documentation and the JSON Schema are published. */
+    static final String PAGES_BASE = "https://wstein.github.io/flixw/";
+
+    /**
+     * The URL written into every generated lock as a `#:schema` directive, and the `$id`
+     * of the schema itself. Taplo and Even Better TOML read that directive, so an editor
+     * validates the lock with no per-project configuration.
+     */
+    static final String LOCK_SCHEMA_URL =
+        PAGES_BASE + "schema/lock-" + LOCK_SCHEMA_VERSION + ".schema.json";
+
+    /** GitHub's own limits on the two path segments; a fork may live anywhere within them. */
+    static final String REPO_PATTERN = "[A-Za-z0-9._-]{1,64}/[A-Za-z0-9._-]{1,100}";
+
+    /** A feature release or an exact one, and nothing else -- no ranges, no vendor. */
+    static final String JAVA_PIN_PATTERN = "[0-9]+(\\.[0-9]+)*";
+
+    /**
+     * One key in lock.toml: the table it lives in, whether that table may omit it, the
+     * shape its value must have, and the sentence a diagnostic uses to describe it.
+     *
+     * The lock's shape was previously stated in three places -- {@link #lockText} wrote it,
+     * {@link #readLock} read it, and the documentation described it -- with nothing keeping
+     * them in step, and a published JSON Schema would have been a fourth. So it is stated
+     * once here, and the writer, the reader and the schema are all derived from this list.
+     *
+     * {@code pattern} is deliberately written in the intersection of Java's regex dialect
+     * and ECMA-262's: it is compiled by {@code String.matches} on every run, and by
+     * whatever JSON Schema validator reads the published file. It carries no anchors,
+     * because Java implies them and JSON Schema does not.
+     */
+    record LockField(String table, String key, boolean required, String pattern, String what) {
+        /** How a diagnostic names this key: `[compiler] sha256`, or a bare key at the root. */
+        String name() { return table.isEmpty() ? key : "[" + table + "] " + key; }
+    }
+
+    /**
+     * Every key a lock may hold, in the order a generated lock writes them.
+     *
+     * {@code required} means required when the table it sits in is present, which is why
+     * `[java] version` is optional: a project that does not care which JDK runs the
+     * compiler omits the table entirely, and an empty one means the same thing.
+     */
+    static final List<LockField> LOCK_SCHEMA = List.of(
+        new LockField("", "wrapperVersion", false, SEMVERISH.pattern(),
+            "the flixw release that last wrote this lock"),
+        new LockField("compiler", "repo", false, REPO_PATTERN,
+            "the owner/repository the compiler was fetched from"),
+        new LockField("compiler", "version", true, SEMVERISH.pattern(),
+            "the exact compiler version: x.y.z, optionally with a prerelease and build metadata"),
+        new LockField("compiler", "url", true, "https://[^\\s]+",
+            "the https URL the compiler JAR is downloaded from"),
+        new LockField("compiler", "sha256", true, "[0-9a-f]{64}",
+            "the SHA-256 of that JAR: 64 lowercase hex digits"),
+        new LockField("java", "version", false, JAVA_PIN_PATTERN,
+            "the Java that runs the compiler: a feature release (21) or an exact one (21.0.12)"));
+
+    /** The tables the schema knows about, deduplicated, in lock order. The root is "". */
+    static List<String> lockTables() {
+        List<String> out = new ArrayList<>();
+        for (LockField f : LOCK_SCHEMA) if (!out.contains(f.table())) out.add(f.table());
+        return out;
+    }
+
+    /**
+     * The published JSON Schema for lock.toml, rendered from {@link #LOCK_SCHEMA}.
+     *
+     * Generated rather than hand-written for the reason the shims are compared byte for
+     * byte: a schema describing a lock this wrapper no longer writes is worse than no
+     * schema at all, because an editor presents it as authority. `tests/lint.sh` diffs
+     * this against the copy in `docs/schema/`, so the published file cannot drift from the
+     * code that writes the file it describes.
+     *
+     * Hand-rolled rather than serialised by a library, because stage 0 has no
+     * dependencies. The only values interpolated are ours, and {@link #jsonString} escapes
+     * them anyway -- the patterns are full of backslashes.
+     */
+    static String lockSchemaJson() {
+        StringBuilder b = new StringBuilder();
+        b.append("{\n");
+        b.append("  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n");
+        b.append("  \"$id\": ").append(jsonString(LOCK_SCHEMA_URL)).append(",\n");
+        b.append("  \"title\": \"flixw lock.toml\",\n");
+        b.append("  \"description\": ").append(jsonString(
+            "The pin written by `./flixw pin`: the repository, exact version, distribution"
+          + " URL and SHA-256 of the Flix compiler a project runs. Generated and verified by"
+          + " flixw; committed, and not edited by hand.")).append(",\n");
+        b.append("  \"type\": \"object\",\n");
+        b.append("  \"additionalProperties\": false,\n");
+
+        List<String> tables = lockTables();
+        List<String> rootRequired = new ArrayList<>();
+        for (String t : tables)
+            if (!t.isEmpty() && lockFields(t).stream().anyMatch(LockField::required))
+                rootRequired.add(t);
+        b.append("  \"required\": ").append(jsonArray(rootRequired)).append(",\n");
+
+        b.append("  \"properties\": {\n");
+        List<String> props = new ArrayList<>();
+        for (String t : tables) {
+            if (t.isEmpty()) { for (LockField f : lockFields(t)) props.add(fieldJson(f, "    ")); }
+            else props.add(tableJson(t, "    "));
+        }
+        b.append(String.join(",\n", props)).append("\n");
+        b.append("  }\n");
+        b.append("}\n");
+        return b.toString();
+    }
+
+    /** The fields declared for one table, in lock order. */
+    static List<LockField> lockFields(String table) {
+        List<LockField> out = new ArrayList<>();
+        for (LockField f : LOCK_SCHEMA) if (f.table().equals(table)) out.add(f);
+        return out;
+    }
+
+    static String fieldJson(LockField f, String indent) {
+        return indent + jsonString(f.key()) + ": {\n"
+             + indent + "  \"type\": \"string\",\n"
+             + indent + "  \"description\": " + jsonString(f.what()) + ",\n"
+             + indent + "  \"pattern\": " + jsonString("^" + f.pattern() + "$") + "\n"
+             + indent + "}";
+    }
+
+    static String tableJson(String table, String indent) {
+        List<LockField> fields = lockFields(table);
+        List<String> required = new ArrayList<>();
+        for (LockField f : fields) if (f.required()) required.add(f.key());
+        List<String> props = new ArrayList<>();
+        for (LockField f : fields) props.add(fieldJson(f, indent + "    "));
+        // An empty "required" is legal and says nothing; [java] has no mandatory key
+        // because an empty table means exactly what an absent one does.
+        return indent + jsonString(table) + ": {\n"
+             + indent + "  \"type\": \"object\",\n"
+             + indent + "  \"additionalProperties\": false,\n"
+             + (required.isEmpty() ? ""
+                : indent + "  \"required\": " + jsonArray(required) + ",\n")
+             + indent + "  \"properties\": {\n"
+             + String.join(",\n", props) + "\n"
+             + indent + "  }\n"
+             + indent + "}";
+    }
+
+    static String jsonArray(List<String> items) {
+        List<String> quoted = new ArrayList<>();
+        for (String s : items) quoted.add(jsonString(s));
+        return quoted.isEmpty() ? "[]" : "[" + String.join(", ", quoted) + "]";
+    }
+
+    /** JSON string literal. Only the escapes RFC 8259 requires; every value here is ASCII. */
+    static String jsonString(String s) {
+        StringBuilder b = new StringBuilder("\"");
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"'  -> b.append("\\\"");
+                case '\\' -> b.append("\\\\");
+                case '\n' -> b.append("\\n");
+                case '\r' -> b.append("\\r");
+                case '\t' -> b.append("\\t");
+                default   -> {
+                    if (c < 0x20) b.append(String.format("\\u%04x", (int) c));
+                    else b.append(c);
+                }
+            }
+        }
+        return b.append('"').toString();
+    }
+
     // ---- lock and manifest ------------------------------------------------
 
     record Lock(String version, String url, String sha256, String repo, String java) {}
@@ -483,7 +661,7 @@ public final class flixw {
     record Asset(String name, String url) {}
 
     static String checkRepo(String repo, String where) {
-        if (!repo.matches("[A-Za-z0-9._-]{1,64}/[A-Za-z0-9._-]{1,100}"))
+        if (!repo.matches(REPO_PATTERN))
             throw w002(where + ": " + q(repo) + " is not an owner/repository");
         return repo;
     }
@@ -889,7 +1067,7 @@ public final class flixw {
      * refused at the point it is written rather than at every run afterwards.
      */
     static void validateJavaPin(String v, String where) {
-        if (!v.matches("[0-9]+(\\.[0-9]+)*"))
+        if (!v.matches(JAVA_PIN_PATTERN))
             throw w002(where + ": java version " + q(v) + " is not a dotted number"
                      + "\n       write a feature release (21) or an exact one (21.0.12)");
         Integer f = feature(v);
@@ -2961,18 +3139,26 @@ public final class flixw {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
                 installJdkVerb(argv.subList(1, argv.size()));
             }
+            // Offline, project-free and side-effect-free, like --version: the schema is a
+            // property of this stage 0, not of any project, and someone validating a lock
+            // in CI should not have to reach the network for the file the lock points at.
+            case "--schema" -> {
+                if (!rest.isEmpty()) throw w008(wrapperUsage("'--schema' takes no arguments"));
+                System.out.print(lockSchemaJson());
+            }
             default -> throw w008(wrapperUsage("unknown operation " + q(op)));
         }
     }
 
     static String wrapperUsage(String problem) {
         return "./flixw wrapper: " + problem
-             + "\n       usage: ./flixw wrapper [--help | --version | --upgrade | --install-jdk]"
+             + "\n       usage: ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --schema]"
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
              + "\n         --upgrade      move this project to the newest published flixw"
              + "\n                        (to repair the files it has: ./flixw doctor --fix)"
-             + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache";
+             + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
+             + "\n         --schema       the JSON Schema for " + WRAPPER_DIR + "/lock.toml, on stdout";
     }
 
     // ---- main -------------------------------------------------------------

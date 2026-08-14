@@ -9,6 +9,12 @@
 #                               the SHIM and CMD text blocks inside src/flixw.java, and
 #                               `install` writes the latter. Drift means a project gets
 #                               a shim whose published hash does not match this tree.
+# 4. the Java floor             MIN_JAVA is written out again in both shims
+# 5. the source floor           stage 0 still compiles at the release its diagnostics promise
+# 6. the wrapper namespace      every `./flixw wrapper --x` spelling is one the usage offers
+# 7. schema parity              docs/schema/ is what `wrapper --schema` emits, nothing else
+# 8. javadoc                    the published API docs build with no malformed doc comment
+# 9. CRLF                       src/flixw.cmd must keep its cmd.exe line endings
 set -eu
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flixw
@@ -105,7 +111,7 @@ else
   head -5 "$work/floor.log"
 fi
 
-# --- 5. the wrapper namespace is spelled the same way everywhere -----------
+# --- 6. the wrapper namespace is spelled the same way everywhere -----------
 # Diagnostics are required to name the command that repairs the problem, which makes a
 # renamed command a wrong answer printed at the worst possible moment: four messages went
 # on recommending `./flixw wrapper upgrade` for a release after flixw's own operations moved
@@ -127,6 +133,38 @@ else
   bad "stale ./flixw wrapper spellings: $(echo "$stale" | tr '\n' ' ')"
 fi
 
+# --- 7. the published schema matches the lock this stage 0 writes ----------
+# The file name carries the lock format's major version, so a bump that renames the schema
+# must move the committed file with it rather than leaving the old name to be served.
+schema_version=$(sed -n 's/.*LOCK_SCHEMA_VERSION = "\([a-z0-9]*\)".*/\1/p' "$root/src/flixw.java")
+if [ -z "$schema_version" ]; then
+  bad "cannot read LOCK_SCHEMA_VERSION from src/flixw.java"
+  schema_version=none
+elif [ ! -f "$root/docs/schema/lock-$schema_version.schema.json" ]; then
+  bad "LOCK_SCHEMA_VERSION is $schema_version but docs/schema/lock-$schema_version.schema.json does not exist"
+else
+  say "ok    docs/schema/ carries the lock format version stage 0 declares ($schema_version)"
+fi
+
+
+# docs/schema/ is what GitHub Pages serves, and what every generated lock points an editor
+# at with its `#:schema` line. A schema describing a lock flixw no longer writes is worse
+# than none, because an editor presents it as authority -- so it is generated, never
+# edited, and the committed copy is diffed against what stage 0 emits.
+if java "$root/src/flixw.java" wrapper --schema >"$work/schema.json" 2>"$work/schema.log"; then
+  if cmp -s "$work/schema.json" "$root/docs/schema/lock-$schema_version.schema.json"; then
+    say "ok    docs/schema/lock-$schema_version.schema.json matches wrapper --schema"
+  else
+    bad "docs/schema/lock-$schema_version.schema.json is stale; regenerate it:"
+    say "      java src/flixw.java wrapper --schema > docs/schema/lock-$schema_version.schema.json"
+    diff "$root/docs/schema/lock-$schema_version.schema.json" "$work/schema.json" || true
+  fi
+else
+  bad "wrapper --schema did not run"
+  cat "$work/schema.log"
+fi
+
+# --- 9. cmd.exe line endings -----------------------------------------------
 # CRLF is load-bearing for cmd.exe: a LF-only .cmd breaks multi-line if/for blocks.
 if od -c "$root/src/flixw.cmd" | grep -q '\\r'; then
   say "ok    src/flixw.cmd has CRLF line endings"

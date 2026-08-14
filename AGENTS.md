@@ -31,6 +31,7 @@ The wrapper has no build system — it is one Java 21 source file, run via JEP 3
 ```sh
 java src/flixw.java wrapper --version      # offline; no project, lock, or network needed
 java src/flixw.java wrapper --help         # routing table (enriched if run inside a project)
+java src/flixw.java wrapper --schema       # the JSON Schema for lock.toml, on stdout
 javac -d /tmp/flixw-out src/flixw.java     # compile check
 FLIXW_TRACE=1 ./flixw check                # per-phase timings on stderr
 ```
@@ -54,15 +55,16 @@ runs it on a `v*` tag and refuses to publish if the tag and `WRAPPER_VERSION` di
 The repository's configured checks, both required before a commit:
 
 ```sh
-sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity, CRLF check
+sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
 sh tests/run.sh     # 164-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
-`tests/corpus/`, the `pin` rewrite as a property over the same corpus, 17 adversarial
-manifests, verb capture against both help renderers, and the bounds on `runCapture` — 200
-assertions in total. Refresh the corpus
+`tests/corpus/`, the `pin` rewrite as a property over the same corpus, 36 adversarial
+manifests, JDK selection and provisioning, pin targets, verb capture against both help
+renderers, the lock schema against the hand-written validators, and the bounds on
+`runCapture` — 252 assertions in total. Refresh the corpus
 with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
@@ -127,6 +129,25 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 `${XDG_CACHE_HOME:-~/.cache}/flixw`. Verb records live under `<cache>/verbs/`, never beside
 the JAR — a content-addressed compiler directory may legitimately be read-only, and a
 `FLIX_JAR` override points at a JAR flixw does not own.
+
+### The lock's shape is stated once
+
+`LOCK_SCHEMA` in `src/flixw.java` is a list of `LockField` — table, key, required, pattern,
+description — and it is the only place the lock format is written down. `lockText` writes
+from it, `readLock` validates against it, and `wrapper --schema` renders it as the JSON
+Schema published at `https://wstein.github.io/flixw/schema/lock-v1.schema.json`.
+`docs/schema/lock-v1.schema.json` is the committed copy of that render; `tests/lint.sh`
+diffs the two, so **regenerate it rather than editing it**:
+
+```sh
+java src/flixw.java wrapper --schema > docs/schema/lock-v1.schema.json
+```
+
+Patterns live in the intersection of Java's regex dialect and ECMA-262's — `String.matches`
+compiles them on every run, an editor's JSON Schema validator compiles the published ones —
+and carry no anchors, because Java implies them and JSON Schema does not. `LOCK_SCHEMA_VERSION`
+is the *lock format's* major version, not the wrapper's: adding an optional key does not move
+it, and a change that would make an existing lock unreadable does.
 
 ### Dispatch is compiler-first
 
