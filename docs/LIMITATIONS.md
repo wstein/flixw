@@ -291,7 +291,18 @@ requires the scanner to agree, file by file, with what python3's `tomllib` reads
 one. It does, and repinning every one of them changes exactly one line. That measures the
 scanner against manifests people actually publish — none of which, as it happens, contains
 a multi-line string, a dotted key or a quoted table header. The exotic-but-legal input
-above is covered only by 17 hand-written adversarial cases, and remains the honest gap.
+above is covered only by 36 hand-written adversarial cases, and remains the honest gap.
+
+The lock's published JSON Schema does not narrow that gap, and should not be read as
+though it does. It describes the lock's *keys and values*, so an editor following the
+`#:schema` line does parse the file with a conforming TOML implementation — which is a
+real check on a hand-edited lock, and the reason the directive is written at all. It is
+not a check flixw performs: stage 0 still reads the file with the same scanner, and a lock
+this scanner misreads is misread whether or not something else validated it first. The
+schema and the scanner are held to the same verdicts by `tests/schema/`, where 23 locks are
+filed under the answer each is supposed to get and CI runs taplo over the rows that are
+claims about the schema. That measures agreement on the inputs chosen; it does not make
+the scanner conforming.
 
 `pin` never rewrites a manifest by pattern. The scanner records where each value sits and
 that span is replaced whole, because a regex could not do it safely: an escaped quote

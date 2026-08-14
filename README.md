@@ -5,6 +5,7 @@
 [![Java 21+](https://img.shields.io/badge/java-21%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/flixw.java)
 [![platforms: linux | macOS | windows](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](.github/workflows/ci.yaml)
+[![docs](https://img.shields.io/badge/docs-wstein.github.io%2Fflixw-blue.svg)](https://wstein.github.io/flixw/)
 
 An **experimental, third-party, opt-in** repository bootstrapper for
 [Flix](https://flix.dev). It pins a Flix compiler version in your project, verifies the
@@ -238,6 +239,9 @@ the list stage 0 itself checks the lock against, so the two cannot disagree.
 Nothing about the build depends on the line. A lock written by an older flixw has none;
 `./flixw validate` says so, and `./flixw doctor --fix` adds it without touching the network
 or the pin.
+
+The schema, the API docs for stage 0, and a short index of both live at
+<https://wstein.github.io/flixw/>, published from the same tag as the release.
 
 ## Testing a locally built compiler
 

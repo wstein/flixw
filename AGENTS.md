@@ -52,6 +52,13 @@ A release ships the same three files as two archives plus `flixw.java`; `sh test
 the archive route cannot drift from the install route. `.github/workflows/release.yaml`
 runs it on a `v*` tag and refuses to publish if the tag and `WRAPPER_VERSION` disagree.
 
+The same tag publishes <https://wstein.github.io/flixw/> — the landing page, the lock
+schema and the stage 0 API docs. `sh tests/pages.sh <dir>` builds the whole site, so what a
+tag publishes can be inspected before it is; CI builds it on every commit, because the tag
+is a bad moment to discover the docs do not build. `.github/workflows/pages.yaml` runs it,
+checking the tag against `WRAPPER_VERSION` exactly as the release does: locks in other
+people's repositories already point at the schema URL this serves.
+
 The repository's configured checks, both required before a commit:
 
 ```sh
@@ -215,9 +222,12 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   but Flix has no unknown-command diagnostic: `flix doctro` answers
   `Unrecognized file extension: 'doctro'.` on **stdout**, exit 1. The routing is right; the
   resulting message is not good, and improving it is an open UX question.
-- `flixw.cmd` has a CI job but no results: the repository has no remote, so no workflow has
-  ever run. Argument parity with the POSIX shim is not achievable and is not claimed; see
+- `flixw.cmd`'s `windows smoke` job runs green on every push, and that is a smoke test, not
+  parity: argument parity with the POSIX shim is not achievable and is not claimed. See
   `docs/LIMITATIONS.md`.
+- `.github/workflows/pages.yaml` has never run — no tag has been pushed since it was added.
+  Its build step is `sh tests/pages.sh`, which CI runs on every commit, so what is unproven
+  is the upload and deploy, not the site.
 - The design paper is Revision 6 and now trails the implementation in places. `docs/CONTRACT.md`
   is the accurate description of what ships; the paper is kept as historical evidence.
 

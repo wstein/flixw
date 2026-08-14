@@ -12,6 +12,9 @@ and `src/flixw.cmd` are shims that only locate a `java` and prefer the cached co
   build tool, no JBang. It is meant to be audited by strangers.
 - The shims exist twice: `src/flixw` / `src/flixw.cmd` on disk, and the `SHIM` / `CMD` text blocks
   inside `src/flixw.java` (what `install` writes). Edit both or they drift.
+- `docs/schema/lock-v1.schema.json` is **generated** from `LOCK_SCHEMA` in `src/flixw.java` by
+  `java src/flixw.java wrapper --schema`, and `tests/lint.sh` diffs the two. Change the Java
+  list and regenerate; never hand-edit the JSON.
 - Never patch, wrap, or link against `flix.jar`; it is launched as an opaque process.
 - The cached compiler is SHA-256 verified on **every** run. One download attempt, at most one
   Java relaunch, no retry loops.

@@ -1,0 +1,67 @@
+name: pages
+
+# Tag-driven, for the same reason release.yaml is. Every generated lock carries the schema
+# URL this site serves, so what is at that URL has to be a released schema rather than
+# whatever is on main. A commit that changes the lock format and a project that has already
+# committed a lock pointing at it must not be able to disagree for the length of a review.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "existing tag to (re)publish the site from"
+        required: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one in flight: a half-published site is worse
+# than a stale one, and the URL is already in other people's files.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # The site is published under URLs that other repositories' committed files point at,
+      # so the tag it claims to be must be the version it was built from -- the same check,
+      # and the same failure mode, as release.yaml.
+      - name: the tag must match WRAPPER_VERSION
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version=$(java src/flixw.java wrapper --version | head -1 | cut -d' ' -f2)
+          if [ "$tag" != "v$version" ]; then
+            echo "tag $tag does not match WRAPPER_VERSION $version" >&2
+            exit 1
+          fi
+
+      - run: sh tests/pages.sh site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: deploy to github pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,143 @@
+<!doctype html>
+<!-- The landing page for https://wstein.github.io/flixw/. Built by tests/pages.sh, which
+     substitutes @VERSION@ and nothing else; edit this file, not the built copy. Deliberately
+     one file with no assets: the site is published from a tag by a workflow that should not
+     have a build step anyone has to keep working. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flixw — a repository-local bootstrap for the Flix compiler</title>
+<meta name="description" content="flixw downloads, digest-verifies, caches and executes an unmodified stock flix.jar pinned by the project.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --fg: #16181d;
+    --muted: #5c6370;
+    --bg: #ffffff;
+    --card: #f6f7f9;
+    --line: #dfe2e8;
+    --link: #0b5fbe;
+    --code: #eceff3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6e8ec;
+      --muted: #9aa2b1;
+      --bg: #14161a;
+      --card: #1c1f25;
+      --line: #2c313a;
+      --link: #79b0f5;
+      --code: #22262e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto;
+    padding: 3rem 1.25rem 5rem;
+    max-width: 46rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  h1 { font-size: 2rem; margin: 0 0 .25rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.1rem; margin: 2.5rem 0 .75rem; letter-spacing: -.01em; }
+  p { margin: 0 0 1rem; }
+  a { color: var(--link); }
+  .tagline { color: var(--muted); margin: 0 0 .5rem; }
+  .version { color: var(--muted); font-size: .875rem; margin: 0 0 2rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .875em; }
+  code { background: var(--code); padding: .1em .35em; border-radius: 3px; }
+  pre {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: .9rem 1rem;
+    overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; }
+  .cards { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+  .card {
+    display: block;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    text-decoration: none;
+    color: inherit;
+  }
+  .card:hover { border-color: var(--link); }
+  .card strong { display: block; color: var(--link); margin-bottom: .2rem; }
+  .card span { color: var(--muted); font-size: .875rem; }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .875rem; }
+  .note { color: var(--muted); font-size: .875rem; }
+</style>
+</head>
+<body>
+
+<h1>flixw</h1>
+<p class="tagline">A repository-local bootstrap for the <a href="https://flix.dev">Flix</a> compiler.</p>
+<p class="version">Version @VERSION@ · <a href="https://github.com/wstein/flixw">source on GitHub</a></p>
+
+<p>
+  <code>./flixw &lt;verb&gt;</code> downloads, digest-verifies, caches and executes an
+  <strong>unmodified stock <code>flix.jar</code></strong> pinned by the project. It is an
+  experimental, third-party, opt-in tool — not a Flix fork, plugin, or official product.
+</p>
+
+<h2>What is published here</h2>
+
+<div class="cards">
+  <a class="card" href="schema/lock-v1.schema.json">
+    <strong>lock.toml schema</strong>
+    <span>JSON Schema 2020-12 for <code>.flixw/lock.toml</code>. Every generated lock points here.</span>
+  </a>
+  <a class="card" href="javadoc/">
+    <strong>Stage 0 API docs</strong>
+    <span>Javadoc for <code>flixw.java</code>, private members included.</span>
+  </a>
+</div>
+
+<h2>The lock schema</h2>
+
+<p>
+  Every lock <code>./flixw pin</code> writes opens with a
+  <a href="https://taplo.tamasfe.dev/configuration/directives.html">Taplo directive</a>
+  naming the schema, so an editor validates it with nothing configured per project:
+</p>
+
+<pre><code>#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json</code></pre>
+
+<p>
+  <code>v1</code> is the lock format's major version, not the wrapper's. It moves only when a
+  lock an older flixw wrote would stop being readable;
+  <a href="schema/lock.schema.json">lock.schema.json</a> is an alias for the current one.
+</p>
+
+<p class="note">
+  The schema is rendered from the same list stage 0 validates the lock against, so the two
+  cannot disagree. <code>./flixw wrapper --schema</code> prints it — offline, and with no
+  project needed — if you would rather validate against a copy you carry yourself.
+</p>
+
+<h2>Getting started</h2>
+
+<pre><code>curl -fsSLO https://github.com/wstein/flixw/releases/latest/download/flixw.java
+java flixw.java install .
+./flixw pin 0.75.2</code></pre>
+
+<p>
+  The <a href="https://github.com/wstein/flixw#readme">README</a> is the guide;
+  <a href="https://github.com/wstein/flixw/blob/main/docs/CONTRACT.md">CONTRACT.md</a> is
+  the precise statement of what is guaranteed, and
+  <a href="https://github.com/wstein/flixw/blob/main/docs/LIMITATIONS.md">LIMITATIONS.md</a>
+  of what is not.
+</p>
+
+<footer>
+  Published from the <code>v@VERSION@</code> tag.
+  flixw is MIT-licensed and is not affiliated with, or endorsed by, the Flix project.
+</footer>
+
+</body>
+</html>

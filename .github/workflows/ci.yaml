@@ -25,6 +25,11 @@ jobs:
       - name: shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: sh tests/lint.sh
+      # pages.yaml runs this on a tag, where a failure means a release with no docs and
+      # a schema URL serving whatever the previous tag left behind. Build it on every
+      # commit instead, so the tag is not the first time anyone finds out.
+      - name: the site builds
+        run: sh tests/pages.sh "$RUNNER_TEMP/site"
 
   # The published JSON Schema is rendered by stage 0 and asserted by stage 0's own unit
   # checks, which is the one thing that cannot tell us whether it is a valid schema at all,
