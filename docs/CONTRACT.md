@@ -128,6 +128,29 @@ validates locks can carry its own copy of the schema instead of fetching one:
 ./flixw wrapper --schema > lock.schema.json
 ```
 
+Every generated lock names it on the first line:
+
+```toml
+#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json
+```
+
+That is Taplo's directive, honoured by `taplo` and by the Even Better TOML extension, so
+an editor validates the lock with nothing configured per project. Nothing about the build
+depends on the line: `validate` reports a lock without one as `warn`, not as a failure,
+and `./flixw doctor --fix` adds it. That repair is offline and changes the file's form
+rather than its meaning — same repository, version, URL, digest and java pin — which is
+why it exists at all, since `pin` would re-download the compiler to write one comment.
+
+**A key the schema does not describe is advisory, both ways.** Stage 0 prints `FLIXW011`,
+names the key, and carries on; it never sets exit status. The ordinary way to meet an
+unknown key is a lock written by a *newer* flixw — the lock is committed, so that is every
+collaborator who has not upgraded — and refusing to run would turn a forward-compatible
+file into a broken project. The schema is stricter, because there the reader is a person
+editing the file by hand and a warning is what they want. `doctor --fix` declines to
+rewrite a lock carrying such a key, and declines to rewrite one written by a newer flixw
+at all: the rewrite is from the values it read, so anything it did not read would be
+deleted by the command that had just called it harmless.
+
 Every key below is what the schema declares. `[compiler]` is required; within it,
 `version`, `url` and `sha256` are required and `repo` is not. `wrapperVersion` records the
 release that last wrote the file. `[java]` is optional entirely.
@@ -403,8 +426,8 @@ these.
 | `FLIXW008` | 87 | an environment variable, JVM option or launcher flag is invalid |
 | `FLIXW009` | 88 | install, verb capture, dispatch, pin, validate or lock transaction failed |
 
-`FLIXW010` (unparseable `--help`) and `FLIXW011` (Java above the ceiling) are advisory:
-printed, never fatal.
+`FLIXW010` (unparseable `--help`) and `FLIXW011` (Java above the ceiling; a lock key flixw
+does not read) are advisory: printed, never fatal.
 
 ## Environment
 

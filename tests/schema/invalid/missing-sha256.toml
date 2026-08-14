@@ -1,0 +1,4 @@
+#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json
+[compiler]
+version = "0.75.2"
+url     = "https://github.com/flix/flix/releases/download/v0.75.2/flix.jar"

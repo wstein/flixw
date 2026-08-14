@@ -572,7 +572,8 @@ public final class UnitCheck {
      * behaviour: each pattern is exercised against values the hand-written validators
      * already have an opinion about, and the two must reach the same verdict.
      */
-    static void lockSchema() {
+    static void lockSchema(Path fixtures) throws IOException {
+        lockFixtures(fixtures);
         for (flixw.LockField f : flixw.LOCK_SCHEMA) {
             String label = "schema " + f.name();
             // Anchors are added when the pattern is rendered into JSON, because Java's
@@ -651,6 +652,59 @@ public final class UnitCheck {
                          + " keys, rendered and cross-checked against the validators");
     }
 
+    /**
+     * Every fixture in `tests/schema/`, through the validator that runs on each invocation.
+     *
+     * The directory a fixture is filed under is its expected verdict, so a new case is a
+     * new file and nothing else -- see tests/schema/README.md for what each one means. CI
+     * runs taplo over `valid/` and `invalid/` against the published schema, which is the
+     * other half of this: these two rows must hold for both validators, and the remaining
+     * two are where they are specified to differ.
+     */
+    static void lockFixtures(Path dir) throws IOException {
+        int n = 0;
+        for (String kind : new String[] {"valid", "invalid", "semantic", "advisory"}) {
+            for (Path lock : locks(dir.resolve(kind))) {
+                String label = "lock fixture " + kind + "/" + lock.getFileName();
+                n++;
+                boolean accepted;
+                String detail = "";
+                // The advisory group's whole point is what reaches stderr, so stderr is
+                // the assertion rather than noise to scroll past. Restored in a finally,
+                // because a swapped System.err outliving a failure would silence the rest
+                // of the run.
+                java.io.ByteArrayOutputStream noise = new java.io.ByteArrayOutputStream();
+                java.io.PrintStream real = System.err;
+                System.setErr(new java.io.PrintStream(noise, true, StandardCharsets.UTF_8));
+                try { flixw.readLock(lock); accepted = true; }
+                catch (flixw.Fail e) { accepted = false; detail = e.getMessage().split("\n")[0]; }
+                finally { System.setErr(real); }
+
+                boolean want = kind.equals("valid") || kind.equals("advisory");
+                if (accepted == want) ok();
+                else if (want) bad(label, "rejected: " + detail);
+                else bad(label, "accepted, but this group must be rejected");
+
+                boolean noted = noise.toString(StandardCharsets.UTF_8).contains("FLIXW011");
+                if (noted == kind.equals("advisory")) ok();
+                else bad(label, noted ? "an unexpected FLIXW011" : "no FLIXW011 for an unknown key");
+            }
+        }
+        // A fixture directory that quietly emptied would turn this whole group into a
+        // no-op that still reports ok.
+        if (n >= 20) ok();
+        else bad("lock fixtures", "only " + n + " fixtures found under " + dir);
+        System.out.println("  ok   lock fixtures: " + n + " locks through readLock");
+    }
+
+    static List<Path> locks(Path dir) throws IOException {
+        List<Path> out = new ArrayList<>();
+        try (var s = Files.list(dir)) {
+            s.filter(p -> p.getFileName().toString().endsWith(".toml")).sorted().forEach(out::add);
+        }
+        return out;
+    }
+
     /** The pattern the schema declares for one key, so a case reads as the key it tests. */
     static String pattern(String table, String key) {
         for (flixw.LockField f : flixw.LOCK_SCHEMA)
@@ -671,6 +725,7 @@ public final class UnitCheck {
 
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
+        Path fixtures = Paths.get(args.length > 1 ? args[1] : "tests/schema");
         List<Row> rows = rows(dir);
         corpus(dir, rows);
         adversarial();
@@ -678,7 +733,7 @@ public final class UnitCheck {
         provisioning();
         pinTargets();
         verbs();
-        lockSchema();
+        lockSchema(fixtures);
         bounded();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);

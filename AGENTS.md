@@ -56,16 +56,24 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
-sh tests/run.sh     # 164-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 174-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 36 adversarial
 manifests, JDK selection and provisioning, pin targets, verb capture against both help
-renderers, the lock schema against the hand-written validators, and the bounds on
-`runCapture` — 252 assertions in total. Refresh the corpus
-with `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
+renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
+the bounds on `runCapture` — 299 assertions in total. Refresh the corpus with
+`sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
+
+`tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
+`invalid/`, `semantic/` (well-formed and still wrong — the checks a regex cannot make) and
+`advisory/` (the schema rejects, stage 0 warns and runs). `UnitCheck` walks all four
+through `readLock`; the `schema` job in CI runs taplo over the first two and over
+`advisory/`, which is the only outside evidence that the published file is a working JSON
+Schema. Adding a case means adding a file; nothing enumerates them by name. See
+`tests/schema/README.md`.
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
 space: two JDK stand-ins, a JAR whose `--help` cannot be parsed, a JAR that sleeps, and a
@@ -136,6 +144,13 @@ the JAR — a content-addressed compiler directory may legitimately be read-only
 description — and it is the only place the lock format is written down. `lockText` writes
 from it, `readLock` validates against it, and `wrapper --schema` renders it as the JSON
 Schema published at `https://wstein.github.io/flixw/schema/lock-v1.schema.json`.
+Every generated lock names that URL on its first line as a Taplo `#:schema` directive, so
+an editor validates it with no per-project configuration; `doctor --fix` adds the line to a
+lock written before it existed, offline and without touching the pin. A key the schema does
+not describe is `FLIXW011` and never fatal — a lock is committed, so an unknown key is
+usually a collaborator's newer flixw — and `doctor --fix` refuses to rewrite such a lock,
+because the rewrite is from the values it read.
+
 `docs/schema/lock-v1.schema.json` is the committed copy of that render; `tests/lint.sh`
 diffs the two, so **regenerate it rather than editing it**:
 

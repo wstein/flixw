@@ -566,6 +566,63 @@ t 81 "a malformed url in the lock is a diagnostic, not a crash"  sh -c '
   sed "s|^url .*|url = \"https://\"|" "$1/lock.keep" > .flixw/lock.toml
   ./flixw -- --version; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# The diagnostic has to name the key and say what it is for, not quote the pattern back:
+# the person reading it is repairing a generated file by hand.
+g 81 'expected the SHA-256 of that JAR' "a bad digest names the key and what it holds"  sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^sha256.*/sha256  = \"nope\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw -- --version; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+
+# --- the lock schema -------------------------------------------------------
+# The schema is rendered from the list stage 0 validates against, so the two cannot
+# disagree; what the shell can still show is that the render is reachable offline and that
+# the file every generated lock points an editor at is the one the wrapper serves.
+echo "lock schema"
+g 0 '"\$id": "https://wstein.github.io/flixw/schema/lock-v1.schema.json"' \
+     "wrapper --schema renders the published schema"          ./flixw wrapper --schema
+t 87 "wrapper --schema takes no arguments"                     ./flixw wrapper --schema v1
+# Offline and project-free, like --version: a build validating locks should be able to
+# carry its own copy of the schema rather than reaching the network for one.
+t 0  "wrapper --schema needs no project"                       sh -c '
+  cd "$1" && java "$2" wrapper --schema | grep -q json-schema.org' sh "$work" "$root/src/flixw.java"
+t 0  "every generated lock names the schema"                    sh -c '
+  head -1 .flixw/lock.toml | grep -q "^#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json$"'
+t 0  "validate reports the lock as conforming and named"        sh -c '
+  ./flixw validate | grep -q "^ok    the lock conforms to, and names, the v1 schema$"'
+
+# An unknown key is advisory in both directions: it is said out loud, and it never stops
+# the run. A lock is committed, so the ordinary way to meet one is a collaborator whose
+# flixw is newer than yours.
+g 0 'FLIXW011.*mirror' "an unknown key is reported and ignored" sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  printf "mirror  = \"https://mirror.example.invalid\"\n" >> .flixw/lock.toml
+  ./flixw wrapper --version >/dev/null; ./flixw validate >/dev/null; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# ...and doctor --fix must not "repair" it away: the rewrite is from the values it read,
+# so a key it did not read would be deleted by the command that just said it was ignored.
+t 0 "doctor --fix leaves a lock with an unknown key alone"      sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  printf "mirror  = \"https://mirror.example.invalid\"\n" >> .flixw/lock.toml
+  ./flixw doctor --fix >/dev/null 2>&1
+  grep -q "^mirror" .flixw/lock.toml; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# A lock written before this release has no #:schema line and no offline way to get one,
+# because pin re-downloads the compiler to write the file. doctor --fix is that way.
+t 0 "doctor --fix adds a missing #:schema line"                 sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  grep -v "^#:schema" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw validate | grep -q "^warn  the lock conforms to the v1 schema but does not name it"
+  ./flixw doctor --fix >/dev/null 2>&1
+  head -1 .flixw/lock.toml | grep -q "^#:schema "; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# A lock written by a newer flixw is not this release's to reshape, in either direction.
+t 0 "doctor --fix leaves a newer wrapper's lock alone"          sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^wrapperVersion.*/wrapperVersion = \"99.0.0\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw doctor --fix >/dev/null 2>&1
+  grep -q "^wrapperVersion = \"99.0.0\"$" .flixw/lock.toml; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
 
 # --- drift -----------------------------------------------------------------
 echo "drift"
@@ -798,7 +855,7 @@ t 0  "stdout carries only compiler output"                      sh -c '
 echo "unit checks"
 javac -d "$work/unit" "$root/src/flixw.java" "$root/tests/UnitCheck.java"
 set +e
-java -cp "$work/unit" UnitCheck "$root/tests/corpus"
+java -cp "$work/unit" UnitCheck "$root/tests/corpus" "$root/tests/schema"
 unit_rc=$?
 set -e
 t 0  "manifest corpus, pin rewrite and capture bounds"          test "$unit_rc" = 0

@@ -1,0 +1,2 @@
+#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json
+wrapperVersion = "0.20.4"

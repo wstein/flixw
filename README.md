@@ -221,6 +221,24 @@ Once installed, `./flixw wrapper --upgrade` moves the project to the newest rele
 `./flixw wrapper --help` prints the routing table: which verbs go to the compiler, which to
 the wrapper, and how to force either.
 
+## The lock, in your editor
+
+`.flixw/lock.toml` is generated, and its first line says what it is:
+
+```toml
+#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json
+```
+
+That is the directive [taplo](https://taplo.tamasfe.dev) and the Even Better TOML
+extension follow, so an editor validates the file — completing keys, flagging a mistyped
+one, explaining what each holds — with nothing configured per project. `./flixw wrapper --schema`
+prints the same schema on stdout if you would rather validate offline; it is rendered from
+the list stage 0 itself checks the lock against, so the two cannot disagree.
+
+Nothing about the build depends on the line. A lock written by an older flixw has none;
+`./flixw validate` says so, and `./flixw doctor --fix` adds it without touching the network
+or the pin.
+
 ## Testing a locally built compiler
 
 If you build Flix yourself — a fork, or a patch you have not tagged yet — run it with:

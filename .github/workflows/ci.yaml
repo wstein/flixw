@@ -26,6 +26,60 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: sh tests/lint.sh
 
+  # The published JSON Schema is rendered by stage 0 and asserted by stage 0's own unit
+  # checks, which is the one thing that cannot tell us whether it is a valid schema at all,
+  # or whether an outside validator reads it the way flixw does. taplo is that outsider:
+  # the same engine an editor runs when it follows the `#:schema` line in a generated lock.
+  schema:
+    name: schema (taplo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install taplo
+        run: |
+          curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz \
+            | gunzip > /usr/local/bin/taplo
+          chmod +x /usr/local/bin/taplo
+      # tests/schema/README.md is the authority on which directory means what. Only these
+      # two rows are claims about the schema; the other two are where the schema and stage
+      # 0 are specified to disagree, and asserting taplo against them would assert nothing.
+      - name: valid locks pass
+        run: |
+          fail=0
+          for f in tests/schema/valid/*.toml; do
+            if taplo check --schema "file://$PWD/docs/schema/lock-v1.schema.json" "$f"; then
+              echo "ok    $f"
+            else
+              echo "FAIL  $f is filed as valid and taplo rejects it"; fail=1
+            fi
+          done
+          exit $fail
+      - name: invalid locks fail
+        run: |
+          fail=0
+          for f in tests/schema/invalid/*.toml; do
+            if taplo check --schema "file://$PWD/docs/schema/lock-v1.schema.json" "$f" 2>/dev/null; then
+              echo "FAIL  $f is filed as invalid and taplo accepts it"; fail=1
+            else
+              echo "ok    $f"
+            fi
+          done
+          exit $fail
+      # An unknown key is the one case where the schema is deliberately stricter than the
+      # wrapper. If additionalProperties ever stopped being enforced, nothing else here
+      # would notice: every other fixture would still get the verdict it is filed under.
+      - name: an unknown key is rejected by the schema alone
+        run: |
+          fail=0
+          for f in tests/schema/advisory/*.toml; do
+            if taplo check --schema "file://$PWD/docs/schema/lock-v1.schema.json" "$f" 2>/dev/null; then
+              echo "FAIL  $f carries a key the schema should reject"; fail=1
+            else
+              echo "ok    $f"
+            fi
+          done
+          exit $fail
+
   test:
     name: test (${{ matrix.os }}, java ${{ matrix.java }})
     runs-on: ${{ matrix.os }}

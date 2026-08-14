@@ -31,9 +31,11 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -583,22 +585,95 @@ public final class flixw {
                      + "\n       run: ./flixw pin <version>");
         }
         String w = lockFile.toString();
-        String v = tomlLookup(text, "compiler", "version", w);
-        String u = tomlLookup(text, "compiler", "url", w);
-        String s = tomlLookup(text, "compiler", "sha256", w);
-        if (v == null || u == null || s == null)
-            throw w002(lockFile + " is missing [compiler] version, url or sha256");
-        validateVersion(v, w);
-        if (!s.matches("[0-9a-f]{64}")) throw w002(w + ": sha256 is not 64 lowercase hex digits");
+        Map<String, String> got = readLockFields(text, w);
+        noteUnknownLockKeys(text, w, got.get("wrapperVersion"));
+        String u = got.get("compiler.url");
+        String j = got.get("java.version");
+        // What a pattern cannot say. The schema has already accepted both values as
+        // well-formed; these are the checks that need more than their shape -- that the
+        // URL names a host and does not climb out of its path, and that the java pin is
+        // one the compiler can actually run under.
         validateUrl(u, w);
-        // Optional: locks written before forks were supported do not carry it, and a
-        // missing repository simply means the stock one.
-        String r = tomlLookup(text, "compiler", "repo", w);
-        // Optional in the same way, and for the same reason: a project that does not care
-        // which Java runs the compiler says nothing, and gets the newest tested one.
-        String j = tomlLookup(text, "java", "version", w);
         if (j != null) validateJavaPin(j, w);
-        return new Lock(v, u, s, r == null ? null : checkRepo(r, w), j);
+        // repo is absent in locks written before forks were supported, and means the stock
+        // repository. java is absent whenever a project does not care which JDK it gets.
+        return new Lock(got.get("compiler.version"), u, got.get("compiler.sha256"),
+                        got.get("compiler.repo"), j);
+    }
+
+    /**
+     * Reads every key {@link #LOCK_SCHEMA} declares, keyed as `table.key` with the root
+     * table's keys unprefixed. Absent optional keys are simply not in the map.
+     *
+     * Presence and shape are both checked here, from the same list the published JSON
+     * Schema is rendered from, so a lock an editor flags is a lock flixw refuses -- and
+     * the diagnostic can say what the key is *for* rather than quoting a regex at someone.
+     */
+    static Map<String, String> readLockFields(String text, String where) {
+        Map<String, String> got = new LinkedHashMap<>();
+        for (LockField f : LOCK_SCHEMA) {
+            String v = tomlLookup(text, f.table(), f.key(), where);
+            if (v == null) {
+                if (!f.required()) continue;
+                throw w002(where + ": missing " + f.name() + " -- " + f.what()
+                         + "\n       run: ./flixw pin <version>");
+            }
+            if (!v.matches(f.pattern()))
+                throw w002(where + ": " + f.name() + " is " + q(v)
+                         + "\n       expected " + f.what()
+                         + "\n       run: ./flixw pin <version>");
+            got.put(f.table().isEmpty() ? f.key() : f.table() + "." + f.key(), v);
+        }
+        return got;
+    }
+
+    /**
+     * Keys the schema does not describe, reported once and never fatally.
+     *
+     * Advisory because the ordinary way to meet one is a lock written by a newer flixw,
+     * and refusing to run would make such a project unbuildable by every collaborator who
+     * had not upgraded yet -- the lock is committed, so that is most of them. Silence is
+     * the wrong answer too: a mistyped key is otherwise invisible, and the value someone
+     * believed they had set is simply never read.
+     *
+     * A lock that says it was written by a newer flixw gets no note at all, because there
+     * the unknown key is expected and the message would be wrong as well as noisy.
+     */
+    static void noteUnknownLockKeys(String text, String where, String wroteIt) {
+        // A run reads the lock more than once by design -- `doctor` reads it, then reads
+        // it again to decide whether to rewrite it -- and an advisory said twice reads as
+        // two problems. Once per file per run is what "reported once" means.
+        if (!NOTED_LOCKS.add(where)) return;
+        if (wroteIt != null && !olderOrSame(wroteIt, WRAPPER_VERSION)) return;
+        List<String> unknown = unknownLockKeys(text, where);
+        if (unknown.isEmpty()) return;
+        w011(where + ": " + String.join(", ", unknown)
+           + (unknown.size() == 1 ? " is not a key flixw reads, and is ignored"
+                                  : " are not keys flixw reads, and are ignored")
+           + "\n         the keys a lock may hold: " + LOCK_SCHEMA_URL);
+    }
+
+    /** Locks already reported on, so a second read in the same run stays quiet. */
+    static final Set<String> NOTED_LOCKS = new LinkedHashSet<>();
+
+    /**
+     * Every key in the file that {@link #LOCK_SCHEMA} does not describe, named the way a
+     * diagnostic names it, in file order and without repeats.
+     *
+     * Separate from the note because `doctor --fix` asks the same question for the
+     * opposite reason: it regenerates the lock from the values it read, which would
+     * *delete* any key it did not read.
+     */
+    static List<String> unknownLockKeys(String text, String where) {
+        List<String> unknown = new ArrayList<>();
+        for (TomlEntry e : tomlScan(text, where).entries()) {
+            boolean known = false;
+            for (LockField f : LOCK_SCHEMA)
+                if (isKey(e, f.table(), f.key())) { known = true; break; }
+            String name = e.table().isEmpty() ? e.key() : "[" + e.table() + "] " + e.key();
+            if (!known && !unknown.contains(name)) unknown.add(name);
+        }
+        return unknown;
     }
 
     /**
@@ -2493,6 +2568,25 @@ public final class flixw {
                              + lock.version()); bad++;
         } else System.out.println("ok    the lock satisfies flix.toml");
 
+        // readLock has already validated the lock against the schema by the time validate
+        // runs -- a lock that failed it never reached here. What is left to report is the
+        // directive that points an *editor* at the same schema, which a lock written by an
+        // older flixw does not carry. Not a failure: nothing about the build depends on it.
+        if (lock != null) {
+            try {
+                String text = Files.readString(lockPath(root), StandardCharsets.UTF_8);
+                if (text.startsWith("#:schema " + LOCK_SCHEMA_URL + "\n"))
+                    System.out.println("ok    the lock conforms to, and names, the "
+                                     + LOCK_SCHEMA_VERSION + " schema");
+                else
+                    System.out.println("warn  the lock conforms to the " + LOCK_SCHEMA_VERSION
+                                     + " schema but does not name it; editors will not"
+                                     + " validate it (./flixw doctor --fix)");
+            } catch (IOException e) {
+                System.out.println("FAIL  unreadable " + WRAPPER_DIR + "/lock.toml"); bad++;
+            }
+        }
+
         // A java pin is checked against the JDK this run actually selected, not against
         // the machine in general: "there is a 21 somewhere" is not the question.
         if (lock != null && lock.java() != null) {
@@ -2693,11 +2787,21 @@ public final class flixw {
                          + feature(javaPin) + " into the flixw cache)");
     }
 
-    /** One place that knows what a lock looks like, so the writer cannot drift by table. */
+    /**
+     * One place that knows what a lock looks like, so the writer cannot drift by table.
+     *
+     * The first line is a Taplo `#:schema` directive, which Even Better TOML and taplo
+     * both honour: an editor validates the lock against the published schema with nothing
+     * configured per project, which is the only way a generated file gets checked by the
+     * person editing it by hand against the advice at the top of it. It names the
+     * versioned schema rather than a floating one, for the reason the compiler pin names
+     * an exact version -- a lock is a pin, including of what it means.
+     */
     static String lockText(String wrapper, String repo, String version, String url,
                            String sha256, String java) {
         String body = """
-            # Generated by ./flixw pin. Do not edit by hand; commit this file.
+            #:schema %s
+            # Generated by flixw. Do not edit by hand; commit this file.
             wrapperVersion = "%s"
 
             [compiler]
@@ -2705,7 +2809,7 @@ public final class flixw {
             version = "%s"
             url     = "%s"
             sha256  = "%s"
-            """.formatted(wrapper, repo, version, url, sha256);
+            """.formatted(LOCK_SCHEMA_URL, wrapper, repo, version, url, sha256);
         // Absent rather than empty when unpinned: a project that does not care which JDK
         // runs the compiler should not have to read a line telling it so.
         return java == null ? body : body + """
@@ -2966,6 +3070,9 @@ public final class flixw {
             if (!before.equals(Files.readString(ga, StandardCharsets.UTF_8))) {
                 System.out.println("merged   ./.gitattributes"); changed++;
             }
+            if (refreshLock(root)) {
+                System.out.println("rewrote  " + WRAPPER_DIR + "/lock.toml"); changed++;
+            }
         } catch (IOException e) { throw w009("rewriting the wrapper files failed: " + why(e)); }
         // One line, and only the one that is true. The two-line note that used to follow
         // every run explained that this refreshes rather than upgrades -- which is a fact
@@ -2976,6 +3083,38 @@ public final class flixw {
             ? "wrapper files already match flixw " + WRAPPER_VERSION
             : changed + (changed == 1 ? " file" : " files")
               + " rewritten from flixw " + WRAPPER_VERSION);
+    }
+
+    /**
+     * Rewrites the lock in the shape this release writes, from the values already in it.
+     * True when it changed. Offline, and it changes the file's form rather than its
+     * meaning: same repository, version, URL, digest and java pin.
+     *
+     * It exists because a lock written by an older flixw has no `#:schema` line, and there
+     * was no offline way to acquire one -- `pin` re-downloads the compiler to write the
+     * file, which is a large price for a comment. `doctor --fix` is where the project's
+     * generated files are brought up to this release, and the lock is one of them.
+     *
+     * Three things stop it. A lock that does not parse is `pin`'s job, and guessing at one
+     * is how a repair destroys what it came to fix. A lock written by a *newer* flixw is
+     * not this release's to reshape. And a lock carrying a key this release does not read
+     * would have that key silently deleted, since the rewrite is from the values read --
+     * which is the same hazard as the second, one key at a time.
+     */
+    static boolean refreshLock(Path root) throws IOException {
+        Path lockFile = lockPath(root);
+        if (!Files.isRegularFile(lockFile)) return false;
+        String text = Files.readString(lockFile, StandardCharsets.UTF_8);
+        Lock lock;
+        try { lock = readLock(lockFile); } catch (Fail unparseable) { return false; }
+        String wroteIt = tomlLookup(text, "", "wrapperVersion", lockFile.toString());
+        if (wroteIt != null && !olderOrSame(wroteIt, WRAPPER_VERSION)) return false;
+        if (!unknownLockKeys(text, lockFile.toString()).isEmpty()) return false;
+        String want = lockText(WRAPPER_VERSION, lock.repo() == null ? UPSTREAM_REPO : lock.repo(),
+                               lock.version(), lock.url(), lock.sha256(), lock.java());
+        if (want.equals(text)) return false;
+        writeAtomic(lockFile, want);
+        return true;
     }
 
     static void mergeGitattributes(Path ga) throws IOException {
