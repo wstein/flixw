@@ -42,6 +42,7 @@ Exercising it end to end means installing into a scratch project:
 java src/flixw.java install /tmp/proj      # writes flixw, flixw.cmd, .flixw/flixw.java, .gitattributes
 cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads the JAR
 ./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
+./flixw pin --refresh                      # rewrite the lock in this release's shape; offline
 ./flixw info                               # java, compiler, cache, mirror, proxy, routing state
 ./flixw doctor [--fix]                     # the same, plus every check, with a verdict
 ./flixw validate                           # wrapper files, lock/manifest agreement, git tracked status
@@ -63,7 +64,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
-sh tests/run.sh     # 174-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 183-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -71,7 +72,7 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 36 adversarial
 manifests, JDK selection and provisioning, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
-the bounds on `runCapture` — 299 assertions in total. Refresh the corpus with
+the bounds on `runCapture` — 309 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -152,11 +153,14 @@ description — and it is the only place the lock format is written down. `lockT
 from it, `readLock` validates against it, and `wrapper --schema` renders it as the JSON
 Schema published at `https://wstein.github.io/flixw/schema/lock-v1.schema.json`.
 Every generated lock names that URL on its first line as a Taplo `#:schema` directive, so
-an editor validates it with no per-project configuration; `doctor --fix` adds the line to a
-lock written before it existed, offline and without touching the pin. A key the schema does
-not describe is `FLIXW011` and never fatal — a lock is committed, so an unknown key is
-usually a collaborator's newer flixw — and `doctor --fix` refuses to rewrite such a lock,
-because the rewrite is from the values it read.
+an editor validates it with no per-project configuration. `pin --refresh` and `doctor --fix`
+share one implementation — `refreshLock` — which rewrites the lock in this release's shape
+from the values already in it: offline, and the pin does not move. It declines on a lock
+that does not parse, one written by a newer flixw, or one carrying a key this release does
+not read, since the rewrite is from the values read. `pin --refresh` prints which; `doctor
+--fix` stays quiet, because there it is one item among several. A key the schema does not
+describe is `FLIXW011` and never fatal — a lock is committed, so an unknown key is usually
+a collaborator's newer flixw.
 
 `docs/schema/lock-v1.schema.json` is the committed copy of that render; `tests/lint.sh`
 diffs the two, so **regenerate it rather than editing it**:

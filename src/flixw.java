@@ -747,6 +747,14 @@ public final class flixw {
     /** Where the stock compiler comes from when nothing says otherwise. */
     static final String UPSTREAM_REPO = "flix/flix";
 
+    /**
+     * One usage line for `pin`, because four diagnostics quote it and the fourth was
+     * already a release behind the first the last time one was written out by hand.
+     */
+    static final String PIN_USAGE =
+          "usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]"
+        + "\n          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)";
+
     /** One release asset: what to fetch, and what the publisher says it hashes to. */
     record Asset(String name, String url) {}
 
@@ -835,8 +843,12 @@ public final class flixw {
             return false;
         }
     }
+    /** What one `pin` command line asks for; `parsePin` is the only thing that builds it. */
+    record Pin(String repo, String version, String java, boolean clearJava, boolean refresh) {}
+
     /**
-     * {@code ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]}.
+     * {@code ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]}, or
+     * {@code ./flixw pin --refresh}.
      *
      * The two are told apart by the slash, which a version can never contain -- the
      * grammar rejects it -- so the order does not matter and neither does a flag.  An
@@ -844,12 +856,10 @@ public final class flixw {
      * tracks a fork stays on that fork: rebuilding the upstream URL every time silently
      * moved such a project back to stock, and because both are honestly version 0.75.2,
      * nothing about it looked wrong.
-     *
-     * Returns { repo, compiler version or null, java pin or null, "clear-java" or null }.
      */
-    static String[] parsePin(List<String> args, Lock existing) {
+    static Pin parsePin(List<String> args, Lock existing) {
         String repo = null, version = null, java = null, clearJava = null;
-        boolean repoGiven = false;
+        boolean repoGiven = false, refresh = false;
         for (int i = 0; i < args.size(); i++) {
             String a = args.get(i);
             if (a.equals("--java")) {
@@ -859,9 +869,10 @@ public final class flixw {
                              + " ./flixw pin --java " + MIN_JAVA + "   (or --java none)");
                 String v = args.get(++i);
                 if (v.equals("none")) clearJava = "yes"; else { validateJavaPin(v, "pin"); java = v; }
+            } else if (a.equals("--refresh")) {
+                refresh = true;
             } else if (a.startsWith("--")) {
-                throw w008("pin: unknown option " + q(a)
-                         + "\n       usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]");
+                throw w008("pin: unknown option " + q(a) + "\n       " + PIN_USAGE);
             } else if (a.contains("/")) {
                 if (repo != null) throw w009("pin: two repositories given");
                 repo = checkRepo(a, "pin");
@@ -871,11 +882,24 @@ public final class flixw {
                 version = a;
             }
         }
+        if (refresh) {
+            // --refresh rewrites the lock from the lock. Everything else on this line
+            // changes what the lock says, and doing one of the two silently is how a
+            // repair loses the pin it was asked to preserve.
+            if (version != null || repoGiven || java != null || clearJava != null)
+                throw w008("pin: --refresh takes no other arguments -- it rewrites the lock"
+                         + " in the shape flixw " + WRAPPER_VERSION + " writes,"
+                         + "\n       from the values already in it, without moving the pin"
+                         + "\n       " + PIN_USAGE);
+            if (existing == null)
+                throw w002("pin: --refresh needs a lock that parses"
+                         + "\n       run: ./flixw pin <version>");
+            return new Pin(null, null, null, false, true);
+        }
         // A compiler version is required unless this is only a Java pin, in which case
         // the compiler stays exactly as it was -- rewriting the lock is not repinning it.
         if (version == null && java == null && clearJava == null)
-            throw w002("pin: no version\n       usage: ./flixw pin [<owner>/<repo>] [<version>]"
-                     + " [--java <version>]");
+            throw w002("pin: no version\n       " + PIN_USAGE);
         // Naming a repository without a version was accepted and then quietly dropped: a
         // --java-only pin rewrites one line and does not re-resolve the compiler, so the
         // repository had nowhere to go. Changing where the compiler comes from means
@@ -890,7 +914,7 @@ public final class flixw {
         if (version != null) validateVersion(version, "pin");
         if (repo == null) repo = existing != null && existing.repo() != null
                                ? existing.repo() : UPSTREAM_REPO;
-        return new String[] { repo, version, java, clearJava };
+        return new Pin(repo, version, java, clearJava != null, false);
     }
 
     // ---- acquisition ------------------------------------------------------
@@ -2370,9 +2394,8 @@ public final class flixw {
         switch (verb) {
             case "pin" -> {
                 if (rest.isEmpty())
-                    throw w009("usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]");
-                String[] t = parsePin(rest, lock);
-                pin(root, t[0], t[1], t[2], t[3] != null);
+                    throw w009(PIN_USAGE);
+                pin(root, parsePin(rest, lock));
             }
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
@@ -2693,7 +2716,10 @@ public final class flixw {
         } catch (IOException ignored) { }
     }
 
-    static void pin(Path root, String repo, String version, String java, boolean clearJava) {
+    static void pin(Path root, Pin what) {
+        if (what.refresh()) { refreshPin(root); return; }
+        String repo = what.repo(), version = what.version(), java = what.java();
+        boolean clearJava = what.clearJava();
         Path lockFile0 = lockPath(root);
         // Defensively: `pin` is the documented repair for a lock that does not parse, so
         // reading the old one must not be able to stop it. What is lost when it cannot be
@@ -3085,9 +3111,13 @@ public final class flixw {
             if (!before.equals(Files.readString(ga, StandardCharsets.UTF_8))) {
                 System.out.println("merged   ./.gitattributes"); changed++;
             }
-            if (refreshLock(root)) {
-                System.out.println("rewrote  " + WRAPPER_DIR + "/lock.toml"); changed++;
-            }
+            // A lock only `pin <version>` can repair is not this command's to guess at;
+            // everything else doctor --fix reports is still reported.
+            try {
+                if (refreshLock(root).changed()) {
+                    System.out.println("rewrote  " + WRAPPER_DIR + "/lock.toml"); changed++;
+                }
+            } catch (Fail unparseable) { }
         } catch (IOException e) { throw w009("rewriting the wrapper files failed: " + why(e)); }
         // One line, and only the one that is true. The two-line note that used to follow
         // every run explained that this refreshes rather than upgrades -- which is a fact
@@ -3116,20 +3146,57 @@ public final class flixw {
      * would have that key silently deleted, since the rewrite is from the values read --
      * which is the same hazard as the second, one key at a time.
      */
-    static boolean refreshLock(Path root) throws IOException {
+    /**
+     * Whether the lock was rewritten, and the sentence explaining why not when it was not.
+     *
+     * Both callers need the reason, for opposite purposes: `doctor --fix` discards it,
+     * because it is repairing everything it can and this is one item among several, while
+     * `pin --refresh` prints it -- there the user asked for this and nothing else, and a
+     * command that does nothing and says nothing reads as one that worked.
+     */
+    record Refresh(boolean changed, String why) {}
+
+    static Refresh refreshLock(Path root) throws IOException {
         Path lockFile = lockPath(root);
-        if (!Files.isRegularFile(lockFile)) return false;
+        if (!Files.isRegularFile(lockFile))
+            return new Refresh(false, "there is no " + WRAPPER_DIR + "/lock.toml");
         String text = Files.readString(lockFile, StandardCharsets.UTF_8);
-        Lock lock;
-        try { lock = readLock(lockFile); } catch (Fail unparseable) { return false; }
-        String wroteIt = tomlLookup(text, "", "wrapperVersion", lockFile.toString());
-        if (wroteIt != null && !olderOrSame(wroteIt, WRAPPER_VERSION)) return false;
-        if (!unknownLockKeys(text, lockFile.toString()).isEmpty()) return false;
+        // Not caught here: a lock this cannot read is one only `pin <version>` repairs,
+        // and its diagnostic already says so. doctor --fix is what catches it.
+        Lock lock = readLock(lockFile);
+        String w = lockFile.toString();
+        String wroteIt = tomlLookup(text, "", "wrapperVersion", w);
+        if (wroteIt != null && !olderOrSame(wroteIt, WRAPPER_VERSION))
+            return new Refresh(false, "the lock was written by flixw " + wroteIt
+                                    + ", which is newer than this one (" + WRAPPER_VERSION + ")");
+        List<String> unknown = unknownLockKeys(text, w);
+        if (!unknown.isEmpty())
+            return new Refresh(false, "the lock carries " + String.join(", ", unknown)
+                                    + ", which this flixw does not read and would drop");
         String want = lockText(WRAPPER_VERSION, lock.repo() == null ? UPSTREAM_REPO : lock.repo(),
                                lock.version(), lock.url(), lock.sha256(), lock.java());
-        if (want.equals(text)) return false;
+        if (want.equals(text))
+            return new Refresh(false, "the lock is already what flixw " + WRAPPER_VERSION
+                                    + " writes");
         writeAtomic(lockFile, want);
-        return true;
+        return new Refresh(true, null);
+    }
+
+    /**
+     * `./flixw pin --refresh`. Offline: the compiler is not re-resolved, not re-downloaded
+     * and not re-hashed, and the pin does not move. What changes is the file's shape --
+     * the `#:schema` line a lock written before it existed does not carry, the recorded
+     * wrapper version, the layout -- which is why it is a form of `pin` and not of
+     * `upgrade`.
+     */
+    static void refreshPin(Path root) {
+        Refresh r;
+        try { r = refreshLock(root); }
+        catch (IOException e) { throw w009("pin --refresh failed: " + why(e)); }
+        System.err.println(r.changed()
+            ? "flixw: rewrote " + WRAPPER_DIR + "/lock.toml in the shape flixw "
+              + WRAPPER_VERSION + " writes; the pin is unchanged"
+            : "flixw: nothing to do -- " + r.why());
     }
 
     static void mergeGitattributes(Path ga) throws IOException {
@@ -3255,7 +3322,7 @@ public final class flixw {
     }
 
     /**
-     * flixw's own namespace: `./flixw wrapper [--operation]`.
+     * flixw's own namespace. {@link #wrapperUsage} is the one list of what it offers.
      *
      * One verb, and every flixw-only operation under it as a flag.  These are not
      * stand-ins for anything Flix might one day ship, so they neither retire nor compete
@@ -3415,8 +3482,7 @@ public final class flixw {
             if (drift != null) System.err.println("flixw: warning: " + drift.split("\n")[0]);
             routingNotice(first, lock == null ? "none" : lock.version());
             if (first.equals("pin")) {
-                String[] t = parsePin(argv.subList(1, argv.size()), lock);
-                pin(root, t[0], t[1], t[2], t[3] != null);
+                pin(root, parsePin(argv.subList(1, argv.size()), lock));
             }
             else
                 wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null);
@@ -3431,8 +3497,7 @@ public final class flixw {
         // pin is the documented repair and never needs the compiler.
         if ("pin".equals(first) && !forcedCompiler) {
             routingNotice("pin", lock.version());
-            String[] t = parsePin(argv.subList(1, argv.size()), lock);
-            pin(root, t[0], t[1], t[2], t[3] != null);
+            pin(root, parsePin(argv.subList(1, argv.size()), lock));
             return;
         }
 
@@ -3532,10 +3597,11 @@ public final class flixw {
         System.out.println("  ./flixw <compiler verb> [args]   run the pinned stock compiler");
         System.out.println("  ./flixw -- <args>                forced compiler pass-through");
         System.out.println("  ./flixw pin [<owner>/<repo>] [<version>] [--java <v>]  write the lock");
+        System.out.println("  ./flixw pin --refresh            rewrite the lock in this release's shape");
         System.out.println("  ./flixw info                     project, compiler, java, cache");
         System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flixw validate                 the checks alone, for CI");
-        System.out.println("  ./flixw wrapper [--help | --version | --upgrade | --install-jdk]");
+        System.out.println("  ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --schema]");
         System.out.println();
         System.out.println("  FLIX_JAR=<path> ./flixw <verb>   run a locally built compiler"
                          + " (unverified; see ./.envrc.example)");

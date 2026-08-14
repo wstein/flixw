@@ -608,7 +608,9 @@ t 0 "doctor --fix leaves a lock with an unknown key alone"      sh -c '
   grep -q "^mirror" .flixw/lock.toml; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
 # A lock written before this release has no #:schema line and no offline way to get one,
-# because pin re-downloads the compiler to write the file. doctor --fix is that way.
+# because pin re-downloads the compiler to write the file. Two commands are that way, and
+# they are the same rewrite: doctor --fix as one repair among several, pin --refresh on its
+# own. Both are asserted, because a shared implementation is not a shared code path.
 t 0 "doctor --fix adds a missing #:schema line"                 sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
   grep -v "^#:schema" "$1/lock.keep" > .flixw/lock.toml
@@ -616,11 +618,52 @@ t 0 "doctor --fix adds a missing #:schema line"                 sh -c '
   ./flixw doctor --fix >/dev/null 2>&1
   head -1 .flixw/lock.toml | grep -q "^#:schema "; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
-# A lock written by a newer flixw is not this release's to reshape, in either direction.
+g 0 'rewrote' "pin --refresh adds a missing #:schema line"      sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  grep -v "^#:schema" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw pin --refresh
+  head -1 .flixw/lock.toml | grep -q "^#:schema " || exit 9
+  # The pin itself must not have moved: same repository, version, URL and digest.
+  grep -v "^#:schema\|^wrapperVersion" .flixw/lock.toml > "$1/after"
+  grep -v "^#:schema\|^wrapperVersion" "$1/lock.keep" > "$1/before"
+  diff "$1/before" "$1/after"; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# Offline is the point: it is what pin <version> cannot be. FLIX_DIST_URL pointed at a
+# host that does not resolve would fail any command that reaches the network.
+t 0 "pin --refresh reaches no network"                          sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  grep -v "^#:schema" "$1/lock.keep" > .flixw/lock.toml
+  FLIX_DIST_URL=https://dist.invalid ./flixw pin --refresh; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# Asked for explicitly, a refusal has to be said out loud: a command that does nothing and
+# prints nothing reads as one that worked.
+g 0 'already what flixw' "pin --refresh says when there is nothing to do"  ./flixw pin --refresh
+g 0 'does not read' "pin --refresh declines a lock with an unknown key"    sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  printf "mirror  = \"https://mirror.example.invalid\"\n" >> .flixw/lock.toml
+  ./flixw pin --refresh 2>&1
+  grep -q "^mirror" .flixw/lock.toml; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+t 81 "pin --refresh needs a lock that parses"                   sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^sha256.*/sha256  = \"not-a-digest\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw pin --refresh; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# It rewrites the lock from the lock; anything else on the line is a different request.
+t 87 "pin --refresh takes no version"                           ./flixw pin --refresh "$version"
+t 87 "pin --refresh takes no repository"                        ./flixw pin --refresh flix/flix
+t 87 "pin --refresh takes no --java"                            ./flixw pin --refresh --java 21
+# A lock written by a newer flixw is not this release's to reshape, by either route.
 t 0 "doctor --fix leaves a newer wrapper's lock alone"          sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
   sed "s/^wrapperVersion.*/wrapperVersion = \"99.0.0\"/" "$1/lock.keep" > .flixw/lock.toml
   ./flixw doctor --fix >/dev/null 2>&1
+  grep -q "^wrapperVersion = \"99.0.0\"$" .flixw/lock.toml; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+g 0 'newer than this one' "pin --refresh leaves a newer wrapper's lock alone"  sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^wrapperVersion.*/wrapperVersion = \"99.0.0\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw pin --refresh 2>&1
   grep -q "^wrapperVersion = \"99.0.0\"$" .flixw/lock.toml; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
 

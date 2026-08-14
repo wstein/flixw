@@ -133,6 +133,20 @@ else
   bad "stale ./flixw wrapper spellings: $(echo "$stale" | tr '\n' ' ')"
 fi
 
+# The check above greps for one flag at a time, so a *list* of them was invisible to it --
+# and the routing table's `./flixw wrapper [--help | ...]` line was a release behind for
+# exactly that reason, offering four operations where the usage offered five. Every
+# bracketed list must therefore hold the same set as the usage line, not merely a subset.
+lists=$(grep -o -- './flixw wrapper \[[^]]*\]' "$root/src/flixw.java" \
+        | sed 's|.*wrapper \[||; s|\]||' | tr -d ' |' | sort -u)
+if [ "$lists" = "$usage" ]; then
+  say "ok    every bracketed ./flixw wrapper list offers what the usage does"
+else
+  bad "a ./flixw wrapper list disagrees with the usage line"
+  say "      usage offers: $usage"
+  say "      lists offer:  $(echo "$lists" | tr '\n' ' ')"
+fi
+
 # --- 7. the published schema matches the lock this stage 0 writes ----------
 # The file name carries the lock format's major version, so a bump that renames the schema
 # must move the committed file with it rather than leaving the old name to be served.

@@ -408,22 +408,22 @@ public final class UnitCheck {
     static void pinTargets() {
         flixw.Lock forked = new flixw.Lock("0.75.2+f.1", "https://x/y.jar", "a".repeat(64),
                                          "wstein/flix-fork", null);
-        String[] t = flixw.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);
-        eq("pin: repository then version", "wstein/flix-fork", t[0]);
-        eq("pin: version survives its build metadata", "0.75.2+f.1", t[1]);
+        flixw.Pin t = flixw.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);
+        eq("pin: repository then version", "wstein/flix-fork", t.repo());
+        eq("pin: version survives its build metadata", "0.75.2+f.1", t.version());
 
         t = flixw.parsePin(java.util.List.of("0.75.2+f.1", "wstein/flix-fork"), null);
-        eq("pin: order does not matter", "wstein/flix-fork", t[0]);
+        eq("pin: order does not matter", "wstein/flix-fork", t.repo());
 
         // The trap this exists to close: a bare re-pin used to rebuild the upstream URL
         // and move a fork-tracking project back to stock, silently, because both are
         // honestly the same version.
         t = flixw.parsePin(java.util.List.of("0.75.2+f.1"), forked);
-        eq("pin: a bare re-pin stays on the fork", "wstein/flix-fork", t[0]);
+        eq("pin: a bare re-pin stays on the fork", "wstein/flix-fork", t.repo());
         t = flixw.parsePin(java.util.List.of("0.75.2"), null);
-        eq("pin: with no lock and no repository it is upstream", "flix/flix", t[0]);
+        eq("pin: with no lock and no repository it is upstream", "flix/flix", t.repo());
         t = flixw.parsePin(java.util.List.of("flix/flix", "0.75.2"), forked);
-        eq("pin: naming upstream leaves the fork", "flix/flix", t[0]);
+        eq("pin: naming upstream leaves the fork", "flix/flix", t.repo());
 
         for (java.util.List<String> bad : java.util.List.of(
                 java.util.List.<String>of(),
@@ -437,14 +437,14 @@ public final class UnitCheck {
 
         // --- the java pin ---------------------------------------------------
         t = flixw.parsePin(java.util.List.of("0.75.2", "--java", "21"), null);
-        eq("pin: --java rides along with a compiler version", "21", t[2]);
+        eq("pin: --java rides along with a compiler version", "21", t.java());
         t = flixw.parsePin(java.util.List.of("--java", "21.0.12"), forked);
-        eq("pin: --java alone needs no compiler version", null, t[1]);
-        eq("pin: ...and keeps the repository", "wstein/flix-fork", t[0]);
-        eq("pin: ...and takes an exact version", "21.0.12", t[2]);
+        eq("pin: --java alone needs no compiler version", null, t.version());
+        eq("pin: ...and keeps the repository", "wstein/flix-fork", t.repo());
+        eq("pin: ...and takes an exact version", "21.0.12", t.java());
         t = flixw.parsePin(java.util.List.of("--java", "none"), forked);
-        eq("pin: --java none clears it", null, t[2]);
-        if (t[3] != null) ok(); else bad("pin: --java none", "did not ask to clear");
+        eq("pin: --java none clears it", null, t.java());
+        if (t.clearJava()) ok(); else bad("pin: --java none", "did not ask to clear");
 
         for (java.util.List<String> bad : java.util.List.of(
                 java.util.List.of("--java"),                    // no value
@@ -459,6 +459,29 @@ public final class UnitCheck {
         // A --java-only pin with no lock has nothing to keep, and says so rather than
         // inventing a compiler.
         try { flixw.parsePin(java.util.List.of("--java", "21"), null); bad("pin: --java with no lock", "accepted"); }
+        catch (flixw.Fail e) { ok(); }
+
+        // --- --refresh ------------------------------------------------------
+        // It rewrites the lock from the lock, so it needs one and takes nothing else.
+        // Accepting `pin 0.75.3 --refresh` would have to mean one of two different
+        // requests, and picking either silently is how a repair loses a pin.
+        t = flixw.parsePin(java.util.List.of("--refresh"), forked);
+        if (t.refresh()) ok(); else bad("pin: --refresh", "did not ask for a refresh");
+        eq("pin: --refresh moves no version", null, t.version());
+        eq("pin: --refresh moves no repository", null, t.repo());
+        eq("pin: --refresh moves no java pin", null, t.java());
+        if (!t.clearJava()) ok(); else bad("pin: --refresh", "asked to clear the java pin");
+
+        for (java.util.List<String> bad : java.util.List.of(
+                java.util.List.of("--refresh", "0.75.2"),        // a version is a different request
+                java.util.List.of("0.75.2", "--refresh"),
+                java.util.List.of("--refresh", "flix/flix"),
+                java.util.List.of("--refresh", "--java", "21"))) {
+            try { flixw.parsePin(bad, forked); bad("pin: " + bad, "accepted"); }
+            catch (flixw.Fail e) { ok(); }
+        }
+        // Nothing to rewrite, and nothing to guess at.
+        try { flixw.parsePin(java.util.List.of("--refresh"), null); bad("pin: --refresh with no lock", "accepted"); }
         catch (flixw.Fail e) { ok(); }
 
         // Matching is a prefix cut at a dot, so 21 accepts every 21.x and nothing else.

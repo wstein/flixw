@@ -236,9 +236,17 @@ one, explaining what each holds — with nothing configured per project. `./flix
 prints the same schema on stdout if you would rather validate offline; it is rendered from
 the list stage 0 itself checks the lock against, so the two cannot disagree.
 
-Nothing about the build depends on the line. A lock written by an older flixw has none;
-`./flixw validate` says so, and `./flixw doctor --fix` adds it without touching the network
-or the pin.
+Nothing about the build depends on the line. A lock written by an older flixw has none, and
+`./flixw validate` says so:
+
+```console
+$ ./flixw pin --refresh
+flixw: rewrote .flixw/lock.toml in the shape flixw 0.21.0 writes; the pin is unchanged
+```
+
+That is offline and moves nothing — same repository, version, URL, digest and java pin —
+which is why it is not `pin <version>`, which would fetch the compiler again to write one
+comment. `./flixw doctor --fix` performs the same rewrite as one repair among several.
 
 The schema, the API docs for stage 0, and a short index of both live at
 <https://wstein.github.io/flixw/>, published from the same tag as the release.
