@@ -4,6 +4,18 @@ name: pages
 # URL this site serves, so what is at that URL has to be a released schema rather than
 # whatever is on main. A commit that changes the lock format and a project that has already
 # committed a lock pointing at it must not be able to disagree for the length of a review.
+#
+# Being tag-driven has one setup cost, and it is not discoverable from a failure message.
+# GitHub creates the `github-pages` environment with a deployment policy naming the default
+# branch and nothing else, so the first tag builds the site, uploads it, and is then refused
+# with "not allowed to deploy to github-pages due to environment protection rules". The
+# repository needs a tag policy alongside the branch one:
+#
+#   gh api -X POST repos/<owner>/<repo>/environments/github-pages/deployment-branch-policies \
+#          -f name='v*' -f type=tag
+#
+# and Pages itself has to exist with Actions as its source, which is a one-time
+# `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`.
 on:
   push:
     tags: ["v*"]

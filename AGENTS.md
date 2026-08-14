@@ -229,9 +229,11 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 - `flixw.cmd`'s `windows smoke` job runs green on every push, and that is a smoke test, not
   parity: argument parity with the POSIX shim is not achievable and is not claimed. See
   `docs/LIMITATIONS.md`.
-- `.github/workflows/pages.yaml` has never run — no tag has been pushed since it was added.
-  Its build step is `sh tests/pages.sh`, which CI runs on every commit, so what is unproven
-  is the upload and deploy, not the site.
+- GitHub Pages needs two pieces of repository configuration that no workflow can supply and
+  no failure message names: the site must exist with Actions as its source, and the
+  `github-pages` environment must allow `v*` **tags**, since GitHub creates it allowing the
+  default branch alone. Without the second, a tag builds the site, uploads it, and is then
+  refused at the deploy step. Both commands are in the header of `pages.yaml`.
 - The design paper is Revision 6 and now trails the implementation in places. `docs/CONTRACT.md`
   is the accurate description of what ships; the paper is kept as historical evidence.
 
