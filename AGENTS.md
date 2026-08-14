@@ -225,6 +225,13 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 
 - Comments explain *why a cheaper option was rejected*, not what the line does. Match that
   density — this file is meant to be audited by strangers who must trust it with a download.
+- Doc comments are published, so they are also checked. `tests/lint.sh` runs
+  `javadoc -private -Xdoclint:all,-missing -Xwerror`: a malformed comment is a lint
+  failure, because on a rendered page it silently swallows the text around it rather than
+  showing a warning. Angle brackets are the usual cause — `<version>`, `<owner>/<repo>` and
+  `<home>` all read as HTML tags — so write those inside `{@code …}`. The `missing` group
+  is deliberately off: `@param` and `@return` on every package-private helper is the
+  what-the-line-does documentation the rule above rejects.
 - Diagnostics are actionable: state what was found, what was expected, and the command that
   repairs it (`run: ./flixw pin <version>`).
 - Commits are Conventional Commits (`feat:`, `docs:`, `refactor:`, `chore:`).

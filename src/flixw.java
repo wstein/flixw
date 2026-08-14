@@ -7,13 +7,6 @@
 //
 // Invoked by the ./flixw shim as:   java .flixw/flixw.java <args>
 // or, once self-compiled, as:      java -cp <cache>/stage0/<hash> flixw <args>
-//
-// One file, no dependencies, Java 21.  Owns: project discovery, lock parsing, drift
-// detection, version validation, Java selection, compiler acquisition, unconditional
-// digest verification, compiler-first verb dispatch, wrapper verbs, and process launch.
-//
-// The stock Flix compiler is never modified, patched, or linked against.  It is fetched
-// by URL, verified against a committed SHA-256, and executed as an opaque process.
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -41,6 +34,28 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Stage 0 of the flixw bootstrap: one file, no dependencies, Java 21.
+ *
+ * <p>It owns project discovery, lock parsing, drift detection, version validation, Java
+ * selection, compiler acquisition, unconditional digest verification, compiler-first verb
+ * dispatch, the wrapper's own verbs, and the process launch. The two shims that reach it,
+ * {@code flixw} and {@code flixw.cmd}, own exactly one decision each -- which {@code java}
+ * -- plus one cache lookup, because logic in a shim has to be written twice and cannot be
+ * unit-tested.
+ *
+ * <p>The stock Flix compiler is never modified, patched, or linked against. It is fetched
+ * by URL, verified against a SHA-256 committed in {@code .flixw/lock.toml}, and executed
+ * as an opaque process. The digest is recomputed on every invocation: there is no install
+ * stamp and no flag that skips it.
+ *
+ * <p>These docs are published from the flixw repository and cover every member, private
+ * ones included, because the internals are what a reader has to trust before letting this
+ * file download and run a compiler. {@code docs/CONTRACT.md} is the description of what
+ * ships and what is promised; this is how it is done.
+ *
+ * @see <a href="https://wstein.github.io/flixw/">flixw documentation</a>
+ */
 public final class flixw {
 
     static final String WRAPPER_VERSION = "0.20.4";
@@ -755,7 +770,7 @@ public final class flixw {
      * the only thing that was ever unknown -- is found by asking for the file itself.
      *
      * Upstream is a single constructed URL, as before. A fork is probed against the two
-     * conventions in the wild, `flix-<version>.jar` and `flix.jar`, with a HEAD each; the
+     * conventions in the wild, {@code flix-<version>.jar} and `flix.jar`, with a HEAD each; the
      * download that follows is still exactly one acquisition attempt for one artifact.
      */
     static Asset resolveRelease(String repo, String version) {
@@ -821,7 +836,7 @@ public final class flixw {
         }
     }
     /**
-     * `./flixw pin [<owner>/<repo>] [<version>] [--java <version>]`.
+     * {@code ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]}.
      *
      * The two are told apart by the slash, which a version can never contain -- the
      * grammar rejects it -- so the order does not matter and neither does a flag.  An
@@ -1079,7 +1094,7 @@ public final class flixw {
         return Paths.get(home, "bin", isWindows() ? "java.exe" : "java");
     }
 
-    /** Reads <home>/release when it is present and parseable; otherwise runs the candidate once. */
+    /** Reads {@code <home>/release} when present and parseable; else runs the candidate once. */
     static int probe(Path exe) {
         Integer f = feature(probeVersion(exe));
         return f == null ? -1 : f;
@@ -2509,7 +2524,7 @@ public final class flixw {
         return n;
     }
 
-    /** Runs `git <args>` in root; null when git is absent or the command fails to start. */
+    /** Runs {@code git <args>} in root; null when git is absent or the command fails to start. */
     static Integer git(Path root, String... args) {
         List<String> cmd = new ArrayList<>(List.of("git"));
         cmd.addAll(Arrays.asList(args));
@@ -3302,6 +3317,15 @@ public final class flixw {
 
     // ---- main -------------------------------------------------------------
 
+    /**
+     * The one entry point. Every failure inside is a {@link Fail}, which carries both the
+     * {@code FLIXWnnn} code printed on stderr and the advisory exit status; nothing else
+     * writes an exit status, so a code the user's own program returns cannot be confused
+     * with one of ours by accident of where it was thrown.
+     *
+     * @param args the wrapper's argv, passed on to the compiler unchanged when dispatch
+     *             decides the compiler owns them
+     */
     public static void main(String[] args) {
         try { realMain(new ArrayList<>(Arrays.asList(args))); }
         catch (Fail f) {
@@ -3316,10 +3340,12 @@ public final class flixw {
 
         // flixw's own namespace, before project, lock, network or compiler work.
         if ("wrapper".equals(first)) { wrapperNamespace(argv); return; }
+        // The list of operations is wrapperUsage's alone. Spelled out a second time here,
+        // it went stale the first time one was added, and lint cannot see this copy: it
+        // greps for one flag named after the verb, which a bracketed list is not.
         if (first != null && first.startsWith("--wrapper-"))
-            throw w008("unknown launcher flag " + q(first)
-                     + "\n       flixw's own operations moved under one verb:"
-                     + "\n       ./flixw wrapper [--help | --version | --upgrade | --install-jdk]");
+            throw w008(wrapperUsage("unknown launcher flag " + q(first)
+                     + "\n       flixw's own operations moved under one verb"));
 
         Path anchor = wrapperAnchor();
         if ("install".equals(first) && !Files.isRegularFile(lockPath(anchor))) {

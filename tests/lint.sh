@@ -164,6 +164,24 @@ else
   cat "$work/schema.log"
 fi
 
+# --- 8. the API docs build ------------------------------------------------
+# These are published to GitHub Pages from a tag, where a malformed doc comment is not a
+# warning anybody sees -- it silently swallows the text around it. `<version>` and
+# `<owner>/<repo>` read as HTML tags and disappeared from four comments that way, so the
+# check runs the doclint groups that catch it and treats a warning as a failure.
+#
+# The `missing` group is deliberately off. It wants @param and @return on every one of
+# ~100 package-private helpers, which is the "explain what the line does" documentation
+# this repository's conventions reject; the groups left on are about comments being
+# *wrong*, not about there being fewer of them than a tool would like.
+if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
+        -d "$work/javadoc" "$root/src/flixw.java" >"$work/javadoc.log" 2>&1; then
+  say "ok    javadoc -private builds with no malformed doc comment"
+else
+  bad "javadoc"
+  head -20 "$work/javadoc.log"
+fi
+
 # --- 9. cmd.exe line endings -----------------------------------------------
 # CRLF is load-bearing for cmd.exe: a LF-only .cmd breaks multi-line if/for blocks.
 if od -c "$root/src/flixw.cmd" | grep -q '\\r'; then
