@@ -667,6 +667,19 @@ g 0 'newer than this one' "pin --refresh leaves a newer wrapper's lock alone"  s
   grep -q "^wrapperVersion = \"99.0.0\"$" .flixw/lock.toml; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
 
+# --- the verb note ---------------------------------------------------------
+# Stage 0 leaves the verbs this project dispatches where a shell completer can read them
+# without starting a JVM. UnitCheck asserts the content; what the shell adds is that a real
+# run produces one, and that it never reaches a commit.
+echo "verb note"
+t 0  "a real run records the verb note"                        sh -c '
+  ./flixw info >/dev/null 2>&1
+  test -s .flixw/local/verbs && grep -qx "validate" .flixw/local/verbs'
+# It describes a resolved compiler, not the project, so it is machine-specific like the
+# resolved-JDK note beside it.
+t 0  "the verb note is git-ignored"                            sh -c '
+  git check-ignore -q .flixw/local/verbs'
+
 # --- drift -----------------------------------------------------------------
 echo "drift"
 cp flix.toml "$work/flix.toml.bak"

@@ -17,6 +17,7 @@ flixw.cmd             cmd.exe shim
 .flixw/lock.toml      the pin: version, URL, SHA-256
 .flixw/.gitignore     keeps .flixw/local/ out of git
 .flixw/local/java     the JDK this machine resolved to; NOT committed
+.flixw/local/verbs    the verbs this project dispatches; NOT committed
 ```
 
 `flixw install` also merges a marked block into `.gitattributes` — the sixth file, and the
@@ -29,7 +30,9 @@ last matching pattern, so an override silently un-pins the line endings the bloc
 to fix. All five must be committed; `flixw validate` fails if a gitignore rule swallows one,
 because a collaborator would then get a project that cannot bootstrap. `.flixw/local/` is
 the exception that proves it: machine-specific, and ignored by the `.gitignore` flixw
-ships for exactly that purpose.
+ships for exactly that purpose. Stage 0 rewrites both notes in it on any run that resolves
+a compiler, and discards every failure doing so — a note whose absence costs only a
+startup optimisation is not worth a diagnostic, still less a failed build.
 
 **Installing from an archive.** A release also ships `flixw-<version>.tar.gz` and
 `flixw-<version>.zip`, whose contents are byte-identical to what `install` writes and are

@@ -3382,6 +3382,44 @@ public final class flixw {
              + "\n         --schema       the JSON Schema for " + WRAPPER_DIR + "/lock.toml, on stdout";
     }
 
+    // ---- completion -------------------------------------------------------
+
+    /**
+     * The name of the note stage 0 leaves for a completer, holding the verbs this project
+     * would actually dispatch.  It lives beside {@code local/java} and is machine-specific
+     * for the same reason: it describes a resolved compiler, not the project.
+     */
+    static final String VERBS_NOTE = "verbs";
+
+    /**
+     * Records the verbs this project dispatches, for a completer to read.
+     *
+     * The union, not the compiler's set alone: a wrapper verb the compiler has claimed is
+     * still a verb the user can type, and one it has not claimed is still handled here.
+     * Which side runs it is dispatch's business and no help to someone pressing TAB.
+     *
+     * Every failure is discarded, exactly as in {@link #recordJava}: a read-only checkout
+     * or a deleted directory is not worth a diagnostic for a note whose absence only costs
+     * a completer its per-project accuracy.
+     */
+    static void recordVerbs(Path root, List<String> compilerVerbs) {
+        List<String> all = new ArrayList<>(compilerVerbs);
+        for (String v : WRAPPER_VERBS) if (!all.contains(v)) all.add(v);
+        all.sort(null);
+        recordNote(root, VERBS_NOTE, String.join(System.lineSeparator(), all));
+    }
+
+    static void recordNote(Path root, String name, String body) {
+        Path note = root.resolve(WRAPPER_DIR).resolve("local").resolve(name);
+        try {
+            String want = body + System.lineSeparator();
+            if (Files.isRegularFile(note)
+                && Files.readString(note, StandardCharsets.UTF_8).equals(want)) return;
+            Files.createDirectories(note.getParent());
+            writeAtomic(note, want);
+        } catch (IOException | RuntimeException ignored) { }
+    }
+
     // ---- main -------------------------------------------------------------
 
     /**
@@ -3517,8 +3555,13 @@ public final class flixw {
                              + " and this run is not stock-compatibility evidence");
         } else jar = acquire(lock);
 
-        List<String> compilerVerbs = verbs(jvm.exe(), jar, verbIdentity(jar, lock, override));
+        String verbId = verbIdentity(jar, lock, override);
+        List<String> compilerVerbs = verbs(jvm.exe(), jar, verbId);
         tr("verbs " + compilerVerbs.size());
+        // Notes for a completer, which cannot afford to start stage 0 itself.  Both are
+        // writes to already-resolved values, and both swallow every failure: a completion
+        // candidate is not worth a diagnostic, still less a failed build.
+        recordVerbs(root, compilerVerbs);
         selfCompile(selfSource());
 
         // ---- dispatch ----------------------------------------------------

@@ -746,6 +746,43 @@ public final class UnitCheck {
         else bad("schema " + key + " pattern on " + q(value), want ? "rejected" : "accepted");
     }
 
+    // ---- 10: the verb note ------------------------------------------------
+
+    /**
+     * The note is the whole interface between stage 0 and a shell completer, which cannot
+     * afford to start a JVM to ask. Its content is therefore a contract rather than a
+     * convenience, and it is asserted here because the shell suite can only see that a
+     * file appeared.
+     */
+    static void completion() throws IOException {
+        // The union of what the compiler claims and what the wrapper still handles: which
+        // side runs a verb is dispatch's business, and no help to someone pressing TAB.
+        Path root = Files.createTempDirectory("flixw-compl-");
+        flixw.recordVerbs(root, List.of("check", "run", "pin"));
+        Path note = root.resolve(".flixw").resolve("local").resolve("verbs");
+        List<String> got = Files.readAllLines(note);
+        List<String> union = new ArrayList<>(List.of("check", "run", "pin"));
+        for (String v : flixw.WRAPPER_VERBS) if (!union.contains(v)) union.add(v);
+        union.sort(null);
+        eq("completion: the note is the sorted union of compiler and wrapper verbs",
+           String.join(" ", union), String.join(" ", got));
+
+        // Rewriting an unchanged note would touch a file in the project on every run.
+        long stamp = Files.getLastModifiedTime(note).toMillis();
+        flixw.recordVerbs(root, List.of("check", "run", "pin"));
+        if (Files.getLastModifiedTime(note).toMillis() == stamp) ok();
+        else bad("completion: an unchanged note is left alone", "it was rewritten");
+
+        // A verb the compiler has claimed appears once, not twice.
+        flixw.recordVerbs(root, List.of("check", "pin", "doctor"));
+        List<String> claimed = Files.readAllLines(note);
+        if (claimed.size() == new java.util.HashSet<>(claimed).size()) ok();
+        else bad("completion: a displaced wrapper verb is not listed twice",
+                 String.join(" ", claimed));
+
+        System.out.println("  ok   completion: the verb note stage 0 leaves for a completer");
+    }
+
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         Path fixtures = Paths.get(args.length > 1 ? args[1] : "tests/schema");
@@ -758,6 +795,7 @@ public final class UnitCheck {
         verbs();
         lockSchema(fixtures);
         bounded();
+        completion();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }
