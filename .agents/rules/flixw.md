@@ -17,6 +17,12 @@ and `src/flixw.cmd` are shims that only locate a `java` and prefer the cached co
   `java src/flixw.java wrapper --schema`, and `tests/lint.sh` diffs the two. Change the Java
   list and regenerate; never hand-edit the JSON.
 - Never patch, wrap, or link against `flix.jar`; it is launched as an opaque process.
+- **Never vendor picocli**, or any other library, to reach a completion generator. The
+  compiler may be picocli-based; flixw observes that from the outside and delegates to the
+  script the compiler emits. `src/flixw.java` imports nothing.
+- The completion scripts are text blocks in `src/flixw.java` with **no on-disk copies** —
+  unlike the shims. They are emitted by `wrapper --completion`, never installed, so
+  `install`, `validate` and `doctor --fix` do not know about them. Do not add copies.
 - The cached compiler is SHA-256 verified on **every** run. One download attempt, at most one
   Java relaunch, no retry loops.
 - `flix.toml` is the human authority; drift against `.flixw/lock.toml` fails before any

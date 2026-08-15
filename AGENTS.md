@@ -29,12 +29,12 @@ you are deliberately letting lead.
 The wrapper has no build system — it is one Java 21 source file, run via JEP 330.
 
 ```sh
-java src/flixw.java wrapper --version      # offline; no project, lock, or network needed
-java src/flixw.java wrapper --help         # routing table (enriched if run inside a project)
-java src/flixw.java wrapper --schema       # the JSON Schema for lock.toml, on stdout
-java src/flixw.java wrapper --completion bash   # a TAB-completion script, on stdout
-javac -d /tmp/flixw-out src/flixw.java     # compile check
-FLIXW_TRACE=1 ./flixw check                # per-phase timings on stderr
+java src/flixw.java wrapper --version         # offline; no project, lock, or network needed
+java src/flixw.java wrapper --help            # routing table (enriched if run inside a project)
+java src/flixw.java wrapper --schema          # the JSON Schema for lock.toml, on stdout
+java src/flixw.java wrapper --completion bash # a TAB-completion script, on stdout
+javac -d /tmp/flixw-out src/flixw.java        # compile check
+FLIXW_TRACE=1 ./flixw check                   # per-phase timings on stderr
 ```
 
 Exercising it end to end means installing into a scratch project:

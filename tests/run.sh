@@ -763,7 +763,7 @@ t 0  "bash delegates past the verb to the compiler"           bash -c '
   COMP_LINE="./flixw build --op"; COMP_WORDS=(./flixw build --op); COMP_CWORD=2; COMPREPLY=()
   _flixw
   rc=0
-  # The delegate must see the compilers own name in argv[0] and in COMP_LINE, not ./flixw.
+  # The delegate must see the compiler name in argv[0] and in COMP_LINE, not ./flixw.
   test "${COMPREPLY[*]}" = "seen:flix:build:flix build --op" || rc=1
   # ...and COMP_WORDS must be handed back untouched: it belongs to the shell.
   test "${COMP_WORDS[0]}" = "./flixw" || rc=1
