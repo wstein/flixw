@@ -754,6 +754,11 @@ public final class UnitCheck {
      * does not print {@code FLIXWnnn}, it just stops completing, or worse, breaks the shell
      * startup that sourced it. So the shape is asserted here rather than trusted.
      *
+     * What is deliberately *not* asserted is the compiler's own completer, which arrives
+     * from picocli and whose internals are picocli's business. flixw reads exactly one line
+     * of it, at completion time and in shell; the assertion that matters for that is that
+     * flixw declines a compiler that does not advertise the subcommand at all, which is the
+     * stock-Flix path and therefore the common one.
      */
     static void completion() throws IOException {
         for (String shell : flixw.COMPLETION_SHELLS) {
@@ -783,6 +788,9 @@ public final class UnitCheck {
         String pwsh = flixw.completionScript("pwsh");
         if (pwsh.contains("-CommandName flixw, flixw.cmd")) ok();
         else bad("completion: pwsh registers against the cmd trampoline", "no registration");
+        if (!pwsh.contains("local/completion")) ok();
+        else bad("completion: pwsh does not claim to delegate", "it references the delegate note");
+
         // The fallback baked into each script is the union stage 0 would compute, so a
         // project that has never resolved a compiler still completes something sensible.
         List<String> want = new ArrayList<>(flixw.WRAPPER_VERBS);
@@ -831,8 +839,15 @@ public final class UnitCheck {
         flixw.recordVerbs(root, List.of("check", "run", "pin"));
         if (Files.getLastModifiedTime(note).toMillis() == stamp) ok();
         else bad("completion: an unchanged note is left alone", "it was rewritten");
+
+        // Stock Flix is scopt and never advertises the subcommand; the check is set
+        // membership precisely so that path costs no process.
+        if (flixw.compilerCompletion(Paths.get("/nonexistent/java"), Paths.get("/nonexistent.jar"),
+                                     "unit", flixw.BUILTIN_VERBS) == null) ok();
+        else bad("completion: a compiler without generate-completion gets no completer",
+                 "one was produced");
         System.out.println("  ok   completion: " + flixw.COMPLETION_SHELLS.size()
-                         + " shell scripts and the verb note they read");
+                         + " shells, the verb note, and the stock-Flix decline");
     }
 
     static String firstLine(String s) {

@@ -736,14 +736,48 @@ t 0  "bash falls back when the note is absent"                 bash -c '
   COMP_LINE="./flixw valid"; COMP_WORDS=(./flixw valid); COMP_CWORD=1; COMPREPLY=()
   _flixw
   test "${COMPREPLY[*]}" = "validate"' sh "$work"
-# Past the verb the completer must yield rather than guess; `complete -o default` then
-# hands the word to filename completion.
-t 0  "bash yields past the verb"                               bash -c '
+# Past the verb with no compiler completer to delegate to, the completer must yield rather
+# than guess; `complete -o default` then hands the word to filename completion.
+t 0  "bash yields past the verb without a delegate"            bash -c '
   . "$1/_flixw.bash"
   cd "$1/complproj"
   COMP_LINE="./flixw build -"; COMP_WORDS=(./flixw build -); COMP_CWORD=2; COMPREPLY=()
   _flixw
   test -z "${COMPREPLY[*]}"' sh "$work"
+# Delegation, against a stand-in for a generated completer rather than a real one. What
+# flixw promises here is not "picocli works" but a contract any generated bash completer
+# meets: a `complete -F` registration naming a function. Asserting it this way keeps the
+# case offline, keeps it from pinning picocli's private script shape, and still exercises
+# every step -- reading the note, parsing the registration, sourcing, and the argv[0] swap
+# that a completer written for `flix` needs before it will answer for `./flixw`.
+cat > "$work/fake-completer.sh" <<'FAKE'
+_fake_complete() {
+  COMPREPLY=( "seen:${COMP_WORDS[0]}:${COMP_WORDS[1]}:${COMP_LINE}" )
+}
+complete -F _fake_complete -o default flix
+FAKE
+t 0  "bash delegates past the verb to the compiler"           bash -c '
+  . "$1/_flixw.bash"
+  cd "$1/complproj"
+  printf "%s\n" "$1/fake-completer.sh" > .flixw/local/completion
+  COMP_LINE="./flixw build --op"; COMP_WORDS=(./flixw build --op); COMP_CWORD=2; COMPREPLY=()
+  _flixw
+  rc=0
+  # The delegate must see the compilers own name in argv[0] and in COMP_LINE, not ./flixw.
+  test "${COMPREPLY[*]}" = "seen:flix:build:flix build --op" || rc=1
+  # ...and COMP_WORDS must be handed back untouched: it belongs to the shell.
+  test "${COMP_WORDS[0]}" = "./flixw" || rc=1
+  test "$COMP_LINE" = "./flixw build --op" || rc=1
+  rm -f .flixw/local/completion; exit $rc' sh "$work"
+
+# A note naming a completer that is gone -- a cleared cache, a re-pin -- is the same case.
+t 0  "bash survives a dangling delegate note"                  bash -c '
+  . "$1/_flixw.bash"
+  cd "$1/complproj"
+  printf "%s\n" "$1/no-such-completer.sh" > .flixw/local/completion
+  COMP_LINE="./flixw build -"; COMP_WORDS=(./flixw build -); COMP_CWORD=2; COMPREPLY=()
+  _flixw
+  rc=$?; rm -f .flixw/local/completion; test "$rc" = 0' sh "$work"
 # Stage 0 leaves the note itself on any run that resolves a compiler.
 t 0  "a real run records the verb note"                        sh -c '
   ./flixw info >/dev/null 2>&1

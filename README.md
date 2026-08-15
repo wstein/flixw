@@ -265,7 +265,10 @@ wrapper keeps in `.flixw/local/`, so completion follows the pin and you do not r
 anything after `./flixw pin`. Different projects on the same machine complete their own
 verbs. Nothing starts a JVM, so TAB stays instant.
 
-Completion covers the verb; past it, your shell's ordinary filename completion takes over.
+In bash, if your compiler ships its own completer — a picocli-based fork does — flixw finds
+it and options complete too. Everywhere else, and with stock Flix anywhere, completion
+covers the verb and then hands over to ordinary filename completion.
+
 `cmd.exe` is not supported and cannot be: it has no per-command completion mechanism.
 PowerShell works against the `flixw.cmd` that already ships; nothing needs to move to a
 `.ps1`.

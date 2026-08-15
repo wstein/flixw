@@ -3421,7 +3421,7 @@ public final class flixw {
         }
 
         _flixw() {
-          local cur root note words
+          local cur root note words compl script fn saved0 saved_line
           cur=${COMP_WORDS[COMP_CWORD]}
           root=$(_flixw_root "${COMP_WORDS[0]}")
           note=$root/.flixw/local/verbs
@@ -3437,9 +3437,38 @@ public final class flixw {
             return 0
           fi
 
-          # Past the verb the compiler owns the arguments, and this completer has nothing
-          # to say about them; `-o default` then hands the word to filename completion,
-          # which is what the arguments to `run`, `check` and `build` mostly are.
+          # Past the verb, the compiler owns the arguments.  A picocli-based Flix ships a
+          # completer for them and stage 0 caches it; stock Flix is scopt and ships none, so
+          # the note is absent and `-o default` falls through to filename completion.
+          compl=$root/.flixw/local/completion
+          [ -r "$compl" ] || return 0
+          script=$(cat -- "$compl" 2>/dev/null)
+          [ -n "$script" ] && [ -r "$script" ] || return 0
+
+          # The registration line, which is the only part of a generated completer that is
+          # not the generator's private business: any bash completion script must end with
+          # one for the shell to use it at all.  Reading the function name from there rather
+          # than assuming picocli's `_complete_<name>` spelling means a rename upstream costs
+          # filename completion for one release instead of a broken completer.
+          fn=$(sed -n 's/^complete .*-F \\([A-Za-z_][A-Za-z0-9_]*\\).*/\\1/p' "$script" 2>/dev/null | head -1)
+          [ -n "$fn" ] || return 0
+          if ! declare -F "$fn" >/dev/null 2>&1; then
+            # Sourcing also runs the script's own `complete` call, which registers it for the
+            # compiler's name.  That is harmless -- it is a name this shell would otherwise
+            # have no completion for -- and it is why this happens once per shell, not per TAB.
+            # shellcheck disable=SC1090
+            . "$script" >/dev/null 2>&1 || return 0
+            declare -F "$fn" >/dev/null 2>&1 || return 0
+          fi
+
+          # The generated completer keys off argv[0] being the compiler's own name, which
+          # here is `./flixw`.  Swap it for the length of the call and put it back: COMP_WORDS
+          # belongs to the shell, not to us.
+          saved0=${COMP_WORDS[0]}; saved_line=$COMP_LINE
+          COMP_WORDS[0]=flix
+          COMP_LINE="flix ${COMP_LINE#* }"
+          "$fn"
+          COMP_WORDS[0]=$saved0; COMP_LINE=$saved_line
           return 0
         }
 
@@ -3475,7 +3504,9 @@ public final class flixw {
             return
           fi
 
-          # Past the verb the compiler owns the arguments; fall through to files, which
+          # Past the verb the compiler owns the arguments.  picocli generates bash and zsh
+          # completers as one bash script, which is not loadable here without bashcompinit
+          # and a compatibility shim; rather than half-load it, fall through to files, which
           # is what the arguments to `run`, `check` and `build` mostly are.
           _files
         }
@@ -3492,8 +3523,9 @@ public final class flixw {
         # leaves after it resolves a compiler, so they follow the pin and this file does not
         # have to be regenerated after `pin`.  Nothing here starts a JVM.
         #
-        # Verbs only.  Past the verb, fish's own file completion takes over -- which is what
-        # the arguments to `run`, `check` and `build` mostly are.
+        # Verbs only.  picocli generates bash and zsh completers and no fish one, and fish
+        # cannot load a bash completion script, so past the verb fish's own file completion
+        # takes over -- which is what the arguments to `run`, `check` and `build` mostly are.
 
         function __flixw_verbs --description 'the verbs the project being completed dispatches'
             set -l tokens (commandline -opc)
@@ -3540,7 +3572,9 @@ public final class flixw {
         # downloaded one.  cmd.exe itself has no per-command completion mechanism at all, so
         # it gets nothing here and that is an absence in cmd, not a gap in this script.
         #
-        # Verbs only.  Past the verb, PowerShell's own file completion takes over.
+        # Verbs only.  picocli generates bash and zsh completers and no PowerShell one, so
+        # past the verb there is nothing to delegate to and PowerShell's own file completion
+        # takes over.
         Register-ArgumentCompleter -Native -CommandName flixw, flixw.cmd -ScriptBlock {
             param($wordToComplete, $commandAst, $cursorPosition)
 
@@ -3573,6 +3607,9 @@ public final class flixw {
      * for the same reason: it describes a resolved compiler, not the project.
      */
     static final String VERBS_NOTE = "verbs";
+
+    /** The note naming the pinned compiler's own completion script, when it ships one. */
+    static final String COMPL_NOTE = "completion";
 
     /**
      * A completion script for one shell, on stdout.
@@ -3625,6 +3662,11 @@ public final class flixw {
         recordNote(root, VERBS_NOTE, String.join(System.lineSeparator(), all));
     }
 
+    /** Same, for the path to the compiler's own completion script; absent means none. */
+    static void recordCompletion(Path root, Path script) {
+        recordNote(root, COMPL_NOTE, script.toAbsolutePath().normalize().toString());
+    }
+
     static void recordNote(Path root, String name, String body) {
         Path note = root.resolve(WRAPPER_DIR).resolve("local").resolve(name);
         try {
@@ -3634,6 +3676,56 @@ public final class flixw {
             Files.createDirectories(note.getParent());
             writeAtomic(note, want);
         } catch (IOException | RuntimeException ignored) { }
+    }
+
+    /**
+     * The pinned compiler's own completion script, cached, or null if it has none.
+     *
+     * Detection costs nothing and needs no version sniffing: picocli registers
+     * {@code generate-completion} as an ordinary subcommand, so it arrives in the verb set
+     * {@link #parseVerbs} already captured.  Stock Flix is scopt, never advertises it, and
+     * takes this path zero times -- which is the whole reason the check is a set membership
+     * rather than a probe.
+     *
+     * flixw does not read, rewrite or splice what comes back.  The generated script's
+     * internal shape is picocli's business and changes with picocli; the one line flixw
+     * looks at, at completion time and in shell, is the {@code complete -F} registration
+     * every bash completion script must end with.  Splicing was the alternative and it is
+     * worse than it looks: {@link #parseVerbs} guessing wrong falls back to a verb table,
+     * while a bad splice puts broken bash in someone's shell startup.
+     *
+     * Cached beside the verb record and keyed the same way, so a re-pin gets a new one and
+     * an override never writes next to a JAR flixw does not own.
+     */
+    static Path compilerCompletion(Path javaExe, Path jar, String identity, List<String> verbs) {
+        if (!verbs.contains("generate-completion")) return null;
+        Path cf = cacheHome().resolve("verbs").resolve(identity + ".compl");
+        if (Files.isRegularFile(cf)) return cf;
+        String out;
+        try {
+            out = runCapture(List.of(javaExe.toString(), "-jar", jar.toString(),
+                                     "generate-completion"), HELP_TIMEOUT, HELP_CAP);
+        } catch (IOException e) {
+            tr("cannot run `flix generate-completion`: " + e.getMessage());
+            return null;
+        }
+        // A completer that cannot register itself is not one.  Silence rather than a
+        // diagnostic: this is an optimisation on an optimisation, and the compiler owes
+        // flixw no such subcommand however it answered.
+        if (out == null || !out.contains("complete -F ")) {
+            tr("`flix generate-completion` produced no usable bash completer");
+            return null;
+        }
+        try {
+            Files.createDirectories(cf.getParent());
+            Path tmp = Files.createTempFile(cf.getParent(), ".compl-", ".part");
+            Files.writeString(tmp, out, StandardCharsets.UTF_8);
+            Files.move(tmp, cf, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            tr("cannot cache completer at " + cf + ": " + e.getMessage());
+            return null;
+        }
+        return cf;
     }
 
     // ---- main -------------------------------------------------------------
@@ -3771,12 +3863,15 @@ public final class flixw {
                              + " and this run is not stock-compatibility evidence");
         } else jar = acquire(lock);
 
-        List<String> compilerVerbs = verbs(jvm.exe(), jar, verbIdentity(jar, lock, override));
+        String verbId = verbIdentity(jar, lock, override);
+        List<String> compilerVerbs = verbs(jvm.exe(), jar, verbId);
         tr("verbs " + compilerVerbs.size());
-        // A note for a completer, which cannot afford to start stage 0 itself.  Every
-        // failure is swallowed: a completion candidate is not worth a diagnostic, still
-        // less a failed build.
+        // Notes for a completer, which cannot afford to start stage 0 itself.  Both are
+        // writes to already-resolved values, and both swallow every failure: a completion
+        // candidate is not worth a diagnostic, still less a failed build.
         recordVerbs(root, compilerVerbs);
+        Path compl = compilerCompletion(jvm.exe(), jar, verbId, compilerVerbs);
+        if (compl != null) recordCompletion(root, compl);
         selfCompile(selfSource());
 
         // ---- dispatch ----------------------------------------------------

@@ -65,7 +65,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
-sh tests/run.sh     # 198-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 200-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -74,7 +74,7 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 manifests, JDK selection and provisioning, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
 the bounds on `runCapture`, and the four completion scripts with the note they read —
-355 assertions in total. Refresh the corpus with
+357 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -141,6 +141,7 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 <cache>/stage0/<sha256 of flixw.java>/flixw.class   # self-compiled stage 0 (~131ms vs ~532ms)
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
+<cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
 ```
 
 `<cache>` = `FLIX_CACHE_HOME`, else `$LOCALAPPDATA\flixw` / `~/Library/Caches/flixw` /
@@ -201,6 +202,28 @@ baked in at emission, the same bargain `BUILTIN_VERBS` makes.
 The completers are **not installed into projects**. They are emitted on demand, so
 `install`, `validate`, `doctor --fix` and the shim byte-parity lint are untouched, and the
 "the shims exist twice" duplication does not grow. Do not add on-disk copies of them.
+
+Past the verb, the compiler owns the arguments. A picocli-based Flix answers
+`generate-completion`; stage 0 caches that output and leaves the path in
+`.flixw/local/completion`, and the bash completer delegates to it. **Detection is free and
+needs no version sniffing**: picocli registers `generate-completion` as an ordinary
+subcommand, so it arrives in the verb set `parseVerbs` already captures. Stock Flix is
+scopt, never advertises it, and takes that path zero times.
+
+flixw does not read, rewrite or splice the generated script — its internals are picocli's
+business and move with picocli. The one line the completer reads, in shell and at TAB time,
+is the `complete -F` registration every bash completion script must end with, so an
+upstream rename costs filename completion for a release rather than a broken completer.
+Splicing was the alternative and is worse than it looks: `parseVerbs` guessing wrong falls
+back to a verb table, while a bad splice puts broken bash in someone's shell startup.
+**Never vendor picocli to reach `AutoComplete`** — it is 20,350 lines against stage 0's
+3,800, its generator describes `flix` rather than `./flixw`, and its output is static where
+flixw's verb set is not.
+
+Only bash delegates. zsh and fish cannot load a bash completion script — zsh not without
+`bashcompinit` and a compatibility shim, fish not at all — and picocli generates neither a
+fish nor a PowerShell completer, so those three complete verbs and hand the rest to the
+shell's own file completion.
 
 fish is the cheapest of the four to test: `complete -C` asks it for a command line's
 candidates directly, which is what a keypress asks, so it needs no readline simulation. It

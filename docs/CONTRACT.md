@@ -411,9 +411,17 @@ together take longer than typing the verb. Before a project has ever resolved a 
 there is no note, and the script falls back to a list fixed at emission — one release stale
 at worst, the same trade the built-in verb table makes.
 
-Completion covers the verb. Past it the compiler owns the arguments, and the shell's own
-filename completion takes over. `cmd.exe` gets nothing — it has no per-command completion
-mechanism to hook.
+Past the verb the compiler owns the arguments. A picocli-based Flix answers
+`generate-completion`; flixw caches that script and the bash completer delegates to it, so
+options and per-verb arguments complete too. Stock Flix is scopt, ships no completer, and
+completion stops at the verb, where the shell's own filename completion takes over. flixw
+detects the difference at no cost — picocli registers `generate-completion` as an ordinary
+subcommand, so it appears in the verb set already captured from `--help`.
+
+Only bash delegates. zsh, fish and PowerShell complete verbs and then hand over to file
+completion: picocli emits a bash script, which zsh cannot load without `bashcompinit` and
+fish cannot load at all, and picocli generates no fish or PowerShell completer to begin
+with. `cmd.exe` gets nothing — it has no per-command completion mechanism to hook.
 
 bash needs both `flixw` and `./flixw` registered, because it matches the command word as
 typed. zsh, fish and PowerShell each resolve the name from the path, so one registration
@@ -580,6 +588,7 @@ between shim and stage 0, not an implementation detail:
 <cache>/stage0/<sha256 of flixw.java>/flixw.class
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
+<cache>/verbs/<identity>.compl        # only if the compiler ships its own completer
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
 <cache>/jdks/default                 # one line: the java the last install produced
 ```
