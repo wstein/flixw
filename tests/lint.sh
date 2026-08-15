@@ -118,7 +118,18 @@ fi
 # behind flags, and nothing failed. `./flixw wrapper` takes flags only, so a bare word after
 # it is always a stale spelling -- and every flag it is told to run must be one the usage
 # text offers.
-usage=$(sed -n 's/.*usage: .\/flixw wrapper \[\(.*\)\].*/\1/p' "$root/src/flixw.java" | tr -d ' |')
+# Both extractions below read a bracketed list, and such a list is a Java string
+# concatenation that may wrap across source lines once it grows past the margin -- as the
+# usage line did when --completion was added. Line-at-a-time greps saw nothing there and
+# reported the list as empty, which is the one answer a spelling check must never give
+# quietly. Flatten first: join `" + "` continuations and drop the \n escapes, so what is
+# under test is the set the list offers rather than the column it happens to end in.
+# RS to a character the file cannot contain makes the whole source one record, which is
+# what lets the join see across a newline at all.
+flat=$work/wrapper-lists.txt
+awk 'BEGIN{RS="\034"} { gsub(/\\n/," "); gsub(/"[ \t]*\n[ \t]*\+[ \t]*"/,""); print }' \
+  "$root/src/flixw.java" > "$flat"
+usage=$(sed -n 's/.*usage: .\/flixw wrapper \[\([^]]*\)\].*/\1/p' "$flat" | tr -d ' |')
 stale=$(grep -o './flixw wrapper [a-z][a-z-]*' "$root/src/flixw.java" | sort -u || true)
 flags=$(grep -o -- './flixw wrapper --[a-z-][a-z-]*' "$root/src/flixw.java" \
         | sed 's|.*wrapper ||' | sort -u)
@@ -137,7 +148,7 @@ fi
 # and the routing table's `./flixw wrapper [--help | ...]` line was a release behind for
 # exactly that reason, offering four operations where the usage offered five. Every
 # bracketed list must therefore hold the same set as the usage line, not merely a subset.
-lists=$(grep -o -- './flixw wrapper \[[^]]*\]' "$root/src/flixw.java" \
+lists=$(grep -o -- './flixw wrapper \[[^]]*\]' "$flat" \
         | sed 's|.*wrapper \[||; s|\]||' | tr -d ' |' | sort -u)
 if [ "$lists" = "$usage" ]; then
   say "ok    every bracketed ./flixw wrapper list offers what the usage does"
