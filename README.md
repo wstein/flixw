@@ -251,6 +251,25 @@ comment. `./flixw doctor --fix` performs the same rewrite as one repair among se
 The schema, the API docs for stage 0, and a short index of both live at
 <https://wstein.github.io/flixw/>, published from the same tag as the release.
 
+## TAB completion
+
+```sh
+./flixw wrapper --completion bash > ~/.local/share/bash-completion/completions/flixw
+./flixw wrapper --completion zsh  > "${fpath[1]}/_flixw"
+./flixw wrapper --completion fish > ~/.config/fish/completions/flixw.fish
+./flixw wrapper --completion pwsh >> $PROFILE
+```
+
+Write it once. The script holds no verbs — it reads them when you press TAB from a note the
+wrapper keeps in `.flixw/local/`, so completion follows the pin and you do not regenerate
+anything after `./flixw pin`. Different projects on the same machine complete their own
+verbs. Nothing starts a JVM, so TAB stays instant.
+
+Completion covers the verb; past it, your shell's ordinary filename completion takes over.
+`cmd.exe` is not supported and cannot be: it has no per-command completion mechanism.
+PowerShell works against the `flixw.cmd` that already ships; nothing needs to move to a
+`.ps1`.
+
 ## Testing a locally built compiler
 
 If you build Flix yourself — a fork, or a patch you have not tagged yet — run it with:

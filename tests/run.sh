@@ -667,16 +667,88 @@ g 0 'newer than this one' "pin --refresh leaves a newer wrapper's lock alone"  s
   grep -q "^wrapperVersion = \"99.0.0\"$" .flixw/lock.toml; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
 
-# --- the verb note ---------------------------------------------------------
-# Stage 0 leaves the verbs this project dispatches where a shell completer can read them
-# without starting a JVM. UnitCheck asserts the content; what the shell adds is that a real
-# run produces one, and that it never reaches a commit.
-echo "verb note"
+# --- completion ------------------------------------------------------------
+# UnitCheck asserts what the emitted scripts say; only a real shell can say whether they
+# parse and complete. A completion script is the one thing flixw emits that runs somewhere
+# else entirely -- in a shell startup, days later, with no channel to report a FLIXWnnn --
+# so a quoting slip in a text block has to fail here or it fails in someone's terminal.
+echo "completion"
+t 87 "wrapper --completion needs a shell"                      ./flixw wrapper --completion
+t 87 "wrapper --completion rejects an unknown shell"           ./flixw wrapper --completion csh
+t 87 "wrapper --completion takes one shell only"               ./flixw wrapper --completion bash zsh
+# Project-free and offline, like --schema: a dotfiles repository generating completers has
+# no lock, no compiler and no network.
+t 0  "wrapper --completion needs no project"                   sh -c '
+  cd "$1" && java "$2" wrapper --completion bash | grep -q "complete -F _flixw"' \
+  sh "$work" "$root/src/flixw.java"
+
+# A stand-in project carrying only the note, so the completers can be driven against a
+# known verb set rather than against whatever this suite's own project has resolved.
+mkdir -p "$work/complproj/.flixw/local"
+printf 'build\ncheck\ndoctor\nrun\n' > "$work/complproj/.flixw/local/verbs"
+: > "$work/complproj/flixw"
+
+./flixw wrapper --completion bash > "$work/_flixw.bash"
+./flixw wrapper --completion zsh  > "$work/_flixw.zsh"
+t 0  "the bash completer parses"                               bash -n "$work/_flixw.bash"
+if command -v zsh >/dev/null 2>&1; then
+  t 0  "the zsh completer parses"                              zsh -n "$work/_flixw.zsh"
+else
+  s "the zsh completer parses"                                 "no zsh on this machine"
+fi
+# fish is the one completer that can be driven without simulating readline: `complete -C`
+# asks it for the candidates of a command line, which is exactly what a keypress asks.
+./flixw wrapper --completion fish > "$work/flixw.fish"
+if command -v fish >/dev/null 2>&1; then
+  # --no-config, because a developer's own fish config is not part of what is under test
+  # and a broken line in it would fail this suite for the wrong reason.  Unlike bash -c,
+  # fish -c takes no $0 placeholder: the first extra word is already $argv[1].
+  t 0  "the fish completer parses"                             fish -n "$work/flixw.fish"
+  t 0  "fish completes verbs from the note"                    fish --no-config -c '
+    source $argv[1]/flixw.fish
+    cd $argv[1]/complproj
+    test (complete -C"./flixw c") = check' "$work"
+  # fish matches on base name, so the absolute spelling has to reach the same note.
+  t 0  "fish completes through an absolute path"               fish --no-config -c '
+    source $argv[1]/flixw.fish
+    test (complete -C"$argv[1]/complproj/flixw d") = doctor' "$work"
+  t 0  "fish falls back when the note is absent"               fish --no-config -c '
+    source $argv[1]/flixw.fish
+    cd $argv[1]
+    test (complete -C"./flixw valid") = validate' "$work"
+else
+  s "the fish completer parses"                                "no fish on this machine"
+fi
+
+# The note is the whole interface between stage 0 and a completer, so drive the completer
+# the way readline does rather than asserting on the text of the script.
+t 0  "bash completes verbs from the note"                      bash -c '
+  . "$1/_flixw.bash"
+  cd "$1/complproj"
+  COMP_LINE="./flixw c"; COMP_WORDS=(./flixw c); COMP_CWORD=1; COMPREPLY=()
+  _flixw
+  test "${COMPREPLY[*]}" = "check"' sh "$work"
+# No note means a project that has never resolved a compiler, and the baked-in list is
+# what keeps that from completing nothing at all.
+t 0  "bash falls back when the note is absent"                 bash -c '
+  . "$1/_flixw.bash"
+  cd "$1"
+  COMP_LINE="./flixw valid"; COMP_WORDS=(./flixw valid); COMP_CWORD=1; COMPREPLY=()
+  _flixw
+  test "${COMPREPLY[*]}" = "validate"' sh "$work"
+# Past the verb the completer must yield rather than guess; `complete -o default` then
+# hands the word to filename completion.
+t 0  "bash yields past the verb"                               bash -c '
+  . "$1/_flixw.bash"
+  cd "$1/complproj"
+  COMP_LINE="./flixw build -"; COMP_WORDS=(./flixw build -); COMP_CWORD=2; COMPREPLY=()
+  _flixw
+  test -z "${COMPREPLY[*]}"' sh "$work"
+# Stage 0 leaves the note itself on any run that resolves a compiler.
 t 0  "a real run records the verb note"                        sh -c '
   ./flixw info >/dev/null 2>&1
   test -s .flixw/local/verbs && grep -qx "validate" .flixw/local/verbs'
-# It describes a resolved compiler, not the project, so it is machine-specific like the
-# resolved-JDK note beside it.
+# The note describes a resolved compiler, not the project, so it must never be committed.
 t 0  "the verb note is git-ignored"                            sh -c '
   git check-ignore -q .flixw/local/verbs'
 

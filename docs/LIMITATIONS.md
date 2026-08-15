@@ -120,6 +120,24 @@ There is deliberately no PowerShell script. A Group-Policy `MachinePolicy` execu
 policy cannot be overridden by `-ExecutionPolicy Bypass`, so a `.ps1` can be
 administratively unrunnable in exactly the corporate environments where it would matter.
 
+That reasoning is about the *shim*, and it does not change for completion.
+`./flixw wrapper --completion pwsh` prints a `Register-ArgumentCompleter` block for the
+user's own `$PROFILE`; it registers against the `flixw.cmd` that already ships, because
+PowerShell completes native commands including batch files. Nothing moves to a `.ps1`. If
+an execution policy stops `$PROFILE` from loading, the completer does not load either —
+but neither does anything else in that profile, which is a property of the machine rather
+than of flixw.
+
+`cmd.exe` gets no completion at all, and this is an absence in `cmd.exe` rather than a gap
+here: it has no per-command completion hook. `doskey` does not provide one, and the
+`CompletionChar` registry setting completes filenames only. Nothing flixw could ship would
+change that.
+
+The `pwsh` completer is verified by hand against a real PowerShell — the registration does
+fire for `./flixw`, `flixw` and `flixw.cmd`, since PowerShell resolves the command name
+from the path — but it is not exercised in CI, so it carries the same field-coverage
+caveat as the `cmd.exe` trampoline above.
+
 ## Help introspection is not a contract
 
 Compiler-first dispatch needs to know which verbs the pinned compiler implements, and the

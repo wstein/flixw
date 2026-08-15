@@ -746,17 +746,76 @@ public final class UnitCheck {
         else bad("schema " + key + " pattern on " + q(value), want ? "rejected" : "accepted");
     }
 
-    // ---- 10: the verb note ------------------------------------------------
+    // ---- 10: the completion scripts ---------------------------------------
 
     /**
-     * The note is the whole interface between stage 0 and a shell completer, which cannot
-     * afford to start a JVM to ask. Its content is therefore a contract rather than a
-     * convenience, and it is asserted here because the shell suite can only see that a
-     * file appeared.
+     * Completion is the one thing flixw emits that runs in someone else's shell, long after
+     * the run that produced it, and with no way to report a failure -- a broken completer
+     * does not print {@code FLIXWnnn}, it just stops completing, or worse, breaks the shell
+     * startup that sourced it. So the shape is asserted here rather than trusted.
+     *
      */
     static void completion() throws IOException {
-        // The union of what the compiler claims and what the wrapper still handles: which
-        // side runs a verb is dispatch's business, and no help to someone pressing TAB.
+        for (String shell : flixw.COMPLETION_SHELLS) {
+            String s = flixw.completionScript(shell);
+            if (s.contains("@VERBS@"))
+                bad("completion: " + shell + " leaves the verb placeholder unsubstituted",
+                    "found @VERBS@ in the emitted script");
+            else ok();
+            if (s.endsWith("\n")) ok();
+            else bad("completion: " + shell + " script ends in a newline", "it does not");
+            // Every script has to read the note, or it is not following the pin.
+            if (s.contains(".flixw/local/verbs")) ok();
+            else bad("completion: " + shell + " reads the verb note", "no reference to it");
+        }
+
+        // The registration is what makes a completer reachable, and `./flixw` is the form
+        // that matters: nobody puts the wrapper on PATH.
+        String bash = flixw.completionScript("bash");
+        if (bash.contains("complete -F _flixw -o default flixw ./flixw")) ok();
+        else bad("completion: bash registers for both flixw and ./flixw",
+                 "registration line not found");
+        eq("completion: zsh declares its compdef for both spellings",
+           "#compdef flixw ./flixw", firstLine(flixw.completionScript("zsh")));
+
+        // picocli generates no PowerShell completer, so the pwsh script must not pretend to
+        // delegate to one -- and it must register against the trampoline that already ships.
+        String pwsh = flixw.completionScript("pwsh");
+        if (pwsh.contains("-CommandName flixw, flixw.cmd")) ok();
+        else bad("completion: pwsh registers against the cmd trampoline", "no registration");
+        // The fallback baked into each script is the union stage 0 would compute, so a
+        // project that has never resolved a compiler still completes something sensible.
+        List<String> want = new ArrayList<>(flixw.WRAPPER_VERBS);
+        for (String v : flixw.BUILTIN_VERBS) if (!want.contains(v)) want.add(v);
+        want.sort(null);
+        for (String shell : List.of("bash", "zsh", "fish")) {
+            if (flixw.completionScript(shell).contains(String.join(" ", want))) ok();
+            else bad("completion: " + shell + " bakes in the wrapper+builtin union",
+                     "list not found");
+        }
+        for (String v : want) {
+            if (pwsh.contains("'" + v + "'")) ok();
+            else bad("completion: pwsh quotes " + v + " for its array literal", "not quoted");
+        }
+
+        // fish matches on the command's base name, so one registration covers every
+        // spelling; bash matches the word as typed and needs both.
+        String fish = flixw.completionScript("fish");
+        if (fish.contains("complete -c flixw -f -n __fish_is_first_arg")) ok();
+        else bad("completion: fish registers a first-argument rule", "no registration");
+        if (fish.contains("complete -c flixw -n 'not __fish_is_first_arg' -F")) ok();
+        else bad("completion: fish hands files to the compiler's arguments", "no file rule");
+
+        try {
+            flixw.completionScript("csh");
+            bad("completion: an unknown shell is FLIXW008", "no failure raised");
+        } catch (flixw.Fail f) {
+            eq("completion: an unknown shell is FLIXW008", "FLIXW008", f.code);
+        }
+
+        // The note is the whole interface to a completer, so its content is the contract:
+        // the union of what the compiler claims and what the wrapper still handles, since
+        // which side runs a verb is no help to someone pressing TAB.
         Path root = Files.createTempDirectory("flixw-compl-");
         flixw.recordVerbs(root, List.of("check", "run", "pin"));
         Path note = root.resolve(".flixw").resolve("local").resolve("verbs");
@@ -772,15 +831,13 @@ public final class UnitCheck {
         flixw.recordVerbs(root, List.of("check", "run", "pin"));
         if (Files.getLastModifiedTime(note).toMillis() == stamp) ok();
         else bad("completion: an unchanged note is left alone", "it was rewritten");
+        System.out.println("  ok   completion: " + flixw.COMPLETION_SHELLS.size()
+                         + " shell scripts and the verb note they read");
+    }
 
-        // A verb the compiler has claimed appears once, not twice.
-        flixw.recordVerbs(root, List.of("check", "pin", "doctor"));
-        List<String> claimed = Files.readAllLines(note);
-        if (claimed.size() == new java.util.HashSet<>(claimed).size()) ok();
-        else bad("completion: a displaced wrapper verb is not listed twice",
-                 String.join(" ", claimed));
-
-        System.out.println("  ok   completion: the verb note stage 0 leaves for a completer");
+    static String firstLine(String s) {
+        int i = s.indexOf('\n');
+        return i < 0 ? s : s.substring(0, i);
     }
 
     public static void main(String[] args) throws IOException {

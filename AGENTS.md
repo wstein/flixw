@@ -32,6 +32,7 @@ The wrapper has no build system — it is one Java 21 source file, run via JEP 3
 java src/flixw.java wrapper --version      # offline; no project, lock, or network needed
 java src/flixw.java wrapper --help         # routing table (enriched if run inside a project)
 java src/flixw.java wrapper --schema       # the JSON Schema for lock.toml, on stdout
+java src/flixw.java wrapper --completion bash   # a TAB-completion script, on stdout
 javac -d /tmp/flixw-out src/flixw.java     # compile check
 FLIXW_TRACE=1 ./flixw check                # per-phase timings on stderr
 ```
@@ -64,7 +65,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
-sh tests/run.sh     # 185-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 198-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -72,7 +73,8 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 36 adversarial
 manifests, JDK selection and provisioning, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
-the bounds on `runCapture` — 312 assertions in total. Refresh the corpus with
+the bounds on `runCapture`, and the four completion scripts with the note they read —
+355 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -184,6 +186,28 @@ so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire *automa
 at a time, as Flix implements them; a displaced verb prints a deprecation notice.
 `FLIX_BACKEND=wrapper|compiler` forces a side during a transition.
 
+### Completion is data, not a generated script
+
+`wrapper --completion bash|zsh|fish|pwsh` prints a completer. The script is **static and
+byte-identical across projects** — everything per-project is read at TAB time from
+`.flixw/local/verbs`, the note stage 0 leaves next to the `local/java` note the shim
+already reads. That is forced by dispatch: the candidate set is the compiler's verbs ∪ the
+wrapper verbs it has not displaced, so it moves with the lock, and a script that baked the
+verbs in would go stale at the next `pin` and say nothing. It also keeps the JVM off the
+completion path — a TAB press costs one file read, not a stage 0 launch plus the mandatory
+digest re-hash, which together exceed the time to type the verb. No note yet means a list
+baked in at emission, the same bargain `BUILTIN_VERBS` makes.
+
+The completers are **not installed into projects**. They are emitted on demand, so
+`install`, `validate`, `doctor --fix` and the shim byte-parity lint are untouched, and the
+"the shims exist twice" duplication does not grow. Do not add on-disk copies of them.
+
+fish is the cheapest of the four to test: `complete -C` asks it for a command line's
+candidates directly, which is what a keypress asks, so it needs no readline simulation. It
+also matches on the command's **base name**, so one `complete -c flixw` covers `flixw`,
+`./flixw` and an absolute path; bash matches the word as typed and needs both spellings
+registered.
+
 ### Invariants that are load-bearing
 
 These come from the paper's prototype contract (§5) and are easy to break accidentally:
@@ -229,6 +253,12 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 - `flixw.cmd`'s `windows smoke` job runs green on every push, and that is a smoke test, not
   parity: argument parity with the POSIX shim is not achievable and is not claimed. See
   `docs/LIMITATIONS.md`.
+- `cmd.exe` has no per-command completion mechanism at all — not a limited one, none — so
+  `wrapper --completion` has no `cmd` target and never will. PowerShell users are served by
+  the `pwsh` script, which registers against the existing `flixw.cmd`; **the trampoline does
+  not move to a `.ps1`**, because a `.ps1` is not invokable as a bare command from `cmd.exe`
+  or a build tool and a Group-Policy execution policy can make one administratively
+  unrunnable. The pwsh registration is verified against real `pwsh` by hand, not in CI.
 - GitHub Pages needs two pieces of repository configuration that no workflow can supply and
   no failure message names: the site must exist with Actions as its source, and the
   `github-pages` environment must allow `v*` **tags**, since GitHub creates it allowing the

@@ -322,7 +322,8 @@ reached only when no explicit setting exists and the running JVM is unusable.
 2. `./flixw wrapper [--operation]` is flixw's own namespace, answered by stage 0 before
    anything else. `--version` and `--help` are offline: no project, no lock, no network,
    no compiler. `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
-   a JDK and needs the network. A bare `wrapper` prints the routing table.
+   a JDK and needs the network. `--schema` and `--completion <shell>` are offline too, and
+   print to stdout. A bare `wrapper` prints the routing table.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
 4. Otherwise, if it is `pin`, `info`, `doctor`, `validate` or `help`, the
@@ -384,6 +385,39 @@ Rule 5 exists because unknown first words may be filenames or future verbs. Note
 Flix does not currently produce a good unknown-command message — `flix doctro` reports
 `Unrecognized file extension: 'doctro'.` on stdout — so routing there is correct but not
 generous.
+
+## Completion
+
+`./flixw wrapper --completion bash|zsh|fish|pwsh` prints a TAB-completion script on stdout.
+Nothing is installed into the project; you place the output where your shell looks:
+
+```console
+./flixw wrapper --completion bash > ~/.local/share/bash-completion/completions/flixw
+./flixw wrapper --completion zsh  > "${fpath[1]}/_flixw"
+./flixw wrapper --completion fish > ~/.config/fish/completions/flixw.fish
+./flixw wrapper --completion pwsh >> $PROFILE
+```
+
+The script is byte-identical for every project on a given release, because it contains no
+verbs. Candidates are read when you press TAB from `.flixw/local/verbs`, the note stage 0
+rewrites on any run that resolves a compiler — the compiler's verbs plus the wrapper verbs
+it has not displaced. That follows from dispatch: the verb set is a property of the pin, so
+a completion script with the verbs baked in would go stale at the next `pin` and give no
+sign of it.
+
+Nothing in the completion path starts a JVM. A TAB press costs one file read; routing it
+through stage 0 would cost a launch plus the digest re-hash flixw does on every run, which
+together take longer than typing the verb. Before a project has ever resolved a compiler
+there is no note, and the script falls back to a list fixed at emission — one release stale
+at worst, the same trade the built-in verb table makes.
+
+Completion covers the verb. Past it the compiler owns the arguments, and the shell's own
+filename completion takes over. `cmd.exe` gets nothing — it has no per-command completion
+mechanism to hook.
+
+bash needs both `flixw` and `./flixw` registered, because it matches the command word as
+typed. zsh, fish and PowerShell each resolve the name from the path, so one registration
+covers every spelling including an absolute one.
 
 ## Project selection
 
