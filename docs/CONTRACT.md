@@ -281,6 +281,32 @@ What this is **not**: independent authenticity. GitHub serves both the bytes and
 digest, over the same TLS trust anchor, and a release asset can be replaced. The pin is
 trust-on-first-generation. See [LIMITATIONS.md](LIMITATIONS.md).
 
+### The version the compiler reports
+
+The digest settles *which bytes* run. It does not settle that those bytes are the release
+the lock names — a fork that tagged over an older build, or an upstream asset re-uploaded
+under the same tag, was pinned, verified and run without a word.
+
+flixw therefore reads the version out of the compiler's own help header, which it already
+captures for the verb set, and compares it with the pin:
+
+| | |
+|---|---|
+| they agree | nothing is said; `validate` reports `ok` |
+| build metadata differs only | a note in `info` and `doctor`, `warn` in `validate` |
+| the versions differ | `FLIXW010` on **every** run, and `validate` **fails** |
+
+Build metadata is not a mismatch. It identifies a build rather than a release, so a
+compiler built from `0.75.3+stable.names.3` and reporting `0.75.3` is agreeing — and a
+warning on every run of every fork build would teach the reader to skip the line that
+matters. The comparison is `canonical()`, the same normalization used for release tags and
+cache coordinates.
+
+A compiler whose header carries no version is not an error; it is the absence of a second
+opinion, and `validate` says so rather than failing. Nothing here can stop a run: the
+compiler is the authority on what it will execute, this is flixw's account of what was
+asked for, and `FLIXW010` is printed and never sets exit status.
+
 ## Java
 
 Selection order: `FLIX_JAVA_HOME` → `JAVA_HOME` → the running JVM → a JDK flixw
@@ -499,8 +525,9 @@ these.
 | `FLIXW008` | 87 | an environment variable, JVM option or launcher flag is invalid |
 | `FLIXW009` | 88 | install, verb capture, dispatch, pin, validate or lock transaction failed |
 
-`FLIXW010` (unparseable `--help`) and `FLIXW011` (Java above the ceiling; a lock key flixw
-does not read) are advisory: printed, never fatal.
+`FLIXW010` (unparseable `--help`; the compiler reporting a version the lock does not pin)
+and `FLIXW011` (Java above the ceiling; a lock key flixw does not read) are advisory:
+printed, never fatal.
 
 ## Environment
 
@@ -600,6 +627,7 @@ between shim and stage 0, not an implementation detail:
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
 <cache>/verbs/<identity>.compl        # only if the compiler ships its own completer
+<cache>/verbs/<identity>.version      # the version the compiler reports about itself
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
 <cache>/jdks/default                 # one line: the java the last install produced
 ```

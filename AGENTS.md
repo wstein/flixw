@@ -65,7 +65,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
-sh tests/run.sh     # 204-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 208-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -74,7 +74,7 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 manifests, JDK selection and provisioning, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
 the bounds on `runCapture`, and the four completion scripts with the note they read —
-365 assertions in total. Refresh the corpus with
+370 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -142,6 +142,7 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 <cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
+<cache>/verbs/<digest|override-…>.version         # the version the compiler reports
 ```
 
 `<cache>` = `FLIX_CACHE_HOME`, else `$LOCALAPPDATA\flixw` / `~/Library/Caches/flixw` /
@@ -239,6 +240,13 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   process. `FLIX_JAR` overrides are announced as unverified and are not compatibility evidence.
 - **Digest every run.** The cached JAR is re-hashed on every invocation (~105ms on 33MB);
   no install stamps, no skip flag.
+- **The digest says which bytes, not which release.** Nothing tied those bytes to the
+  version the lock names, so a mislabelled asset was pinned and run in silence. The
+  compiler's own header — already captured for the verbs — is the second opinion:
+  `FLIXW010` on every run when `canonical()` disagrees, `FAIL` in `validate`, and a note in
+  `info`/`doctor` when only build metadata differs. Metadata is *not* a mismatch: a
+  compiler built from `0.75.3+stable.names.3` reporting `0.75.3` is agreeing, and warning
+  per run on every fork would train the reader to skip the line that matters.
 - **One acquisition attempt, one relaunch.** No retry loops; relaunch is guarded by
   `FLIXW_RELAUNCHED` so a stale `release` file cannot loop.
 - **The manifest is a floor, checked before the network.** `flix.toml`'s `flix` key is

@@ -597,7 +597,31 @@ public final class UnitCheck {
         eq("verbs: unparseable help yields nothing", "",
            String.join(" ", flixw.parseVerbs(lines("impostor: no usage here"))));
 
+        // The same two headers carry the version, and neither puts it where the other does:
+        // scopt on the product line, picocli on the line after it, with build metadata.
+        // Reading it is what lets flixw notice a lock that misnames the compiler it pins.
+        eq("version: scopt reports on the product line", "0.75.2",
+           flixw.parseReportedVersion(scopt));
+        eq("version: picocli reports on the line below, metadata and all",
+           "0.75.2+fork.wstein.260807.1.88.ge3027b3e2.dirty",
+           flixw.parseReportedVersion(picocli));
+
+        // Absent is not an error: it is the absence of a second opinion, and a fork that
+        // prints no version must not become a project that cannot run.
+        eq("version: a header without one reports nothing", null,
+           flixw.parseReportedVersion(lines("Some Other Compiler", "Usage: x [a|b]")));
+        // Only the header. An option default or an example further down is text about
+        // something else, and reading one as the compiler's identity would report a
+        // mismatch against nothing.
+        eq("version: a version below the header is not the compiler's", null,
+           flixw.parseReportedVersion(lines("The Flix Programming Language", "Usage: flix",
+                                            "Commands:", "  init   scaffolds 1.2.3")));
+        // A version-looking run of digits inside a longer token is not a version.
+        eq("version: an embedded token is not a version", null,
+           flixw.parseReportedVersion(lines("build x1.2.3-rc", "Usage: flix")));
+
         System.out.println("  ok   verb capture: scopt and picocli help renderers");
+        System.out.println("  ok   version: what each renderer reports about itself");
     }
 
     // ---- 9: the lock schema -----------------------------------------------

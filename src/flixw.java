@@ -1937,7 +1937,8 @@ public final class flixw {
             }
         } catch (IOException ignored) { }
         List<String> v;
-        try { v = captureVerbs(javaExe, jar); }
+        String help;
+        try { help = captureHelp(javaExe, jar); v = captureVerbs(help, jar); }
         catch (Fail f) {
             // Capture is an optimisation, never a precondition.  Its sole purpose is to
             // notice that a pinned compiler has claimed one of WRAPPER_VERBS.  Failing
@@ -1957,10 +1958,85 @@ public final class flixw {
             // A read-only cache is a correct configuration, not an error.  Stay silent.
             tr("cannot cache verbs at " + vf + ": " + e.getMessage());
         }
+        // From the same capture: the version costs nothing here and a second `--help` run
+        // to fetch it later would cost a subprocess on somebody's hot path.
+        writeVersionRecord(identity, parseReportedVersion(help));
         return v;
     }
 
-    static List<String> captureVerbs(Path javaExe, Path jar) {
+    /** Beside the verb record and keyed the same way, so a re-pin gets a fresh one. */
+    static Path versionFile(String identity) {
+        return cacheHome().resolve("verbs").resolve(identity + ".version");
+    }
+
+    /** A blank record is written when the header carried no version, so it is asked once. */
+    static void writeVersionRecord(String identity, String reported) {
+        Path f = versionFile(identity);
+        try {
+            Files.createDirectories(f.getParent());
+            Path tmp = Files.createTempFile(f.getParent(), ".version-", ".part");
+            Files.writeString(tmp, (reported == null ? "" : reported) + "\n", StandardCharsets.UTF_8);
+            Files.move(tmp, f, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            tr("cannot cache the reported version at " + f + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * What the pinned compiler says its version is, or null if it will not say.
+     *
+     * Read from the cache written when the verbs were captured.  A cache filled by an
+     * earlier flixw has the verbs and not this, so it is captured once and kept -- one
+     * subprocess, on one run, rather than leaving every project upgraded from an older
+     * release permanently unchecked.
+     */
+    static String reportedVersion(Path javaExe, Path jar, String identity) {
+        Path f = versionFile(identity);
+        try {
+            if (Files.isRegularFile(f)) {
+                String s = Files.readString(f, StandardCharsets.UTF_8).trim();
+                return s.isEmpty() ? null : s;
+            }
+        } catch (IOException ignored) { }
+        String reported;
+        try { reported = parseReportedVersion(captureHelp(javaExe, jar)); }
+        catch (Fail f2) { tr("cannot ask the compiler its version: " + f2.getMessage()); return null; }
+        writeVersionRecord(identity, reported);
+        return reported;
+    }
+
+    /**
+     * Says so when the compiler is not the version the lock claims.
+     *
+     * The digest settles *which bytes* run and nothing settles that those bytes are the
+     * release the lock names.  A mislabelled release asset -- a fork that tagged
+     * {@code v0.75.4} over a 0.75.2 build, an upstream re-upload -- is pinned, verified and
+     * run without a word, and {@code info} goes on reporting the lock's version forever.
+     * The compiler's own answer is the only second opinion available, and it is already on
+     * screen when the verbs are captured.
+     *
+     * Compared through {@link #canonical}, because build metadata identifies a build rather
+     * than a release: a compiler built from {@code 0.75.3+stable.names.3} reporting
+     * {@code 0.75.3} is agreeing, not disagreeing, and warning on every run of every fork
+     * would train the reader to ignore the line that matters. That difference is still
+     * visible -- {@code info} and {@code doctor} print both strings whenever they differ.
+     *
+     * {@code FLIXW010}: printed, never fatal.  The compiler is the authority on what it
+     * will run, this is flixw's account of what was asked for, and a wrapper that refused
+     * to start over a version string would be wrong more often than the mismatch is.
+     */
+    static void reportVersionGap(Lock lock, String reported) {
+        if (lock == null || reported == null) return;
+        if (canonical(reported).equals(canonical(lock.version()))) return;
+        w010("the pinned compiler reports itself as " + q(reported)
+           + ", but the lock pins " + q(lock.version())
+           + "\n          the digest still pins these exact bytes; what is in doubt is the"
+           + " version they were published under"
+           + "\n          run: ./flixw pin " + reported + "   (to pin what is actually here)");
+    }
+
+    /** The compiler's `--help`, bounded, as text.  The two parses read it separately. */
+    static String captureHelp(Path javaExe, Path jar) {
         String out;
         try {
             // Real help output is a few kilobytes and arrives in well under a second.
@@ -1973,12 +2049,55 @@ public final class flixw {
         }
         if (out == null)
             throw w009("`flix --help` did not finish within " + HELP_TIMEOUT.toSeconds() + "s");
+        return out;
+    }
+
+    static List<String> captureVerbs(String out, Path jar) {
         List<String> verbs = parseVerbs(out);
         if (verbs.size() < 3)
             throw w009("cannot parse verbs from `flix --help` of " + jar
                      + " (got " + verbs.size() + " candidate(s))");
         return verbs;
     }
+
+    /**
+     * A version token standing on its own, rather than one buried inside a longer word.
+     * Built from {@link #SEMVERISH} so the two cannot drift into disagreeing about what a
+     * version is.
+     */
+    static final Pattern VERSION_TOKEN = Pattern.compile(
+        "(?<![0-9A-Za-z.+-])(" + SEMVERISH.pattern() + ")(?![0-9A-Za-z.+-])");
+
+    /**
+     * The version the compiler says it is, read from the header of its own help.
+     *
+     * Free, because {@link #verbs} already runs {@code --help} and the version is sitting
+     * in the text it throws away.  Both renderers put it in the first lines and neither
+     * puts it in the same place: scopt writes {@code The Flix Programming Language 0.75.2}
+     * on one line, picocli writes the product name and the version on the next.  Rather
+     * than encode either layout -- a fork may rename the product string, and one did move
+     * the version to its own line -- take the first standalone version token in the header.
+     *
+     * The header, not the whole screen: an option's default or an example further down is
+     * text about something else, and reading one as the compiler's identity would produce
+     * a mismatch report about nothing.
+     *
+     * @return the reported version, or null when the header carries none -- which is not an
+     *         error, only the absence of a second opinion
+     */
+    static String parseReportedVersion(String help) {
+        int seen = 0;
+        for (String line : help.split("\r?\n")) {
+            if (line.isBlank()) continue;
+            if (++seen > HEADER_LINES) return null;
+            Matcher m = VERSION_TOKEN.matcher(line);
+            if (m.find()) return m.group(1);
+        }
+        return null;
+    }
+
+    /** How much of a help screen counts as the header for {@link #parseReportedVersion}. */
+    static final int HEADER_LINES = 3;
 
     /** Two-space indent, a lowercase name, then the column gap before its description. */
     static final Pattern COMMAND_ENTRY = Pattern.compile("^ {2}([a-z][a-z0-9_-]*)(?:\\s|$)");
@@ -2430,7 +2549,7 @@ public final class flixw {
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
-            case "info" -> report(root, lock, jar, jvm, compilerVerbs);
+            case "info" -> report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
             case "validate" -> {
                 int bad = check(root, lock, jar, jvm);
                 if (bad > 0) throw w009(bad + " validation failure(s)");
@@ -2442,7 +2561,7 @@ public final class flixw {
                         throw w008("./flixw doctor: unknown option " + q(a)
                                  + "\n       usage: ./flixw doctor [--fix]");
                 if (fix) { updateWrapper(root); System.out.println(); }
-                report(root, lock, jar, jvm, compilerVerbs);
+                report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
                 System.out.println();
                 int bad = check(root, lock, jar, jvm);
                 if (bad > 0)
@@ -2453,7 +2572,13 @@ public final class flixw {
         }
     }
 
-    static void report(Path root, Lock lock, Path jar, Jvm jvm, List<String> cv) {
+    /** The reported version for the verbs that print state; null whenever there is no jar. */
+    static String askedVersion(Lock lock, Path jar, Jvm jvm) {
+        if (lock == null || jar == null || jvm == null) return null;
+        return reportedVersion(jvm.exe(), jar, verbIdentity(jar, lock, env("FLIX_JAR") != null));
+    }
+
+    static void report(Path root, Lock lock, Path jar, Jvm jvm, List<String> cv, String reported) {
         System.out.println("flixw            " + WRAPPER_VERSION);
         System.out.println("project root     " + root);
         System.out.println("compiler         " + (lock == null ? "-" : lock.version()));
@@ -2461,6 +2586,14 @@ public final class flixw {
             : (lock.repo() == null ? UPSTREAM_REPO : lock.repo())
               + (lock.repo() != null && !lock.repo().equals(UPSTREAM_REPO)
                  ? "  (a fork; not stock-compatibility evidence)" : "")));
+        // Only when the two strings differ: printing the pin back twice is not information.
+        // Build metadata is the ordinary reason they differ and is not a mismatch, so the
+        // line says which of the two it is rather than leaving the reader to compare.
+        if (reported != null && lock != null && !reported.equals(lock.version()))
+            System.out.println("reported         " + reported + "  ("
+                + (canonical(reported).equals(canonical(lock.version()))
+                   ? "the compiler does not carry the build metadata the lock pins"
+                   : "MISMATCH -- the lock pins " + lock.version()) + ")");
         System.out.println("digest           " + (lock == null ? "-" : lock.sha256()));
         System.out.println("jar              " + (jar == null ? "-" : jar));
         System.out.println("java             " + (jvm == null ? "-" : jvm.exe() + "  (" + jvm.feature()
@@ -2668,6 +2801,27 @@ public final class flixw {
             }
         }
 
+        // The digest settles which bytes; this settles whether they are the release the lock
+        // names. A FAIL rather than a warning when the versions genuinely differ: `validate`
+        // is what CI runs, and a lock that misnames the compiler it pins is the kind of
+        // thing a build should refuse rather than mention. Build metadata is not that --
+        // the compiler is entitled to report the release it was built from.
+        if (lock != null && jar != null && jvm != null) {
+            String rv = askedVersion(lock, jar, jvm);
+            if (rv == null)
+                System.out.println("warn  the compiler does not report a version; nothing to"
+                                 + " check the lock against");
+            else if (canonical(rv).equals(canonical(lock.version())))
+                System.out.println(rv.equals(lock.version())
+                    ? "ok    the compiler reports the version the lock pins"
+                    : "warn  the compiler reports " + rv + "; the lock pins " + lock.version()
+                    + " (build metadata only)");
+            else {
+                System.out.println("FAIL  the compiler reports " + rv + ", but the lock pins "
+                                 + lock.version() + " (./flixw pin " + rv + ")");
+                bad++;
+            }
+        }
         if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
 
         // The shims execute whatever class sits in the stage-0 cache, on path alone, so a
@@ -3902,6 +4056,8 @@ public final class flixw {
         recordVerbs(root, compilerVerbs);
         Path compl = compilerCompletion(jvm.exe(), jar, verbId, compilerVerbs);
         if (compl != null) recordCompletion(root, compl);
+        String reported = reportedVersion(jvm.exe(), jar, verbId);
+        reportVersionGap(lock, reported);
         selfCompile(selfSource());
 
         // ---- dispatch ----------------------------------------------------

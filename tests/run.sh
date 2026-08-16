@@ -814,6 +814,38 @@ t 0  "a real run records the verb note"                        sh -c '
 t 0  "the verb note is git-ignored"                            sh -c '
   git check-ignore -q .flixw/local/verbs'
 
+# --- the version the compiler reports -------------------------------------
+# The digest settles which bytes run; nothing settled that those bytes are the release the
+# lock names. A mislabelled asset -- a fork that tagged over an older build, an upstream
+# re-upload -- was pinned, verified and run without a word. The compiler's own answer is
+# the only second opinion available, and it is already on screen when the verbs are read.
+echo "reported version"
+t 0  "agreement is not worth saying"                           sh -c '
+  ./flixw info 2>&1 | grep -q "^reported " && exit 1
+  ./flixw validate | grep -q "^ok    the compiler reports the version the lock pins"'
+# A lock that misnames its compiler is loud on every run, not only when someone looks.
+g 0 'reports itself as' "a mismatch is reported on an ordinary run"  sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^version = .*/version = \"0.99.0\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw check 2>&1
+  cp "$1/lock.keep" .flixw/lock.toml' sh "$work"
+# ...and `validate` is what CI runs, so it refuses rather than mentions.
+t 88 "a mismatch fails validate"                               sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^version = .*/version = \"0.99.0\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw validate >/dev/null 2>&1; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# Build metadata is not a mismatch: it identifies a build, and a compiler reporting the
+# release it was built from is agreeing. Said once where state is printed, never per run --
+# warning on every run of every fork build teaches the reader to skip the line that matters.
+t 0  "build metadata is a note, not a mismatch"                sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^version = \"\(.*\)\"/version = \"\1+demo.1\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw check 2>&1 | grep -q FLIXW010 && { cp "$1/lock.keep" .flixw/lock.toml; exit 1; }
+  ./flixw validate >/dev/null 2>&1; rc=$?
+  ./flixw info 2>&1 | grep -q "build metadata the lock pins" || rc=1
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+
 # --- drift -----------------------------------------------------------------
 echo "drift"
 cp flix.toml "$work/flix.toml.bak"
