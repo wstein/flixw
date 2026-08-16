@@ -195,6 +195,7 @@ curl -fsSL  $base/SHA256SUMS | grep flixw-0.21.0.tar.gz | shasum -a 256 -c -
 tar -xzf flixw-0.21.0.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java, .envrc.example
 rm flixw-0.21.0.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
+                                    # 0.75.2 or v0.75.2 -- the release tag works too
 ./flixw doctor --fix                # merges the .gitattributes block
 git add flixw flixw.cmd .flixw .gitattributes
 ```

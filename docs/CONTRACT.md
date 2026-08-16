@@ -52,8 +52,19 @@ compiler actually runs. `flix.toml` is the project's manifest and belongs to Fli
 
 ```console
 ./flixw pin 0.75.2                                    # the stock compiler
+./flixw pin v0.75.2                                   # the same, spelled as the tag
 ./flixw pin wstein/flix-fork 0.75.2+fork.wstein.1     # a fork build
 ```
+
+A leading `v` is accepted and says nothing about it. GitHub shows the *tag* — the releases
+page, the tag list and every asset URL read `v0.75.2` — so copying from where the versions
+actually are yields the tag, and flixw builds `"v" + version` to construct that URL itself.
+The lock records the version either way, so one release cannot produce two locks. The
+prefix is taken only ahead of a digit: `vNext` stays a bad version rather than becoming the
+version `Next`.
+
+`[package].flix` does **not** get this. That field is Flix's, and Flix accepts `x.x.x`
+alone; tolerating a tag there would let flixw read a manifest Flix itself rejects.
 
 The two arguments are told apart by the slash, which a version can never contain, so their
 order does not matter. An omitted repository means the one already in the lock, so a bare

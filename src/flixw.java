@@ -149,11 +149,39 @@ public final class flixw {
             if (Character.isWhitespace(c) || c == '/' || c == '\\')
                 throw w002(where + ": illegal character in version " + q(v));
         if (v.contains("..")) throw w002(where + ": '..' in version " + q(v));
-        if (v.startsWith("v")) throw w002(where + ": strip the leading 'v' from " + q(v));
+        // Only when stripping the tag prefix would actually leave a version. `pin` accepts
+        // that form outright, so anything reaching here still spelled with a leading `v` is
+        // either the manifest -- Flix's field, which takes x.x.x alone -- or not a version
+        // at all, and telling someone to strip a `v` from `vNext` names the wrong problem.
+        if (v.startsWith("v") && SEMVERISH.matcher(v.substring(1)).matches())
+            throw w002(where + ": strip the leading 'v' from " + q(v));
         if (!SEMVERISH.matcher(v).matches())
             throw w002(where + ": " + q(v) + " is not an exact version"
                      + "\n       ranges, wildcards and empty suffixes are not accepted");
         return v;
+    }
+
+    /**
+     * Accepts the release tag where a version is expected: {@code v0.75.2} means
+     * {@code 0.75.2}.
+     *
+     * GitHub shows the tag, not the version.  The releases page, the tag list, the archive
+     * links and the asset URLs all read {@code v0.75.2}, so copying from where the versions
+     * actually are gets you the tag every time -- and flixw itself builds {@code "v" +
+     * version} to construct that URL, so it already holds that the two name one release.
+     * Refusing the form flixw prints into its own URLs made the user do a normalization the
+     * wrapper was doing anyway.
+     *
+     * Only ahead of a digit, so {@code vNext} is still a bad version rather than the
+     * version {@code Next}, and the diagnostic keeps naming the real problem.
+     *
+     * Deliberately not applied to {@code [package].flix}: that field is Flix's, and Flix
+     * accepts {@code x.x.x} alone.  Tolerating a tag there would let flixw read a manifest
+     * that Flix itself rejects, which is a worse outcome than the error it replaces.
+     */
+    static String stripTagPrefix(String v) {
+        return v.length() > 1 && v.charAt(0) == 'v' && Character.isDigit(v.charAt(1))
+             ? v.substring(1) : v;
     }
 
     /**
@@ -911,7 +939,9 @@ public final class flixw {
         if (version == null && existing == null)
             throw w002("pin: --java needs an existing lock, or a compiler version to write"
                      + " one\n       for example: ./flixw pin 0.75.2 --java " + MIN_JAVA);
-        if (version != null) validateVersion(version, "pin");
+        // Normalized before validation, so the lock records the version rather than the tag
+        // it was typed as, and two spellings of one release cannot produce two locks.
+        if (version != null) version = validateVersion(stripTagPrefix(version), "pin");
         if (repo == null) repo = existing != null && existing.repo() != null
                                ? existing.repo() : UPSTREAM_REPO;
         return new Pin(repo, version, java, clearJava != null, false);

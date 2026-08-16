@@ -425,11 +425,28 @@ public final class UnitCheck {
         t = flixw.parsePin(java.util.List.of("flix/flix", "0.75.2"), forked);
         eq("pin: naming upstream leaves the fork", "flix/flix", t.repo());
 
+        // The release tag is the spelling GitHub shows, and flixw builds it itself to reach
+        // the asset, so `pin` takes either and records the version. Two spellings of one
+        // release must not be able to produce two different locks.
+        t = flixw.parsePin(java.util.List.of("v0.75.2"), null);
+        eq("pin: the release tag spelling normalizes to the version", "0.75.2", t.version());
+        t = flixw.parsePin(java.util.List.of("wstein/flix-fork", "v0.75.2+f.1"), null);
+        eq("pin: a tag keeps its build metadata", "0.75.2+f.1", t.version());
+        eq("pin: a tag does not disturb the repository", "wstein/flix-fork", t.repo());
+        eq("pin: both spellings reach the same version",
+           flixw.parsePin(java.util.List.of("0.75.2"), null).version(),
+           flixw.parsePin(java.util.List.of("v0.75.2"), null).version());
+
+        // Taken only ahead of a digit: `vNext` is a bad version, not the version `Next`.
         for (java.util.List<String> bad : java.util.List.of(
                 java.util.List.<String>of(),
                 java.util.List.of("a/b", "c/d", "1.0.0"),
                 java.util.List.of("1.0.0", "2.0.0"),
                 java.util.List.of("not/a/repo", "1.0.0"),
+                java.util.List.of("v"),
+                java.util.List.of("vNext"),
+                java.util.List.of("vv0.75.2"),
+                java.util.List.of("v0.75"),
                 java.util.List.of("a/b", "not-a-version"))) {
             try { flixw.parsePin(bad, null); bad("pin: " + bad, "accepted"); }
             catch (flixw.Fail e) { ok(); }

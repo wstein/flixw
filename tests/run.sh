@@ -317,7 +317,35 @@ t 87 "doctor rejects an unknown option"                         ./flixw doctor -
 # --- version grammar -------------------------------------------------------
 echo "version grammar"
 t 81 "reject 0.75"                                              ./flixw pin 0.75
-t 81 "reject leading v"                                         ./flixw pin "v$version"
+# GitHub shows the tag, not the version: the releases page, the tag list and every asset
+# URL read v0.75.2, so copying from where the versions actually are yields the tag. flixw
+# builds "v" + version to construct that URL itself, so it already holds that the two name
+# one release -- and refusing the spelling it prints made the user normalize by hand.
+t 0  "accept the release tag spelling"                          sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  # The version line is moved away first: asserting the lock alone would pass on a
+  # *refused* pin, since the version under test is the one the lock already holds. Done
+  # with sed rather than a second pin, which would download and leave the compiler cache
+  # holding two entries -- enough to break the truncation case further down.
+  sed "s/^version = .*/version = \"0.0.0\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw pin "v'"$version"'" >/dev/null 2>&1
+  rc=$?
+  # The lock records the version, not the tag, so one release cannot yield two locks.
+  [ "$rc" = 0 ] && grep -q "^version = \"'"$version"'\"$" .flixw/lock.toml
+  rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+t 0  "the tag spelling is silent"                               sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  out=$(./flixw pin "v'"$version"'" 2>&1)
+  cp "$1/lock.keep" .flixw/lock.toml
+  # "pinned Flix ..." is the ordinary confirmation; anything about a leading v is not.
+  printf "%s" "$out" | grep -qi "leading\|strip\|tag" && exit 1
+  exit 0' sh "$work"
+# The prefix is taken only ahead of a digit, so these stay bad versions rather than
+# becoming the versions `Next` and `v0.75.2`.
+t 81 "reject a bare v"                                          ./flixw pin v
+t 81 "reject a v that leaves no version"                        ./flixw pin vNext
+t 81 "reject a doubled v"                                       ./flixw pin "vv$version"
 t 81 "reject wildcard"                                          ./flixw pin '0.75.*'
 t 81 "reject range"                                             ./flixw pin '>=0.75.0'
 t 81 "reject traversal"                                         ./flixw pin '../../etc'

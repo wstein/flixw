@@ -65,7 +65,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
-sh tests/run.sh     # 200-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 204-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -74,7 +74,7 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 manifests, JDK selection and provisioning, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
 the bounds on `runCapture`, and the four completion scripts with the note they read —
-357 assertions in total. Refresh the corpus with
+365 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -243,7 +243,9 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   `FLIXW_RELAUNCHED` so a stale `release` file cannot loop.
 - **The manifest is a floor, checked before the network.** `flix.toml`'s `flix` key is
   Flix's field with Flix's rules (`x.x.x` only), read as a *minimum*; `lock.toml` is flixw's
-  and pins the exact compiler. A lock below the floor is fatal — except that `pin`, `doctor`
+  and pins the exact compiler. `pin` therefore takes `v0.75.2` as readily as `0.75.2` — the
+  tag is what GitHub shows and what flixw builds to reach the asset — while the manifest
+  does not, because a tag there is a manifest Flix itself rejects. A lock below the floor is fatal — except that `pin`, `doctor`
   and `validate` still run so the project can be repaired. A lock *above* it is normal, and
   `pin` never edits the manifest.
 - **stdout belongs to the compiler.** All wrapper chatter goes to stderr; cwd, argv and all
