@@ -2698,7 +2698,11 @@ public final class flixw {
             String sha = m.matches() ? m.group(2) : null;
             long size;
             try { size = Files.size(jar); } catch (IOException e) { size = -1; }
-            System.out.println("  " + version + "  " + humanSize(size)
+            // The version alone is not a unique key -- a fork and stock Flix can canonicalize
+            // to the same x.x.x, and a re-pin leaves the superseded digest sitting right next
+            // to the new one. The digest is what actually tells two same-named entries apart.
+            System.out.println("  " + version + "  " + (sha == null ? "?" : sha.substring(0, 16) + "...")
+                             + "  " + humanSize(size)
                              + (sha != null && lock != null && sha.equals(lock.sha256()) ? "  (pinned)" : ""));
         }
 
@@ -4247,7 +4251,7 @@ public final class flixw {
         System.out.println("  ./flixw -- <args>                forced compiler pass-through");
         System.out.println("  ./flixw pin [<owner>/<repo>] [<version>] [--java <v>]  write the lock");
         System.out.println("  ./flixw pin --refresh            rewrite the lock in this release's shape");
-        System.out.println("  ./flixw info [--verbose | -v]     project, compiler, java, cache"
+        System.out.println("  ./flixw info [--verbose | -v]    project, compiler, java, cache"
                          + " (-v: cached compilers and JDKs)");
         System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flixw validate                 the checks alone, for CI");

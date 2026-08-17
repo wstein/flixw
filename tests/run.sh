@@ -317,6 +317,11 @@ t 87 "info rejects an unknown option"                           ./flixw info --f
 g 0 'cached compilers' "info --verbose lists the cache"         ./flixw info --verbose
 g 0 'cached JDKs' "info --verbose lists JDKs too"                ./flixw info --verbose
 g 0 '(pinned)' "info --verbose marks the pinned compiler"       ./flixw info --verbose
+g 0 'cached compilers' "-v is the short form of --verbose"      ./flixw info -v
+t 0  "-v and --verbose print the same thing"                    sh -c '
+  [ "$(./flixw info -v)" = "$(./flixw info --verbose)" ]'
+t 0  "the cached-compiler line carries the digest, not just the version" sh -c '
+  ./flixw info -v | grep -Eq "^  [0-9]+\.[0-9]+\.[0-9]+  [0-9a-f]{16}\.\.\."'
 
 # --- version grammar -------------------------------------------------------
 echo "version grammar"
