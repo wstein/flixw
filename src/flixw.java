@@ -2750,12 +2750,11 @@ public final class flixw {
      */
     static void listCache(Lock lock, Jvm jvm) {
         Path compilers = cacheHome().resolve("compilers");
-        System.out.println("cached compilers");
         List<Path> jars = List.of();
         try (var s = Files.isDirectory(compilers) ? Files.list(compilers) : null) {
             if (s != null) jars = s.filter(p -> p.getFileName().toString().endsWith(".jar")).sorted().toList();
         } catch (IOException ignored) { }
-        if (jars.isEmpty()) System.out.println("  (none)");
+        List<String[]> compilerRows = new ArrayList<>();
         for (Path jar : jars) {
             Matcher m = Pattern.compile("^flix-(.+)-([0-9a-f]{64})\\.jar$").matcher(jar.getFileName().toString());
             String canonicalVersion = m.matches() ? m.group(1) : jar.getFileName().toString();
@@ -2765,8 +2764,8 @@ public final class flixw {
             boolean pinned = sha != null && lock != null && sha.equals(lock.sha256());
             // The cache directory names only the canonical x.x.x -- build metadata, which
             // is what actually tells two builds of one release apart, lives in one of three
-            // places, tried in order. Best is the pin record `acquire` writes on every run:
-            // it is what a lock actually pinned this exact digest as, repo included, and it
+            // places, tried in order. Best is the pin record `pin`/`acquire` write: it is
+            // what a lock actually pinned this exact digest as, repo included, and it
             // survives long after the project that wrote it moved on to another pin. Next
             // is the version record `verbs()` wrote from the compiler's own `--help` header
             // -- a fork routinely omits its own build metadata there, so this alone would
@@ -2783,41 +2782,62 @@ public final class flixw {
             // no record, or a compiler that reports its release but not its build -- the
             // digest is the only thing left that tells two same-named entries apart.
             boolean disambiguated = !version.equals(canonicalVersion);
-            System.out.println("  " + version + "  " + humanSize(size)
-                             + (repo != null && !repo.equals(UPSTREAM_REPO) ? "  (" + repo + ")" : "")
-                             + (pinned ? "  (pinned)" : "")
-                             + (!disambiguated && sha != null ? "  (sha " + sha.substring(0, 12) + "...)" : ""));
+            compilerRows.add(new String[] { version, humanSize(size),
+                             (repo != null && !repo.equals(UPSTREAM_REPO) ? "  (" + repo + ")" : "")
+                           + (pinned ? "  (pinned)" : "")
+                           + (!disambiguated && sha != null ? "  (sha " + sha.substring(0, 12) + "...)" : "") });
         }
+        System.out.println("cached compilers");
+        printAligned(compilerRows);
 
         Path jdks = cacheHome().resolve("jdks");
         Path installed = installedJdk();
-        System.out.println("cached JDKs");
         List<Path> dirs = List.of();
         try (var s = Files.isDirectory(jdks) ? Files.list(jdks) : null) {
             if (s != null) dirs = s.filter(Files::isDirectory).sorted().toList();
         } catch (IOException ignored) { }
-        if (dirs.isEmpty()) System.out.println("  (none)");
+        List<String[]> jdkRows = new ArrayList<>();
         for (Path dir : dirs) {
             Path exe = findJavaUnder(dir);
             if (exe == null) continue;                    // a partial or foreign directory
             String version = probeVersion(exe);
-            System.out.println("  " + (version == null ? "(unknown)" : version) + "  " + dir.getFileName()
-                             + (exe.equals(installed) ? "  (default)" : ""));
+            jdkRows.add(new String[] { version == null ? "(unknown)" : version, dir.getFileName().toString(),
+                             exe.equals(installed) ? "  (default)" : "" });
         }
+        System.out.println("cached JDKs");
+        printAligned(jdkRows);
 
         // Distinct from the section above: these are not flixw's to manage, only to find --
         // Homebrew, scoop, sdkman, asdf, mise, jenv and the OS-native install directories
         // knownInstalls() already searches to select a Java when nothing else applies.
-        System.out.println("system JDKs");
         List<Path> known = knownInstalls();
-        if (known.isEmpty()) System.out.println("  (none detected)");
+        List<String[]> systemRows = new ArrayList<>();
         for (Path exe : known) {
             String version = probeVersion(exe);
             int feature = probe(exe);
-            System.out.println("  " + (version == null ? "(unknown)" : version) + "  " + exe
-                             + (jvm != null && exe.equals(jvm.exe()) ? "  (selected)"
-                               : feature >= 0 && feature < MIN_JAVA ? "  (below Java " + MIN_JAVA + ")" : ""));
+            systemRows.add(new String[] { version == null ? "(unknown)" : version, exe.toString(),
+                             jvm != null && exe.equals(jvm.exe()) ? "  (selected)"
+                           : feature >= 0 && feature < MIN_JAVA ? "  (below Java " + MIN_JAVA + ")" : "" });
         }
+        System.out.println("system JDKs");
+        printAligned(systemRows);
+    }
+
+    /**
+     * Prints a two-column list with its first two columns aligned, so that a listing whose
+     * entries vary wildly in length -- {@code 0.75.2} beside {@code 0.75.3+stable.names.4}
+     * -- reads as a table instead of a ragged column of annotations nobody can scan.
+     */
+    static void printAligned(List<String[]> rows) {
+        if (rows.isEmpty()) { System.out.println("  (none)"); return; }
+        int w0 = rows.stream().mapToInt(r -> r[0].length()).max().orElse(0);
+        int w1 = rows.stream().mapToInt(r -> r[1].length()).max().orElse(0);
+        for (String[] r : rows)
+            System.out.println("  " + pad(r[0], w0) + "  " + pad(r[1], w1) + r[2]);
+    }
+
+    static String pad(String s, int width) {
+        return width <= s.length() ? s : s + " ".repeat(width - s.length());
     }
 
     /** A byte count as a person reads it; cached JARs and JDKs are always well above 1 KB. */
