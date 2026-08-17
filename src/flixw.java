@@ -2591,11 +2591,11 @@ public final class flixw {
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
             case "info" -> {
-                boolean verbose = rest.contains("--verbose");
+                boolean verbose = rest.contains("--verbose") || rest.contains("-v");
                 for (String a : rest)
-                    if (!a.equals("--verbose"))
+                    if (!a.equals("--verbose") && !a.equals("-v"))
                         throw w008("./flixw info: unknown option " + q(a)
-                                 + "\n       usage: ./flixw info [--verbose]");
+                                 + "\n       usage: ./flixw info [--verbose | -v]");
                 report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
                 if (verbose) { System.out.println(); listCache(lock); }
             }
@@ -4247,8 +4247,8 @@ public final class flixw {
         System.out.println("  ./flixw -- <args>                forced compiler pass-through");
         System.out.println("  ./flixw pin [<owner>/<repo>] [<version>] [--java <v>]  write the lock");
         System.out.println("  ./flixw pin --refresh            rewrite the lock in this release's shape");
-        System.out.println("  ./flixw info [--verbose]         project, compiler, java, cache"
-                         + " (--verbose: cached compilers and JDKs)");
+        System.out.println("  ./flixw info [--verbose | -v]     project, compiler, java, cache"
+                         + " (-v: cached compilers and JDKs)");
         System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flixw validate                 the checks alone, for CI");
         System.out.println("  ./flixw wrapper [--help | --version | --upgrade | --install-jdk"
