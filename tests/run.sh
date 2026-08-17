@@ -313,6 +313,10 @@ t 0  "doctor --fix repairs what it reports"                     sh -c '
   ./flixw doctor >/dev/null 2>&1; rc=$?
   cp "$1/flixw.keep" flixw; chmod +x flixw; exit $rc' sh "$work"
 t 87 "doctor rejects an unknown option"                         ./flixw doctor --frobnicate
+t 87 "info rejects an unknown option"                           ./flixw info --frobnicate
+g 0 'cached compilers' "info --verbose lists the cache"         ./flixw info --verbose
+g 0 'cached JDKs' "info --verbose lists JDKs too"                ./flixw info --verbose
+g 0 '(pinned)' "info --verbose marks the pinned compiler"       ./flixw info --verbose
 
 # --- version grammar -------------------------------------------------------
 echo "version grammar"

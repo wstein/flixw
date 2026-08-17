@@ -2590,7 +2590,15 @@ public final class flixw {
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
-            case "info" -> report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
+            case "info" -> {
+                boolean verbose = rest.contains("--verbose");
+                for (String a : rest)
+                    if (!a.equals("--verbose"))
+                        throw w008("./flixw info: unknown option " + q(a)
+                                 + "\n       usage: ./flixw info [--verbose]");
+                report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
+                if (verbose) { System.out.println(); listCache(lock); }
+            }
             case "validate" -> {
                 int bad = check(root, lock, jar, jvm);
                 if (bad > 0) throw w009(bad + " validation failure(s)");
@@ -2668,6 +2676,54 @@ public final class flixw {
         if (cv != null) fallback.removeAll(cv);
         System.out.println("wrapper verbs    " + String.join(" ", fallback));
         System.out.println("pass-through     ./flixw -- <args>");
+    }
+
+    /**
+     * Everything sitting in the cache right now -- not what could be pinned or provisioned,
+     * which would mean a network call on a verb the paper promises stays offline. `info`
+     * reports state; a catalogue of upstream releases is a different feature with a
+     * different cost, and does not belong behind the same flag.
+     */
+    static void listCache(Lock lock) {
+        Path compilers = cacheHome().resolve("compilers");
+        System.out.println("cached compilers");
+        List<Path> jars = List.of();
+        try (var s = Files.isDirectory(compilers) ? Files.list(compilers) : null) {
+            if (s != null) jars = s.filter(p -> p.getFileName().toString().endsWith(".jar")).sorted().toList();
+        } catch (IOException ignored) { }
+        if (jars.isEmpty()) System.out.println("  (none)");
+        for (Path jar : jars) {
+            Matcher m = Pattern.compile("^flix-(.+)-([0-9a-f]{64})\\.jar$").matcher(jar.getFileName().toString());
+            String version = m.matches() ? m.group(1) : jar.getFileName().toString();
+            String sha = m.matches() ? m.group(2) : null;
+            long size;
+            try { size = Files.size(jar); } catch (IOException e) { size = -1; }
+            System.out.println("  " + version + "  " + humanSize(size)
+                             + (sha != null && lock != null && sha.equals(lock.sha256()) ? "  (pinned)" : ""));
+        }
+
+        Path jdks = cacheHome().resolve("jdks");
+        Path installed = installedJdk();
+        System.out.println("cached JDKs");
+        List<Path> dirs = List.of();
+        try (var s = Files.isDirectory(jdks) ? Files.list(jdks) : null) {
+            if (s != null) dirs = s.filter(Files::isDirectory).sorted().toList();
+        } catch (IOException ignored) { }
+        if (dirs.isEmpty()) System.out.println("  (none)");
+        for (Path dir : dirs) {
+            Path exe = findJavaUnder(dir);
+            if (exe == null) continue;                    // a partial or foreign directory
+            String version = probeVersion(exe);
+            System.out.println("  " + (version == null ? "(unknown)" : version) + "  " + dir.getFileName()
+                             + (exe.equals(installed) ? "  (default)" : ""));
+        }
+    }
+
+    /** A byte count as a person reads it; cached JARs and JDKs are always well above 1 KB. */
+    static String humanSize(long bytes) {
+        if (bytes < 0) return "?";
+        double mb = bytes / (1024.0 * 1024.0);
+        return String.format(Locale.ROOT, "%.1f MB", mb);
     }
 
     /** Compares a committed invariant file against the bytes this wrapper release ships. */
@@ -4191,7 +4247,8 @@ public final class flixw {
         System.out.println("  ./flixw -- <args>                forced compiler pass-through");
         System.out.println("  ./flixw pin [<owner>/<repo>] [<version>] [--java <v>]  write the lock");
         System.out.println("  ./flixw pin --refresh            rewrite the lock in this release's shape");
-        System.out.println("  ./flixw info                     project, compiler, java, cache");
+        System.out.println("  ./flixw info [--verbose]         project, compiler, java, cache"
+                         + " (--verbose: cached compilers and JDKs)");
         System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flixw validate                 the checks alone, for CI");
         System.out.println("  ./flixw wrapper [--help | --version | --upgrade | --install-jdk"
