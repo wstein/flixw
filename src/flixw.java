@@ -2010,6 +2010,20 @@ public final class flixw {
         return cacheHome().resolve("verbs").resolve(identity + ".version");
     }
 
+    /**
+     * The version record {@link #verbs} already wrote, if any -- a file read, never a
+     * subprocess. Used to list cached compilers by what they actually report ({@code
+     * 0.75.3+stable.names.4}, not just the canonical {@code 0.75.3} the cache directory
+     * names), without paying for a `--help` capture per cached jar on a verb that stays
+     * offline and fast.
+     */
+    static String cachedVersionRecord(String identity) {
+        try {
+            String s = Files.readString(versionFile(identity), StandardCharsets.UTF_8).trim();
+            return s.isEmpty() ? null : s;
+        } catch (IOException e) { return null; }
+    }
+
     /** A blank record is written when the header carried no version, so it is asked once. */
     static void writeVersionRecord(String identity, String reported) {
         Path f = versionFile(identity);
@@ -2597,7 +2611,7 @@ public final class flixw {
                         throw w008("./flixw info: unknown option " + q(a)
                                  + "\n       usage: ./flixw info [--verbose | -v]");
                 report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
-                if (verbose) { System.out.println(); listCache(lock); }
+                if (verbose) { System.out.println(); listCache(lock, jvm); }
             }
             case "validate" -> {
                 int bad = check(root, lock, jar, jvm);
@@ -2679,12 +2693,14 @@ public final class flixw {
     }
 
     /**
-     * Everything sitting in the cache right now -- not what could be pinned or provisioned,
-     * which would mean a network call on a verb the paper promises stays offline. `info`
-     * reports state; a catalogue of upstream releases is a different feature with a
-     * different cost, and does not belong behind the same flag.
+     * Everything already sitting on this machine -- compilers and JDKs flixw itself
+     * cached, plus the JDKs {@link #knownInstalls()} can already see without a network
+     * call. Not what could be pinned or provisioned: that would mean asking a remote API
+     * on a verb the paper promises stays offline. `info` reports state; a catalogue of
+     * upstream releases is a different feature with a different cost, and does not belong
+     * behind the same flag.
      */
-    static void listCache(Lock lock) {
+    static void listCache(Lock lock, Jvm jvm) {
         Path compilers = cacheHome().resolve("compilers");
         System.out.println("cached compilers");
         List<Path> jars = List.of();
@@ -2694,16 +2710,21 @@ public final class flixw {
         if (jars.isEmpty()) System.out.println("  (none)");
         for (Path jar : jars) {
             Matcher m = Pattern.compile("^flix-(.+)-([0-9a-f]{64})\\.jar$").matcher(jar.getFileName().toString());
-            String version = m.matches() ? m.group(1) : jar.getFileName().toString();
+            String canonicalVersion = m.matches() ? m.group(1) : jar.getFileName().toString();
             String sha = m.matches() ? m.group(2) : null;
             long size;
             try { size = Files.size(jar); } catch (IOException e) { size = -1; }
-            // The version alone is not a unique key -- a fork and stock Flix can canonicalize
-            // to the same x.x.x, and a re-pin leaves the superseded digest sitting right next
-            // to the new one. The digest is what actually tells two same-named entries apart.
-            System.out.println("  " + version + "  " + (sha == null ? "?" : sha.substring(0, 16) + "...")
-                             + "  " + humanSize(size)
-                             + (sha != null && lock != null && sha.equals(lock.sha256()) ? "  (pinned)" : ""));
+            // The cache directory names only the canonical x.x.x -- build metadata, which
+            // is what actually tells two builds of one release apart, lives in the version
+            // record `verbs()` already wrote from the compiler's own header. Read-only: a
+            // jar this project has never run has no record, and asking every cached jar
+            // now would mean a subprocess per entry on a verb that stays fast and offline.
+            String reported = sha == null ? null : cachedVersionRecord(sha);
+            String version = reported != null ? reported : canonicalVersion;
+            System.out.println("  " + version + "  " + humanSize(size)
+                             + (sha != null && lock != null && sha.equals(lock.sha256()) ? "  (pinned)" : "")
+                             + (reported == null && sha != null
+                               ? "  (build unrecorded; sha " + sha.substring(0, 12) + "...)" : ""));
         }
 
         Path jdks = cacheHome().resolve("jdks");
@@ -2720,6 +2741,20 @@ public final class flixw {
             String version = probeVersion(exe);
             System.out.println("  " + (version == null ? "(unknown)" : version) + "  " + dir.getFileName()
                              + (exe.equals(installed) ? "  (default)" : ""));
+        }
+
+        // Distinct from the section above: these are not flixw's to manage, only to find --
+        // Homebrew, scoop, sdkman, asdf, mise, jenv and the OS-native install directories
+        // knownInstalls() already searches to select a Java when nothing else applies.
+        System.out.println("system JDKs");
+        List<Path> known = knownInstalls();
+        if (known.isEmpty()) System.out.println("  (none detected)");
+        for (Path exe : known) {
+            String version = probeVersion(exe);
+            int feature = probe(exe);
+            System.out.println("  " + (version == null ? "(unknown)" : version) + "  " + exe
+                             + (jvm != null && exe.equals(jvm.exe()) ? "  (selected)"
+                               : feature >= 0 && feature < MIN_JAVA ? "  (below Java " + MIN_JAVA + ")" : ""));
         }
     }
 

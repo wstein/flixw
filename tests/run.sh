@@ -320,8 +320,19 @@ g 0 '(pinned)' "info --verbose marks the pinned compiler"       ./flixw info --v
 g 0 'cached compilers' "-v is the short form of --verbose"      ./flixw info -v
 t 0  "-v and --verbose print the same thing"                    sh -c '
   [ "$(./flixw info -v)" = "$(./flixw info --verbose)" ]'
-t 0  "the cached-compiler line carries the digest, not just the version" sh -c '
-  ./flixw info -v | grep -Eq "^  [0-9]+\.[0-9]+\.[0-9]+  [0-9a-f]{16}\.\.\."'
+g 0 "  $version  " "the cached-compiler line shows the reported version" ./flixw info -v
+# The record `verbs()` writes is read-only from a listing that must stay a file read, so an
+# entry no run has ever captured a version for still gets a usable line instead of a blank.
+t 0  "a cached compiler with no captured version falls back to its canonical name" sh -c '
+  fake=$(printf "b%.0s" $(seq 1 64))
+  short=$(printf "b%.0s" $(seq 1 12))
+  jar=$(ls "$FLIX_CACHE_HOME"/compilers/flix-*.jar | head -1)
+  cp "$jar" "$FLIX_CACHE_HOME/compilers/flix-9.9.9-$fake.jar"
+  out=$(./flixw info -v)
+  rm -f "$FLIX_CACHE_HOME/compilers/flix-9.9.9-$fake.jar"
+  printf "%s\n" "$out" | grep -Fq "  9.9.9  " \
+    && printf "%s\n" "$out" | grep -Fq "(build unrecorded; sha $short...)"'
+g 0 'system JDKs' "info --verbose also lists JDKs it did not install"  ./flixw info --verbose
 
 # --- version grammar -------------------------------------------------------
 echo "version grammar"

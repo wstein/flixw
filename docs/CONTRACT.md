@@ -520,11 +520,13 @@ Java has no `exec(2)`, so stage 0 stays resident for the compiler's whole life. 
 `./flixw info` reports state and judges nothing. `./flixw validate` judges and reports no
 state, which is the form CI wants: a verdict and an exit code. `./flixw doctor` is both,
 for a person — and `./flixw doctor --fix` repairs what can be repaired, naming what cannot.
-`./flixw info --verbose` adds a listing of the machine-wide cache — every compiler JAR and
-JDK actually sitting under `<cache>`, not only the pin this project reads. It is a
-directory listing, not a catalogue: it names nothing that could be pinned or provisioned
-but is not already there, because that would be a network call on a verb the paper
-promises stays offline.
+`./flixw info --verbose` (or `-v`) adds a listing of the machine-wide cache — every
+compiler JAR and JDK actually sitting under `<cache>`, not only the pin this project
+reads — plus every JDK `knownInstalls()` already finds without flixw having put it there
+(Homebrew, scoop, sdkman, asdf, mise, jenv, the OS-native install directories). It is a
+directory listing, not a catalogue: it names nothing that could be pinned, provisioned or
+downloaded but is not already on the machine, because that would be a network call on a
+verb the paper promises stays offline.
 
 That split replaced a `doctor` that printed state, noticed nothing and exited 0 with an
 edited shim in the project, while the command that actually diagnosed was called

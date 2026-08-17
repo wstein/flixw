@@ -169,8 +169,10 @@ caches:
 | macOS | `~/Library/Caches/flixw` |
 | Windows | `%LOCALAPPDATA%\flixw` |
 
-`./flixw info` prints the one in use; `./flixw info --verbose` lists what is actually
-cached there -- every compiler JAR and JDK, not just the ones this project has pinned.
+`./flixw info` prints the one in use; `./flixw info --verbose` (or `-v`) lists what is
+actually cached there -- every compiler JAR and JDK, not just the ones this project has
+pinned -- plus every JDK it can find on the machine without flixw having installed it
+(Homebrew, scoop, sdkman, asdf, mise, jenv, and the usual OS install directories).
 
 A real project on this: [`flix-invaders`](https://github.com/wstein/flix-invaders), by
 the same author, which type-checks, tests, formats and packages through `./flixw` on
