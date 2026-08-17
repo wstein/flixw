@@ -2784,8 +2784,8 @@ public final class flixw {
             boolean disambiguated = !version.equals(canonicalVersion);
             compilerRows.add(new String[] { version, humanSize(size),
                              (repo != null && !repo.equals(UPSTREAM_REPO) ? "  (" + repo + ")" : "")
-                           + (pinned ? "  (pinned)" : "")
-                           + (!disambiguated && sha != null ? "  (sha " + sha.substring(0, 12) + "...)" : "") });
+                           + (!disambiguated && sha != null ? "  (sha " + sha.substring(0, 12) + "...)" : "")
+                           + (pinned ? "  <= pinned" : "") });
         }
         System.out.println("cached compilers");
         printAligned(compilerRows);
@@ -2802,7 +2802,7 @@ public final class flixw {
             if (exe == null) continue;                    // a partial or foreign directory
             String version = probeVersion(exe);
             jdkRows.add(new String[] { version == null ? "(unknown)" : version, dir.getFileName().toString(),
-                             exe.equals(installed) ? "  (default)" : "" });
+                             exe.equals(installed) ? "  <= default" : "" });
         }
         System.out.println("cached JDKs");
         printAligned(jdkRows);
@@ -2816,7 +2816,7 @@ public final class flixw {
             String version = probeVersion(exe);
             int feature = probe(exe);
             systemRows.add(new String[] { version == null ? "(unknown)" : version, exe.toString(),
-                             jvm != null && exe.equals(jvm.exe()) ? "  (selected)"
+                             jvm != null && exe.equals(jvm.exe()) ? "  <= selected"
                            : feature >= 0 && feature < MIN_JAVA ? "  (below Java " + MIN_JAVA + ")" : "" });
         }
         System.out.println("system JDKs");

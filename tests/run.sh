@@ -316,7 +316,7 @@ t 87 "doctor rejects an unknown option"                         ./flixw doctor -
 t 87 "info rejects an unknown option"                           ./flixw info --frobnicate
 g 0 'cached compilers' "info --verbose lists the cache"         ./flixw info --verbose
 g 0 'cached JDKs' "info --verbose lists JDKs too"                ./flixw info --verbose
-g 0 '(pinned)' "info --verbose marks the pinned compiler"       ./flixw info --verbose
+g 0 '<= pinned' "info --verbose marks the pinned compiler"       ./flixw info --verbose
 g 0 'cached compilers' "-v is the short form of --verbose"      ./flixw info -v
 t 0  "-v and --verbose print the same thing"                    sh -c '
   [ "$(./flixw info -v)" = "$(./flixw info --verbose)" ]'
