@@ -787,6 +787,31 @@ public final class UnitCheck {
         else bad("schema " + key + " pattern on " + q(value), want ? "rejected" : "accepted");
     }
 
+    // ---- 11: the FLIX_JAR override's containment test ----------------------
+
+    /**
+     * `FLIX_JAR` inside flixw's own compiler cache is always a mistake -- those names carry
+     * the digest, so a re-pin changes them and the override goes on naming the compiler the
+     * project used to pin. Telling the two apart is a prefix test, the shape of test a `..`
+     * walks straight through, which is why the shims' JDK marker has a rule of its own.
+     */
+    static void overrideContainment() {
+        Path compilers = flixw.cacheHome().resolve("compilers");
+        if (flixw.insideCompilerCache(compilers.resolve("flix-0.75.2-abc.jar"))) ok();
+        else bad("override: a cache entry is inside the cache", "reported outside");
+        // The whole reason for normalizing first: the right prefix, and not inside.
+        if (!flixw.insideCompilerCache(compilers.resolve("..").resolve("..").resolve("evil.jar")))
+            ok();
+        else bad("override: `..` does not escape the containment test", "reported inside");
+        // A sibling sharing the prefix as a *string* is not inside it.
+        if (!flixw.insideCompilerCache(Paths.get(compilers + "-elsewhere").resolve("x.jar"))) ok();
+        else bad("override: a name-prefix sibling is not inside", "reported inside");
+        // The supported use: a jar you built yourself, anywhere else.
+        if (!flixw.insideCompilerCache(Paths.get("/tmp/flix-build/flix.jar"))) ok();
+        else bad("override: a locally built jar is not a cache entry", "reported inside");
+        System.out.println("  ok   override: what counts as flixw's own compiler cache");
+    }
+
     // ---- 10: the completion scripts ---------------------------------------
 
     /**
@@ -909,6 +934,7 @@ public final class UnitCheck {
         lockSchema(fixtures);
         bounded();
         completion();
+        overrideContainment();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }

@@ -281,6 +281,24 @@ What this is **not**: independent authenticity. GitHub serves both the bytes and
 digest, over the same TLS trust anchor, and a release asset can be replaced. The pin is
 trust-on-first-generation. See [LIMITATIONS.md](LIMITATIONS.md).
 
+### An override that names flixw's own cache
+
+`FLIX_JAR` exists to run a compiler you built yourself, so a jar that is *not* the pinned
+one is the normal case; `info` and `doctor` report the difference and nothing else is said.
+
+Pointing it inside `<cache>/compilers/` is always a mistake, and gets `FLIXW010` on every
+run. Those names are content-addressed — `flix-<version>-<sha256>.jar` — so **the path
+changes at every re-pin**. An override set once to whatever `info` printed that day goes on
+naming the superseded artifact, and the project builds with the compiler it used to pin.
+Nothing else in flixw can notice: the digest guard is switched off by the override, and the
+version check passes because two builds of one release share a canonical version.
+
+Naming the cache entry that *does* match the lock is also reported, more gently: it is the
+jar flixw would have chosen anyway, and it will stop being that at the next pin.
+
+`info` prints `override digest` — the SHA-256 of what is actually running — so the
+comparison against the pinned digest is on screen rather than hidden in a file name.
+
 ### The version the compiler reports
 
 The digest settles *which bytes* run. It does not settle that those bytes are the release

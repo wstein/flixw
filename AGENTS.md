@@ -65,7 +65,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
-sh tests/run.sh     # 208-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 212-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -74,7 +74,7 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 manifests, JDK selection and provisioning, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
 the bounds on `runCapture`, and the four completion scripts with the note they read —
-370 assertions in total. Refresh the corpus with
+374 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -238,6 +238,13 @@ These come from the paper's prototype contract (§5) and are easy to break accid
 
 - **Stock compiler only.** Never patch, wrap, or link against `flix.jar`; it is an opaque
   process. `FLIX_JAR` overrides are announced as unverified and are not compatibility evidence.
+  An override *disagreeing* with the lock is the ordinary case — that is what it is for — so
+  it is reported in `info`/`doctor`, not per run. An override pointing **inside
+  `<cache>/compilers/`** is different and always wrong: those names carry the digest, so a
+  re-pin changes them and the override silently goes on naming the superseded artifact. That
+  is `FLIXW010` on every run, because nothing else can catch it — the digest guard is off by
+  definition, and the version check passes since two builds of one release share a canonical
+  version.
 - **Digest every run.** The cached JAR is re-hashed on every invocation (~105ms on 33MB);
   no install stamps, no skip flag.
 - **The digest says which bytes, not which release.** Nothing tied those bytes to the

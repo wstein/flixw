@@ -949,6 +949,47 @@ public final class flixw {
 
     // ---- acquisition ------------------------------------------------------
 
+    /** True when a path names something inside the cache flixw fills with pinned compilers. */
+    static boolean insideCompilerCache(Path jar) {
+        return jar.normalize().startsWith(cacheHome().resolve("compilers").normalize());
+    }
+
+    /**
+     * Says so when {@code FLIX_JAR} names a compiler out of flixw's own cache.
+     *
+     * A mismatch between the override and the lock is the *ordinary* case -- the override
+     * exists to run a jar you built yourself, which is not the pinned one and is not meant
+     * to be -- so it is reported where state is printed, and not on every run.
+     *
+     * Pointing it inside {@code <cache>/compilers/} is different, and is always a mistake.
+     * Those names are content-addressed, {@code flix-<version>-<sha256>.jar}, so **the path
+     * changes every time the project is re-pinned**. An override set once to whatever
+     * `info` reported that day goes on naming the superseded artifact afterwards, and the
+     * project quietly builds with the compiler it used to pin. Nothing else in flixw could
+     * catch it: the digest guard is switched off by the override, and the version check
+     * passes because two builds of one release share a canonical version.
+     *
+     * Matching the lock is a mistake too, only a harmless one: it names the jar flixw would
+     * have chosen anyway, and it will stop doing that at the next pin.
+     */
+    static void reportOverrideGap(Lock lock, Path jar) {
+        if (lock == null || !insideCompilerCache(jar)) return;
+        String got = sha256(jar);
+        if (got.equals(lock.sha256()))
+            w010("FLIX_JAR names flixw's own cache entry for the pinned compiler."
+               + "\n          That is the jar flixw would have used anyway, and the name"
+               + " changes at the next pin."
+               + "\n          run: unset FLIX_JAR");
+        else
+            w010("FLIX_JAR names a compiler from flixw's cache that is NOT the pinned one."
+               + "\n          override " + got.substring(0, 16) + "...  lock pins "
+               + lock.sha256().substring(0, 16) + "..."
+               + "\n          Cache names carry the digest, so this path is an earlier pin"
+               + " left behind by a re-pin."
+               + "\n          run: unset FLIX_JAR   (or ./flixw pin <that version> to make"
+               + " it the pin)");
+    }
+
     static Path compilerPath(Lock lock) {
         return cacheHome().resolve("compilers")
                  .resolve("flix-" + canonical(lock.version()) + "-" + lock.sha256() + ".jar");
@@ -2608,8 +2649,20 @@ public final class flixw {
         for (String p : new String[] { "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS" })
             if (env(p) != null) System.out.println("note             " + p + "=" + redactOpts(env(p))
                                                  + "  (affects the JVM and stderr)");
-        if (env("FLIX_JAR") != null) System.out.println("override         FLIX_JAR=" + env("FLIX_JAR")
-                                     + "  (unverified; not stock-compatibility evidence)");
+        if (env("FLIX_JAR") != null) {
+            System.out.println("override         FLIX_JAR=" + env("FLIX_JAR")
+                             + "  (unverified; not stock-compatibility evidence)");
+            // The digest of what is actually being run. Without it the only clue that the
+            // override is a different compiler is a sha inside the jar's file name, two
+            // lines above a `digest` line that says something else -- which is a diff the
+            // reader has to perform by eye, and did not.
+            if (jar != null && Files.isRegularFile(jar)) {
+                String got = sha256(jar);
+                System.out.println("override digest  " + got + (lock == null ? ""
+                    : got.equals(lock.sha256()) ? "  (the jar the lock pins)"
+                    : "  (NOT the jar the lock pins)"));
+            }
+        }
         System.out.println("compiler verbs   " + (cv == null ? "(not captured)" : String.join(" ", cv)));
         List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
         if (cv != null) fallback.removeAll(cv);
@@ -4045,6 +4098,7 @@ public final class flixw {
             if (!Files.isRegularFile(jar)) throw w008("FLIX_JAR=" + fj + " is not a file");
             System.err.println("flixw: note: FLIX_JAR override in use; the JAR is NOT digest-verified"
                              + " and this run is not stock-compatibility evidence");
+            reportOverrideGap(lock, jar);
         } else jar = acquire(lock);
 
         String verbId = verbIdentity(jar, lock, override);

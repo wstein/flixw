@@ -814,6 +814,36 @@ t 0  "a real run records the verb note"                        sh -c '
 t 0  "the verb note is git-ignored"                            sh -c '
   git check-ignore -q .flixw/local/verbs'
 
+# --- a FLIX_JAR that names flixw's own cache -------------------------------
+# The failure this closes: cache names are content-addressed, so a re-pin changes them.
+# An override set once to whatever `info` reported that day goes on naming the superseded
+# artifact, and the project builds with the compiler it used to pin. Nothing else catches
+# it -- the digest guard is switched off by the override, and the version check passes
+# because two builds of one release share a canonical version.
+echo "FLIX_JAR override"
+# The real compiler, copied out of the cache: identical bytes, so only the location differs
+# and the case tests the containment rule rather than the contents.
+t 0  "a jar built elsewhere is the supported use, and is quiet"  sh -c '
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}")
+  cp "$jar" "$1/my-build.jar"
+  FLIX_JAR="$1/my-build.jar" ./flixw info 2>&1 | grep -q "FLIX_JAR names" && exit 1
+  exit 0' sh "$work"
+g 0 'NOT the pinned one' "a stale cache entry is named as such"   sh -c '
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}")
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^sha256\( *\)=.*/sha256\1= \"$(printf "c%.0s" $(seq 64))\"/" "$1/lock.keep" > .flixw/lock.toml
+  FLIX_JAR="$jar" ./flixw info 2>&1
+  cp "$1/lock.keep" .flixw/lock.toml' sh "$work"
+g 0 'names flixw.s own cache entry for the pinned compiler' \
+     "a cache entry matching the lock is still called out"       sh -c '
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}")
+  FLIX_JAR="$jar" ./flixw info 2>&1'
+# The digest of what is actually running, so the reader never has to diff a file name
+# against a `digest` line by eye -- which is the diff that was there to be made, and missed.
+g 0 'override digest' "info prints the digest of the overridden jar"  sh -c '
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}")
+  FLIX_JAR="$jar" ./flixw info 2>&1'
+
 # --- the version the compiler reports -------------------------------------
 # The digest settles which bytes run; nothing settled that those bytes are the release the
 # lock names. A mislabelled asset -- a fork that tagged over an older build, an upstream
