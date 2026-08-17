@@ -528,6 +528,14 @@ directory listing, not a catalogue: it names nothing that could be pinned, provi
 downloaded but is not already on the machine, because that would be a network call on a
 verb the paper promises stays offline.
 
+Each cached compiler is labelled with the exact repo and tag it was pinned as, not the
+canonical `x.x.x` its cache filename carries: `acquire` writes that pair beside the digest
+on every run, so it survives long after the project that wrote it moves on to another pin,
+and a fork that never echoes its own build metadata in `--help` still gets an answer. An
+entry no project on this machine has ever acquired falls back to what the compiler itself
+reports, then to the canonical name plus a short digest — the only two things a bare
+directory listing could otherwise offer.
+
 That split replaced a `doctor` that printed state, noticed nothing and exited 0 with an
 edited shim in the project, while the command that actually diagnosed was called
 `validate`. `setup` is gone: it was `doctor` plus one printed line.

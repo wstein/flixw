@@ -1074,6 +1074,10 @@ public final class flixw {
         tr("sha256 done");
         if (!got.equals(lock.sha256()))
             throw w006("cached " + jar + " no longer matches its pinned digest");
+        // `pin` already wrote this once; every ordinary run re-affirms it, so a cache an
+        // older flixw already filled -- one that predates this record entirely -- backfills
+        // on its very next use, and `info -v` has an answer for every entry, not only today's.
+        writePinRecord(lock.sha256(), lock.repo() == null ? UPSTREAM_REPO : lock.repo(), lock.version());
         return jar;
     }
 
@@ -2024,6 +2028,49 @@ public final class flixw {
         } catch (IOException e) { return null; }
     }
 
+    /** What a lock pinned this digest as: the exact tag and repository, not what the compiler
+     *  chooses to say about itself. A fork routinely builds without embedding its own build
+     *  metadata -- {@code stable.names.2} never appears in {@code --help} -- so this is the
+     *  only place that information survives once the project moves on to the next pin. */
+    record PinRecord(String repo, String version) {}
+
+    /** Beside the version record and keyed the same way, so a re-pin gets a fresh one. */
+    static Path pinRecordFile(String identity) {
+        return cacheHome().resolve("verbs").resolve(identity + ".pin");
+    }
+
+    /**
+     * What {@code acquire} last wrote for this digest, if any -- a file read, never a
+     * subprocess or a re-parse of anyone's lock. Every project that ever acquired this
+     * exact jar wrote the same repo and version here, since the digest is the same bytes
+     * either way; the last writer is as good as any.
+     */
+    static PinRecord cachedPinRecord(String identity) {
+        try {
+            List<String> lines = Files.readAllLines(pinRecordFile(identity), StandardCharsets.UTF_8);
+            return lines.size() < 2 ? null : new PinRecord(lines.get(0), lines.get(1));
+        } catch (IOException e) { return null; }
+    }
+
+    /** Written by {@code pin} itself, the moment it settles on a digest -- not deferred to
+     *  the next {@link #acquire}, which may never come: a project that pins one build and
+     *  then immediately pins another runs no other command against the first digest in
+     *  between, and a record only {@code acquire} writes would never see it. {@code
+     *  acquire} re-affirms the same record on every later run regardless, so a cache
+     *  populated by an older flixw that predates this file entirely still backfills on its
+     *  very next use rather than staying silent forever. */
+    static void writePinRecord(String identity, String repo, String version) {
+        Path f = pinRecordFile(identity);
+        try {
+            Files.createDirectories(f.getParent());
+            Path tmp = Files.createTempFile(f.getParent(), ".pin-", ".part");
+            Files.writeString(tmp, repo + "\n" + version + "\n", StandardCharsets.UTF_8);
+            Files.move(tmp, f, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            tr("cannot cache the pin record at " + f + ": " + e.getMessage());
+        }
+    }
+
     /** A blank record is written when the header carried no version, so it is asked once. */
     static void writeVersionRecord(String identity, String reported) {
         Path f = versionFile(identity);
@@ -2695,10 +2742,11 @@ public final class flixw {
     /**
      * Everything already sitting on this machine -- compilers and JDKs flixw itself
      * cached, plus the JDKs {@link #knownInstalls()} can already see without a network
-     * call. Not what could be pinned or provisioned: that would mean asking a remote API
-     * on a verb the paper promises stays offline. `info` reports state; a catalogue of
-     * upstream releases is a different feature with a different cost, and does not belong
-     * behind the same flag.
+     * call, each one labelled with the repo and exact tag {@link #writePinRecord} recorded
+     * the last time some project pinned that digest. Not what could be pinned or
+     * provisioned: that would mean asking a remote API on a verb the paper promises stays
+     * offline. `info` reports state; a catalogue of upstream releases is a different
+     * feature with a different cost, and does not belong behind the same flag.
      */
     static void listCache(Lock lock, Jvm jvm) {
         Path compilers = cacheHome().resolve("compilers");
@@ -2714,17 +2762,31 @@ public final class flixw {
             String sha = m.matches() ? m.group(2) : null;
             long size;
             try { size = Files.size(jar); } catch (IOException e) { size = -1; }
+            boolean pinned = sha != null && lock != null && sha.equals(lock.sha256());
             // The cache directory names only the canonical x.x.x -- build metadata, which
-            // is what actually tells two builds of one release apart, lives in the version
-            // record `verbs()` already wrote from the compiler's own header. Read-only: a
-            // jar this project has never run has no record, and asking every cached jar
-            // now would mean a subprocess per entry on a verb that stays fast and offline.
+            // is what actually tells two builds of one release apart, lives in one of three
+            // places, tried in order. Best is the pin record `acquire` writes on every run:
+            // it is what a lock actually pinned this exact digest as, repo included, and it
+            // survives long after the project that wrote it moved on to another pin. Next
+            // is the version record `verbs()` wrote from the compiler's own `--help` header
+            // -- a fork routinely omits its own build metadata there, so this alone would
+            // have lost exactly the information the pin record keeps. Last is the canonical
+            // name the directory entry itself carries. All three are file reads: asking
+            // every cached jar directly would mean a subprocess per entry on a verb that
+            // stays fast and offline.
+            PinRecord pin = sha == null ? null : cachedPinRecord(sha);
             String reported = sha == null ? null : cachedVersionRecord(sha);
-            String version = reported != null ? reported : canonicalVersion;
+            String version = pin != null ? pin.version() : reported != null ? reported : canonicalVersion;
+            String repo = pin != null ? pin.repo() : null;
+            // A version string disambiguates only when it says more than the canonical
+            // name the cache directory already gives every entry; whenever it does not --
+            // no record, or a compiler that reports its release but not its build -- the
+            // digest is the only thing left that tells two same-named entries apart.
+            boolean disambiguated = !version.equals(canonicalVersion);
             System.out.println("  " + version + "  " + humanSize(size)
-                             + (sha != null && lock != null && sha.equals(lock.sha256()) ? "  (pinned)" : "")
-                             + (reported == null && sha != null
-                               ? "  (build unrecorded; sha " + sha.substring(0, 12) + "...)" : ""));
+                             + (repo != null && !repo.equals(UPSTREAM_REPO) ? "  (" + repo + ")" : "")
+                             + (pinned ? "  (pinned)" : "")
+                             + (!disambiguated && sha != null ? "  (sha " + sha.substring(0, 12) + "...)" : ""));
         }
 
         Path jdks = cacheHome().resolve("jdks");
@@ -3121,6 +3183,11 @@ public final class flixw {
                     Files.move(tmp, jar, StandardCopyOption.ATOMIC_MOVE);
                 } catch (IOException ignored) { }
             }
+            // Written here, not left for the next `acquire()`: a project that pins and then
+            // immediately pins again -- trying one fork build after another, say -- never
+            // runs any other command against the one in between, so `acquire()` would never
+            // see it and its tag would be lost the same way an untracked build's always is.
+            writePinRecord(digest, repo, version);
 
             // Only the lock is written. flix.toml belongs to the project and to Flix --
             // its `flix` key is Flix's own field, with Flix's rules -- so pin has no

@@ -322,8 +322,9 @@ t 0  "-v and --verbose print the same thing"                    sh -c '
   [ "$(./flixw info -v)" = "$(./flixw info --verbose)" ]'
 g 0 "  $version  " "the cached-compiler line shows the reported version" ./flixw info -v
 # The record `verbs()` writes is read-only from a listing that must stay a file read, so an
-# entry no run has ever captured a version for still gets a usable line instead of a blank.
-t 0  "a cached compiler with no captured version falls back to its canonical name" sh -c '
+# entry no run has ever captured a version for still gets a usable line instead of a blank --
+# and, since the canonical name alone does not tell two such entries apart, its digest.
+t 0  "a cached compiler with no captured version falls back to its canonical name plus a digest" sh -c '
   fake=$(printf "b%.0s" $(seq 1 64))
   short=$(printf "b%.0s" $(seq 1 12))
   jar=$(ls "$FLIX_CACHE_HOME"/compilers/flix-*.jar | head -1)
@@ -331,8 +332,48 @@ t 0  "a cached compiler with no captured version falls back to its canonical nam
   out=$(./flixw info -v)
   rm -f "$FLIX_CACHE_HOME/compilers/flix-9.9.9-$fake.jar"
   printf "%s\n" "$out" | grep -Fq "  9.9.9  " \
-    && printf "%s\n" "$out" | grep -Fq "(build unrecorded; sha $short...)"'
+    && printf "%s\n" "$out" | grep -Fq "(sha $short...)"'
+# A fork the compiler itself does not tag with the build a project pinned is exactly the
+# case that motivated showing a version at all: the lock still has it exactly, so the
+# pinned line must show the full pin even when "reported" above it says less.
+g 0 "  $version+test.metadata  " "the pinned line shows the lock's exact version even when the compiler omits its build metadata" sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^version = .*/version = \"'"$version"'+test.metadata\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw info -v
+  rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml
+  exit $rc' sh "$work"
 g 0 'system JDKs' "info --verbose also lists JDKs it did not install"  ./flixw info --verbose
+# The pin record survives the project that wrote it: a build another project on this
+# machine pinned, and this one never ran, still shows its exact tag and fork repo rather
+# than falling back to the canonical name a bare directory listing would only ever give.
+t 0  "a compiler another project pinned still shows its tag and fork repo" sh -c '
+  fake=$(printf "e%.0s" $(seq 1 64))
+  jar=$(ls "$FLIX_CACHE_HOME"/compilers/flix-*.jar | head -1)
+  cp "$jar" "$FLIX_CACHE_HOME/compilers/flix-9.9.9-$fake.jar"
+  printf "wstein/flix-fork\n9.9.9+stable.names.7\n" > "$FLIX_CACHE_HOME/verbs/$fake.pin"
+  out=$(./flixw info -v)
+  rm -f "$FLIX_CACHE_HOME/compilers/flix-9.9.9-$fake.jar" "$FLIX_CACHE_HOME/verbs/$fake.pin"
+  printf "%s\n" "$out" | grep -Fq "  9.9.9+stable.names.7  " \
+    && printf "%s\n" "$out" | grep -Fq "(wstein/flix-fork)"'
+t 0  "an upstream cached compiler carries no fork annotation" sh -c '
+  ! ./flixw info -v | grep -Eq "^  '"$version"' .*\(flix/flix\)"'
+# The bug this guards: `pin A; pin B` with nothing else run in between must not lose A's
+# record. It used to -- only `acquire()` wrote it, and `pin` alone never reaches `acquire`,
+# so pinning straight through a run of fork builds left every one but the last as a bare
+# digest forever. The fix writes the record from `pin` itself; verify without ever calling
+# a command that would paper over the bug by re-running `acquire` for us.
+t 0  "pin alone -- with no other command run against it -- records its own digest" sh -c '
+  d=$1/pin-record-only; rm -rf "$d"; mkdir -p "$d"
+  cd "$d" || exit 1
+  java "$2/src/flixw.java" install . >/dev/null 2>&1
+  cp "$3/flix.toml" flix.toml
+  cache="$d/.cache"
+  FLIX_CACHE_HOME="$cache" ./flixw pin '"$version"' >/dev/null 2>&1
+  sha=$(sed -n "s/^sha256  *= *\"\\(.*\\)\"/\\1/p" .flixw/lock.toml)
+  [ -n "$sha" ] && [ -f "$cache/verbs/$sha.pin" ] \
+    && grep -Fq "flix/flix" "$cache/verbs/$sha.pin" \
+    && grep -Fq "'"$version"'" "$cache/verbs/$sha.pin"' sh "$work" "$root" "$proj"
 
 # --- version grammar -------------------------------------------------------
 echo "version grammar"

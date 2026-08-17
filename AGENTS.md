@@ -143,6 +143,7 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 <cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
 <cache>/verbs/<digest|override-…>.version         # the version the compiler reports
+<cache>/verbs/<digest>.pin                        # the repo and exact tag last pinned as
 ```
 
 `<cache>` = `FLIX_CACHE_HOME`, else `$LOCALAPPDATA\flixw` / `~/Library/Caches/flixw` /
