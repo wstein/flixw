@@ -377,12 +377,17 @@ reached only when no explicit setting exists and the running JVM is unusable.
 2. `./flixw wrapper [--operation]` is flixw's own namespace, answered by stage 0 before
    anything else. `--version` and `--help` are offline: no project, no lock, no network,
    no compiler. `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
-   a JDK and needs the network. `--schema` and `--completion <shell>` are offline too, and
-   print to stdout. A bare `wrapper` prints the routing table.
+   a JDK and needs the network. `--schema` prints to stdout and is offline too.
+   `--completion <shell>` also prints to stdout, but is not offline the first time: the
+   generator is a wrapper-owned companion asset, fetched and verified once per machine per
+   release and cached from there — see "Completion" below. A bare `wrapper` prints the
+   routing table.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
-4. Otherwise, if it is `pin`, `info`, `doctor`, `validate` or `help`, the
-   wrapper implements it.
+4. Otherwise, if it is `pin`, `info`, `doctor`, `validate`, `help`, `plugin` or `task`,
+   the wrapper implements it. `plugin` and `task` are namespaces rather than bare verbs —
+   `plugin <name>`/`task <name>` — so only those two words are subject to this rule; a
+   third-party plugin's own name can never collide with a future compiler verb.
 5. Otherwise the compiler gets it.
 
 `./flixw wrapper --upgrade` moves the project to the newest published flixw: it fetches
@@ -460,11 +465,24 @@ it has not displaced. That follows from dispatch: the verb set is a property of 
 a completion script with the verbs baked in would go stale at the next `pin` and give no
 sign of it.
 
-Nothing in the completion path starts a JVM. A TAB press costs one file read; routing it
+Nothing on the **TAB-press** path starts a JVM. A TAB press costs one file read; routing it
 through stage 0 would cost a launch plus the digest re-hash flixw does on every run, which
 together take longer than typing the verb. Before a project has ever resolved a compiler
 there is no note, and the script falls back to a list fixed at emission — one release stale
 at worst, the same trade the built-in verb table makes.
+
+The `--completion <shell>` *setup* call is a different question from the TAB press it sets
+up for. It has always been a one-time, explicit command that already cost a JVM launch; the
+templates it fills in now live in `src/flixw-completion.java`, a small companion source
+file fetched from the same flixw release this stage 0 is, verified against that release's
+own `SHA256SUMS` — the same trust footing `wrapper --upgrade` already gives `flixw.java`
+itself — and cached under `<cache>/wrapper/completion/<version>/`. Only the *first*
+`--completion` call on a machine, for a given release, needs network; every call after
+that, from any project, is an offline cache hit. A cold cache with no network reachable
+fails with `FLIXW005` naming what could not be reached, the same shape a failed compiler
+acquisition already has — there is no silent partial fallback, because a completion script
+installed into a shell startup that quietly stopped delegating to the compiler would be
+found out only by someone wondering, days later, why `run --` no longer completes anything.
 
 Past the verb the compiler owns the arguments. A picocli-based Flix answers
 `generate-completion`; flixw caches that script and the bash completer delegates to it, so
@@ -647,7 +665,7 @@ these.
 | `FLIXW002` | 81 | manifest or lock missing, invalid, or inconsistent |
 | `FLIXW003` | 82 | no compatible Java found (also emitted by the shims, as 126/127) |
 | `FLIXW004` | 83 | explicitly selected Java is invalid or incompatible |
-| `FLIXW005` | 84 | the single compiler acquisition attempt failed |
+| `FLIXW005` | 84 | the single compiler or wrapper-companion-asset acquisition attempt failed |
 | `FLIXW006` | 85 | a cached, downloaded or overridden compiler failed digest validation |
 | `FLIXW007` | 86 | cache or atomic installation failed |
 | `FLIXW008` | 87 | an environment variable, JVM option or launcher flag is invalid |
@@ -760,6 +778,8 @@ between shim and stage 0, not an implementation detail:
 <cache>/jdks/default                 # one line: the java the last install produced
 <cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}
 <cache>/plugins/.context-*.json      # one per invocation, deleted by a shutdown hook
+<cache>/wrapper/completion/<version>/flixw-completion.java        # the TAB-completion generator
+<cache>/wrapper/completion/<version>/flixw-completion.java.sha256 # verified once, checked locally after
 ```
 
 The stage-0 class is compiled with `--release 21`, the same floor `MIN_JAVA` declares.

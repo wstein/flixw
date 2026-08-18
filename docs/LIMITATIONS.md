@@ -276,11 +276,20 @@ everything else, plugins included, is verified against.
 Past those five, `./flixw plugin <name>` (machine-wide, digest-verified, explicitly
 installed `.jar`/`.java`/`.flix` code) and `.flixw/tasks.toml` (a project's own shell
 aliases, never fetched) are how the wrapper extends without adding more stage-0 commands —
-see [CONTRACT.md](CONTRACT.md#plugins-and-tasks). Two builtins are recorded as migration
-*candidates* if the day ever comes, though neither is built: TAB-completion generation,
-which already degrades to file completion with nothing installed, and JDK provisioning,
-which is harder, because it is reached from inside Java selection's own automatic fallback
-rather than only through explicit dispatch.
+see [CONTRACT.md](CONTRACT.md#plugins-and-tasks).
+
+TAB-completion generation has since moved out of `src/flixw.java`, but not onto the plugin
+mechanism above: `wrapper --completion` has to keep working with no project in scope, which
+`./flixw plugin <name>` cannot (that dispatch always needs a resolvable project root). It is
+instead a wrapper-owned companion asset (`src/flixw-completion.java`), fetched from the
+matching flixw release and verified against that release's own `SHA256SUMS` — the same
+trust footing `wrapper --upgrade` already gives `flixw.java` itself — then cached. The
+honest cost, stated plainly the way this file's other entries are: `wrapper --completion`
+used to need no network at all; now its first call on a machine, for a given release, does.
+Every call after that is an offline cache hit, same as the compiler and JDK caches. JDK
+provisioning remains a migration *candidate* only, and is harder either way it might move —
+it is reached from inside Java selection's own automatic fallback rather than only through
+explicit dispatch.
 
 The design paper separately describes an optional services JAR that could hold *stage-0's
 own* verbs if the surface outgrew a single auditable file — a different question from

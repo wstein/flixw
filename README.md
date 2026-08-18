@@ -268,7 +268,12 @@ The schema, the API docs for stage 0, and a short index of both live at
 Write it once. The script holds no verbs — it reads them when you press TAB from a note the
 wrapper keeps in `.flixw/local/`, so completion follows the pin and you do not regenerate
 anything after `./flixw pin`. Different projects on the same machine complete their own
-verbs. Nothing starts a JVM, so TAB stays instant.
+verbs. Nothing starts a JVM at TAB time, so TAB stays instant.
+
+The generator behind `wrapper --completion` is fetched from the flixw release you're
+running and cached machine-wide, the same way `wrapper --upgrade` fetches `flixw.java`
+itself — so the very first `--completion` call on a machine, for a given flixw release,
+needs network once; every call after that, from any project, is offline.
 
 In bash, if your compiler ships its own completer — a picocli-based fork does — flixw finds
 it and options complete too. Everywhere else, and with stock Flix anywhere, completion
@@ -368,9 +373,11 @@ rules.
 ```text
 flixw/
 ├── src/
-│   ├── flixw.java     stage 0 — the whole bootstrap, one dependency-free Java file
-│   ├── flixw          POSIX shim — finds a Java, prefers the compiled stage 0
-│   └── flixw.cmd      cmd.exe shim — the same, without a POSIX shell
+│   ├── flixw.java             stage 0 — the whole bootstrap, one dependency-free Java file
+│   ├── flixw-completion.java  TAB-completion generator — a wrapper-owned companion asset,
+│   │                          fetched and cached on demand, never committed into a project
+│   ├── flixw                  POSIX shim — finds a Java, prefers the compiled stage 0
+│   └── flixw.cmd              cmd.exe shim — the same, without a POSIX shell
 ├── tests/             regression suite, unit checks, and a corpus of 95 real
 │                      flix.toml files, checked against a TOML oracle
 └── docs/              contract, benchmarks, limitations, design paper
