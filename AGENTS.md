@@ -47,6 +47,9 @@ cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads 
 ./flixw info                               # java, compiler, cache, mirror, proxy, routing state
 ./flixw doctor [--fix]                     # the same, plus every check, with a verdict
 ./flixw validate                           # wrapper files, lock/manifest agreement, git tracked status
+./flixw plugin install <name> <ver> <url>  # fetch, digest-verify, cache; .jar, .java or .flix
+./flixw plugin <name> [args...]            # run an installed plugin, re-verified every time
+./flixw task [<name> [args...]]            # .flixw/tasks.toml's aliases, never fetched
 ```
 
 A release ships the same three files as two archives plus `flixw.java`; `sh tests/pack.sh
@@ -184,10 +187,60 @@ it, and a change that would make an existing lock unreadable does.
 
 Order in `realMain` (paper §4.8): `--wrapper-*` flags → `install` (first contact only) →
 drift check → `./flixw -- args` forced pass-through → verb in the captured compiler verb set →
-verb in `WRAPPER_VERBS` (`pin info doctor validate help`) → otherwise the compiler,
-so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire *automatically*, one
-at a time, as Flix implements them; a displaced verb prints a deprecation notice.
-`FLIX_BACKEND=wrapper|compiler` forces a side during a transition.
+verb in `WRAPPER_VERBS` (`pin info doctor validate help plugin task`) → otherwise the
+compiler, so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire
+*automatically*, one at a time, as Flix implements them; a displaced verb prints a
+deprecation notice. `FLIX_BACKEND=wrapper|compiler` forces a side during a transition.
+`plugin` and `task` are namespaces, not bare verbs — see below — so nothing under them is
+subject to this retirement; only the two words `plugin` and `task` themselves are.
+
+### Plugins and tasks are a stable ABI, not more stage-0 commands
+
+Two separate mechanisms, chosen deliberately over adding more builtin verbs: `./flixw
+plugin <name>` runs machine-wide, digest-verified, explicitly-installed third-party code
+(`.jar`, `.java` or `.flix`); `.flixw/tasks.toml` aliases a shell string the project already
+trusts, the way `npm run` does, and is never fetched. Both are namespaced —
+`plugin <name>` / `task <name>`, never a bare top-level verb — so a plugin can never
+collide with a compiler verb, another plugin, or a future wrapper verb; only the words
+`plugin` and `task` occupy the namespace stage 0 owns.
+
+**`pin`, `info`, `doctor`, `validate` and `help` stay in stage 0 permanently — this is a
+decided product boundary, not a temporary gap.** They are the trust-gate verbs a fresh
+clone or CI needs before any plugin can be trusted at all: a `doctor` that was itself a
+plugin could not diagnose a broken or missing plugin system, and a first `validate` on a
+clean checkout cannot depend on a plugin being pre-installed to run at all. `pin` in
+particular never moves — it creates the trust root (repository, version, digest) everything
+else, plugins included, is verified against.
+
+Two builtins are recorded as migration *candidates* if the day ever comes, but neither is
+built: TAB-completion generation (already output-only, already degrades to file completion
+with nothing installed) and JDK provisioning (harder — it is reached from inside Java
+selection's own automatic fallback, not only through explicit dispatch, so moving it needs
+a design pass on invoking a plugin from *inside* the code path that picks the JDK a plugin
+would run under).
+
+The ABI a plugin receives is deliberately small and additive-only (`FLIXW_ABI_VERSION=1`):
+a flat environment-variable tier for the common case (`FLIXW_PROJECT_ROOT`,
+`FLIXW_CACHE_HOME`, `FLIXW_COMPILER_*`, `FLIXW_JAVA_HOME`, `FLIXW_PLUGIN_*`), plus
+`FLIXW_CONTEXT` naming a per-invocation JSON file for anything structured — built once in
+`pluginEnv`/`writeContextFile` for every format alike. `.flix` plugins get the same context
+despite being unable to receive `args`: stock Flix has no `run <file>` mode, so the only way
+to execute one standalone is `java -jar flix.jar plugin.flix`, where every extra word is
+parsed as another source file rather than a program argument (verified against a real
+compiler, not assumed) — but `Sys.Env.Env`/`Sys.Env.getVar` reads the same environment
+variables every other format does, which is why the ABI's env tier, not `args`, is the one
+channel every format can rely on. The context file is written fresh per invocation and
+deleted by a JVM shutdown hook, not a `finally` — `runArtifact` ends in `System.exit`, which
+skips `finally` blocks but not shutdown hooks.
+
+A plugin's bytes are re-hashed on every invocation exactly like the compiler's — `pin`'s
+own guarantee, not a lesser one, applied to `resolvePlugin` — and every invocation prints
+that it is unaudited third-party code, not only the install that first fetched it. A
+plugin name is a single path segment that reaches `<cache>/plugins/<name>/` before anything
+else about it is read, so `validPluginName` (`[a-z][a-z0-9-]*`) is checked at install,
+remove, invoke *and* lock-parse time — a lock is exactly as attacker-controlled as anything
+else committed, and `plugin remove ..` without that check dead-reckons to
+`<cache>/plugins/..`, the cache root.
 
 ### Completion is data, not a generated script
 
@@ -219,7 +272,7 @@ upstream rename costs filename completion for a release rather than a broken com
 Splicing was the alternative and is worse than it looks: `parseVerbs` guessing wrong falls
 back to a verb table, while a bad splice puts broken bash in someone's shell startup.
 **Never vendor picocli to reach `AutoComplete`** — it is 20,350 lines against stage 0's
-3,800, its generator describes `flix` rather than `./flixw`, and its output is static where
+5,330, its generator describes `flix` rather than `./flixw`, and its output is static where
 flixw's verb set is not.
 
 Only bash delegates. zsh and fish cannot load a bash completion script — zsh not without

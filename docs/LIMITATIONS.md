@@ -264,26 +264,66 @@ starting with `unclosed string literal`, because the file cannot be compiled bef
 report anything. Nothing in a single-file bootstrap can fix that — the diagnostic would
 have to be a second, older-syntax file — so it is stated instead.
 
-## Wrapper verbs live in stage 0, and there is no second artifact
+## The trust-gate verbs live in stage 0 permanently, and there is no second artifact for them
 
-Every wrapper verb — `pin`, `doctor`, `setup`, `validate` — is
-implemented inside `src/flixw.java`. There is no helper JAR, no plugin, and no module
-reserved for one.
+`pin`, `info`, `doctor`, `validate` and `help` are implemented inside `src/flixw.java` and
+always will be. This is a decided boundary, not a temporary gap: they are what a fresh
+clone or CI needs before anything else — including a plugin — can be trusted, so moving
+any of them out from under stage 0 recreates the exact chicken-and-egg problem a plugin
+system exists to avoid. `pin` in particular never moves; it creates the trust root
+everything else, plugins included, is verified against.
 
-The design paper describes an optional services JAR that could hold those verbs if the
-surface outgrew a single auditable file. A directory stood reserved for it for a while,
-holding a build definition and no sources. It is gone: it built nothing, shipped nothing,
-and its version pins would have been stale by the time anything needed them, while the
-sbt ignore rules it justified had already hidden a stale build tree at the repository root
-for the project's whole life.
+Past those five, `./flixw plugin <name>` (machine-wide, digest-verified, explicitly
+installed `.jar`/`.java`/`.flix` code) and `.flixw/tasks.toml` (a project's own shell
+aliases, never fetched) are how the wrapper extends without adding more stage-0 commands —
+see [CONTRACT.md](CONTRACT.md#plugins-and-tasks). Two builtins are recorded as migration
+*candidates* if the day ever comes, though neither is built: TAB-completion generation,
+which already degrades to file completion with nothing installed, and JDK provisioning,
+which is harder, because it is reached from inside Java selection's own automatic fallback
+rather than only through explicit dispatch.
 
-The reasoning it existed to preserve is worth keeping, so here it is. A second artifact
-becomes justified only when stage 0 can no longer be read end to end in one sitting, or
-when a verb needs a dependency the JDK does not provide. It is not free: it means a second
-release pipeline, a second digest to publish, a second security-response path and a second
-trust-on-first-use anchor — for exactly the class of artifact this project exists to
-verify. That cost is worth accepting deliberately and late, and reviving a three-file
-directory from this paragraph is ten minutes' work if the day comes.
+The design paper separately describes an optional services JAR that could hold *stage-0's
+own* verbs if the surface outgrew a single auditable file — a different question from
+plugins, which are third-party and explicitly installed rather than part of the wrapper's
+own trust base. A directory stood reserved for the services-JAR idea for a while, holding a
+build definition and no sources. It is gone: it built nothing, shipped nothing, and its
+version pins would have been stale by the time anything needed them, while the sbt ignore
+rules it justified had already hidden a stale build tree at the repository root for the
+project's whole life.
+
+The reasoning it existed to preserve is worth keeping, so here it is. A second *stage-0*
+artifact becomes justified only when stage 0 can no longer be read end to end in one
+sitting, or when the trust-gate verbs need a dependency the JDK does not provide. It is not
+free: it means a second release pipeline, a second digest to publish, a second
+security-response path and a second trust-on-first-use anchor — for exactly the class of
+artifact this project exists to verify. That cost is worth accepting deliberately and late,
+and reviving a three-file directory from this paragraph is ten minutes' work if the day
+comes.
+
+## A plugin's digest proves its bytes, not its safety
+
+`./flixw plugin install` and every later `./flixw plugin <name>` re-verify the cached
+artifact's SHA-256, exactly as the compiler pin does. That defends against truncation,
+cache corruption and tampering after install — it says nothing about whether the code was
+safe to run in the first place. flixw does not sandbox a plugin, inspect what it does, or
+distinguish a plugin that reads `FLIXW_CONTEXT` from one that does something else entirely
+with the same process privileges this user has. The unaudited-third-party-code warning on
+every invocation is the whole mitigation; treat installing a plugin the way you would treat
+adding any other unreviewed dependency to a build.
+
+A `.flix` plugin cannot receive command-line arguments. Stock Flix has no `run <file>`
+mode — the only way to execute a standalone `.flix` file is `java -jar flix.jar
+plugin.flix`, where every extra word is parsed as one more source file to compile rather
+than a program argument. Such a plugin still receives the full ABI through environment
+variables and `FLIXW_CONTEXT`, which is why those, not `args`, are the channel every format
+can rely on — but a `.flix` plugin wanting positional arguments has no path to them until
+Flix's own CLI grows one; `.jar` or `.java` is the workaround today.
+
+`.flixw/tasks.toml`'s Windows argument quoting (`cmdQuote`) is best-effort, not byte-exact,
+for the same reason the shim's own Windows argument handling is not claimed to be — see
+"Windows is covered, with two gaps" above. A task argument containing an embedded double
+quote survives; one relying on `cmd.exe`'s more exotic parsing rules (caret escaping inside
+quotes, delayed expansion) may not.
 
 ## The manifest is not read by a TOML parser
 

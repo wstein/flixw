@@ -278,6 +278,50 @@ covers the verb and then hands over to ordinary filename completion.
 PowerShell works against the `flixw.cmd` that already ships; nothing needs to move to a
 `.ps1`.
 
+## Plugins and tasks
+
+Two ways to extend what `./flixw` runs, both opt-in. `pin`, `info`, `doctor`, `validate`
+and `help` stay built in permanently — they are what a fresh clone needs before anything
+else can be trusted — but everything past them can be a task or a plugin.
+
+**Tasks** are the lightweight one: `.flixw/tasks.toml` is a flat `name = "shell command"`
+table you write and commit yourself, the same idea as npm's `scripts`. Nothing is fetched.
+
+```toml
+build = "./flixw build && ./flixw build-jar"
+```
+
+```console
+./flixw task            # lists the names you have defined
+./flixw task build      # runs it
+./flixw task build --release   # extra words are appended to the command
+```
+
+**Plugins** are the heavier one: third-party `.jar`, `.java` or `.flix` code, installed
+once into a machine-wide, digest-verified cache and invoked by name.
+
+```console
+./flixw plugin install metrics 1.2.0 https://example.com/metrics/plugin.jar
+./flixw plugin metrics --since 30d
+./flixw plugin list
+./flixw plugin remove metrics
+```
+
+Every invocation re-verifies the cached bytes against the digest install recorded, and says
+on stderr that it is running unaudited third-party code — a digest proves the bytes have not
+changed, not that they are safe. `--sha256 <digest>` at install time lets you pin the digest
+you expect instead of trusting whatever the URL returns.
+
+A plugin gets a small, versioned context — project root, cache location, the pinned
+compiler's version and jar path, the JDK in use — as both environment variables
+(`FLIXW_PROJECT_ROOT`, `FLIXW_CACHE_HOME`, `FLIXW_COMPILER_VERSION`, …) and a JSON file
+named by `FLIXW_CONTEXT`, so it can extend what Flix does in this project without flixw
+handing it a second, unverified compiler to run. A `.flix` plugin reads that same context
+through `Sys.Env.getVar` even though it cannot receive command-line arguments — stock Flix
+has no way to run a standalone file with `args`.
+
+See [`docs/CONTRACT.md`](docs/CONTRACT.md#plugins-and-tasks) for exactly what is guaranteed.
+
 ## Testing a locally built compiler
 
 If you build Flix yourself — a fork, or a patch you have not tagged yet — run it with:

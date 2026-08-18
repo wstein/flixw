@@ -482,6 +482,101 @@ bash needs both `flixw` and `./flixw` registered, because it matches the command
 typed. zsh, fish and PowerShell each resolve the name from the path, so one registration
 covers every spelling including an absolute one.
 
+## Plugins and tasks
+
+Two separate, deliberately small mechanisms for extending what `./flixw` runs beyond the
+pinned compiler — neither is a way to move `pin`, `info`, `doctor`, `validate` or `help`
+out of stage 0, which stay there permanently. See [AGENTS.md](../AGENTS.md#plugins-and-tasks-are-a-stable-abi-not-more-stage-0-commands)
+for the reasoning; this section is what each guarantees.
+
+### `./flixw task`
+
+`.flixw/tasks.toml` is a flat `name = "shell command"` table, hand-edited and committed
+like the rest of the wrapper's files, but never generated, rewritten or read by `pin` or
+`doctor --fix`. There is no trust question: it is a shell string in a file the project
+already trusts, exactly as any other checked-in script is.
+
+```console
+./flixw task              # lists the names, or "(no tasks in .flixw/tasks.toml)"
+./flixw task build        # runs it through the platform shell
+./flixw task build --arg  # extra words are appended positionally, after the command
+```
+
+The command runs through `sh -c '<command> "$@"'` on POSIX and `cmd /c <command> <args>` on
+Windows, with cwd and all three streams inherited exactly like a plugin or the compiler.
+Windows argument quoting is best-effort (`cmdQuote` doubles an embedded `"` and wraps a
+word containing whitespace or a shell metacharacter) and is not byte-exact, for the same
+reason the shim's own argument parity is not claimed — see
+[LIMITATIONS.md](LIMITATIONS.md).
+
+### `./flixw plugin`
+
+A machine-wide, explicit, digest-verified cache of third-party `.jar`, `.java` or `.flix`
+code, installed once and invoked by name under its own namespace so it can never collide
+with a compiler verb, another plugin, or a future wrapper verb:
+
+```console
+./flixw plugin install <name> <version> <url> [--sha256 <digest>]
+./flixw plugin list
+./flixw plugin remove <name>
+./flixw plugin <name> [args...]
+```
+
+`<name>` is `[a-z][a-z0-9-]*` — a single path segment, checked at install, remove, invoke
+*and* lock-parse time, because it reaches `<cache>/plugins/<name>/` before anything else
+about the entry is read. `<url>` must be `https://` (the ordinary path) or `file://` (local
+development, and this project's own tests) and must end in `.jar`, `.java` or `.flix`,
+which decides how the artifact is later launched. `--sha256` is verified against the
+download the same way a compiler pin is; installing without it trusts the download once, and
+every later invocation re-hashes the cached bytes against what installation recorded — a
+plugin gets no lesser guarantee than the compiler does. Every invocation, not only install,
+prints that the code is third-party and unaudited by flixw: a digest verified once does not
+become a safety review by being run again.
+
+Installing when the project has a lock records `[plugins.<name>]` (`version`, `sha256`,
+`source`) in it, the same way `pin` records the compiler; installing before any `pin` (or in
+a project with no `flix.toml` yet) works and simply is not recorded anywhere. A lock's
+`[plugins.<name>]` entry is authoritative about which installed build runs when present;
+its absence falls back to "whatever is installed," which only resolves while there is
+exactly one version of that name on the machine.
+
+**The ABI.** Every plugin, every format, receives the same context, both as flat
+environment variables and as a versioned JSON file:
+
+```
+FLIXW_ABI_VERSION=1
+FLIXW_PROJECT_ROOT, FLIXW_CACHE_HOME
+FLIXW_COMPILER_VERSION, FLIXW_COMPILER_REPO, FLIXW_COMPILER_SHA256, FLIXW_COMPILER_JAR
+FLIXW_JAVA_HOME
+FLIXW_PLUGIN_NAME, FLIXW_PLUGIN_VERSION, FLIXW_PLUGIN_SHA256
+FLIXW_CONTEXT   # path to a fresh JSON file carrying all of the above, plus "args"
+```
+
+The compiler and Java fields are simply absent when the project has no lock yet — a `.jar`
+or `.java` plugin that does not need a compiler is not handed a context it has to guess is
+incomplete. `FLIXW_CONTEXT` names a temporary file written fresh before each launch and
+removed by a JVM shutdown hook once the plugin exits, because the launch ends in
+`System.exit`, which a `finally` block does not survive. `FLIXW_ABI_VERSION` is additive-only
+for now; a real breaking change is what would move it, and none has yet.
+
+**`.flix` plugins cannot receive `args`.** Stock Flix has no `run <file>` mode — `run` runs
+the current project's own `main`, and refuses a file argument outright — so the only way to
+execute a standalone `.flix` file is `java -jar flix.jar plugin.flix`, where every extra
+word is parsed as one more source file to compile, not a program argument. A `.flix`
+plugin invoked with arguments fails before it ever runs, naming the problem, rather than
+compiling the arguments as source. It still receives the full ABI: `Sys.Env.Env` /
+`Sys.Env.getVar` reads the same environment variables every other format does, which is why
+the env tier — not `args` — is the one channel every format can rely on regardless of
+whether it can take CLI arguments. It also always runs against *this project's own pinned
+compiler*, never a version the plugin names, so a plugin can extend what Flix does here, not
+choose which Flix does it.
+
+`./flixw doctor` and `./flixw info --verbose` report plugin state the same way they report
+the compiler's: `doctor` warns — never fails — when a lock names a plugin build that is not
+installed, naming the install command that repairs it; `info -v` lists every plugin ever
+installed on the machine, not only what the current project declares, marking the build a
+present lock expects with `<= expected by lock.toml`.
+
 ## Project selection
 
 The search starts at the caller's working directory and takes the nearest ancestor
@@ -663,6 +758,8 @@ between shim and stage 0, not an implementation detail:
 <cache>/verbs/<identity>.version      # the version the compiler reports about itself
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
 <cache>/jdks/default                 # one line: the java the last install produced
+<cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}
+<cache>/plugins/.context-*.json      # one per invocation, deleted by a shutdown hook
 ```
 
 The stage-0 class is compiled with `--release 21`, the same floor `MIN_JAVA` declares.
