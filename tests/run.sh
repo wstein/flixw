@@ -835,11 +835,30 @@ g 0 'newer than this one' "pin --refresh leaves a newer wrapper's lock alone"  s
 # else entirely -- in a shell startup, days later, with no channel to report a FLIXWnnn --
 # so a quoting slip in a text block has to fail here or it fails in someone's terminal.
 echo "completion"
+# The generator is fetched on first use rather than embedded, so every case below needs a
+# source to fetch it from -- and must not depend on a real GitHub release existing for
+# whatever WRAPPER_VERSION this checkout happens to report (this feature's own first
+# release is the first one that could ever carry the asset -- the same chicken-and-egg
+# `wrapper --upgrade`'s own test, further down, already works around). A minimal local
+# fixture stands in: just the generator and a SHA256SUMS naming it, not the full tar/zip
+# tests/pack.sh also builds, which nothing here needs.
+complfixture=$work/complfixture
+rm -rf "$complfixture" && mkdir -p "$complfixture"
+cp "$root/src/flixw-completion.java" "$complfixture/"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$complfixture" && sha256sum flixw-completion.java > SHA256SUMS)
+else
+  (cd "$complfixture" && shasum -a 256 flixw-completion.java > SHA256SUMS)
+fi
+export FLIXW_COMPLETION_SOURCE="file://$complfixture/"
+
 t 87 "wrapper --completion needs a shell"                      ./flixw wrapper --completion
 t 87 "wrapper --completion rejects an unknown shell"           ./flixw wrapper --completion csh
 t 87 "wrapper --completion takes one shell only"               ./flixw wrapper --completion bash zsh
-# Project-free and offline, like --schema: a dotfiles repository generating completers has
-# no lock, no compiler and no network.
+# Project-free, like --schema: a dotfiles repository generating completers has no lock and
+# no compiler. Not offline, unlike --schema -- see the fetch/cache/verify cases below --
+# but this one call is a cache hit already by the time it runs, from the shell already
+# exercised at the top of this section.
 t 0  "wrapper --completion needs no project"                   sh -c '
   cd "$1" && java "$2" wrapper --completion bash | grep -q "complete -F _flixw"' \
   sh "$work" "$root/src/flixw.java"
@@ -947,6 +966,40 @@ t 0  "a real run records the verb note"                        sh -c '
 # The note describes a resolved compiler, not the project, so it must never be committed.
 t 0  "the verb note is git-ignored"                            sh -c '
   git check-ignore -q .flixw/local/verbs'
+
+# The generator itself: fetched once per machine per release, verified against the
+# fixture's SHA256SUMS the same way --upgrade verifies flixw.java, and cached from there.
+t 0  "a cold cache fetches and verifies the generator"          sh -c '
+  rm -rf "$1/wrapper"
+  ./flixw wrapper --completion bash >/dev/null 2>&1 || exit 1
+  find "$1/wrapper/completion" -name "flixw-completion.java.sha256" | grep -q .' sh "$cache"
+t 0  "a warm cache needs no source at all"                      sh -c '
+  FLIXW_COMPLETION_SOURCE="file:///nonexistent/" ./flixw wrapper --completion bash \
+    | grep -q "complete -F _flixw"'
+g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh -c '
+  rm -rf "$1/wrapper"
+  bad=$2/badfixture; rm -rf "$bad"; mkdir -p "$bad"
+  cp "$3/flixw-completion.java" "$bad/"
+  if command -v sha256sum >/dev/null 2>&1; then (cd "$bad" && sha256sum flixw-completion.java > SHA256SUMS)
+  else (cd "$bad" && shasum -a 256 flixw-completion.java > SHA256SUMS); fi
+  printf "\n// tampered\n" >> "$bad/flixw-completion.java"
+  FLIXW_COMPLETION_SOURCE="file://$bad/" ./flixw wrapper --completion bash' \
+  sh "$cache" "$work" "$complfixture"
+t 0  "...and nothing was cached"                                sh -c '
+  ! find "$1/wrapper/completion" -name flixw-completion.java 2>/dev/null | grep -q .' sh "$cache"
+g 84 'cannot reach' "no network on a cold cache fails with a clear diagnostic"  sh -c '
+  rm -rf "$1/wrapper"
+  FLIXW_COMPLETION_SOURCE=https://dist.invalid ./flixw wrapper --completion bash' sh "$cache"
+empty=$work/emptycomplfixture
+rm -rf "$empty" && mkdir -p "$empty"
+: > "$empty/SHA256SUMS"
+g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific problem" sh -c '
+  rm -rf "$1/wrapper"
+  FLIXW_COMPLETION_SOURCE="file://$2/" ./flixw wrapper --completion bash' sh "$cache" "$empty"
+# Restore a warm, valid cache: later sections in this suite share $cache, and leaving it
+# in whatever failure state the last negative case above left it in would be a trap for
+# the next person adding a case here, not a property this suite promises to anyone else.
+./flixw wrapper --completion bash >/dev/null 2>&1
 
 # --- a FLIX_JAR that names flixw's own cache -------------------------------
 # The failure this closes: cache names are content-addressed, so a re-pin changes them.
@@ -1250,7 +1303,8 @@ t 0  "stdout carries only compiler output"                      sh -c '
 # capture directly. Its output is shown rather than swallowed: the corpus size and the
 # per-group counts are the interesting part, and one shell case cannot express them.
 echo "unit checks"
-javac -d "$work/unit" "$root/src/flixw.java" "$root/tests/UnitCheck.java"
+javac -d "$work/unit" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+  "$root/tests/UnitCheck.java"
 set +e
 java -cp "$work/unit" UnitCheck "$root/tests/corpus" "$root/tests/schema"
 unit_rc=$?

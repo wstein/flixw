@@ -1,10 +1,11 @@
 #!/bin/sh
 # Builds the release payload into <output-dir>:
 #
-#   flixw-<version>.tar.gz   the wrapper files and .envrc.example, over a project root
-#   flixw-<version>.zip      the same, for a machine without tar
+#   flixw-<version>.tar.gz    the wrapper files and .envrc.example, over a project root
+#   flixw-<version>.zip       the same, for a machine without tar
 #   flixw.java                stage 0 on its own, for the `java flixw.java install .` route
-#   SHA256SUMS               digests of all three
+#   flixw-completion.java     the TAB-completion generator, fetched on first use and cached
+#   SHA256SUMS                digests of all of the above
 #
 # The archives are not assembled by hand. `install` is run into a staging directory and
 # whatever it wrote is what gets packed, so the archive route and the install route cannot
@@ -87,6 +88,12 @@ cp "$root/src/flixw.java" "$out/flixw.java"
 # supported wrapper looks for that name.
 cp "$root/src/flixw.java" "$out/flix.java"
 
-(cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java flix.java > SHA256SUMS)
+# Not packed into the archives: it is never installed into a project, only fetched by
+# `wrapper --completion` on first use and cached machine-wide -- ensureCompletionAsset in
+# src/flixw.java expects it as a bare release asset beside flixw.java, not inside a tarball.
+cp "$root/src/flixw-completion.java" "$out/flixw-completion.java"
+
+(cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java flix.java \
+              flixw-completion.java > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

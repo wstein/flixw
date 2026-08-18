@@ -28,9 +28,16 @@ say() { printf '%s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 
 # --- 1. Java ---------------------------------------------------------------
-if javac -Xlint:all -Werror -d "$work/classes" \
-        "$root/src/flixw.java" "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
-  say "ok    javac -Xlint:all -Werror (stage 0 and unit checks)"
+# auxiliaryclass is off for this one compile, not project-wide: src/flixw-completion.java
+# is deliberately a same-package companion file rather than a class merged into flixw.java
+# (its file name is the release asset name ensureCompletionAsset fetches, which cannot be
+# a valid Java identifier), and tests/UnitCheck.java deliberately calls its package-private
+# render() directly rather than through a subprocess -- exactly the pattern this warning
+# exists to flag by default, and exactly what this repository's own multi-file layout is.
+if javac -Xlint:all,-auxiliaryclass -Werror -d "$work/classes" \
+        "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+        "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
+  say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
   bad "javac"
   cat "$work/javac.log"
@@ -200,7 +207,8 @@ fi
 # this repository's conventions reject; the groups left on are about comments being
 # *wrong*, not about there being fewer of them than a tool would like.
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
-        -d "$work/javadoc" "$root/src/flixw.java" >"$work/javadoc.log" 2>&1; then
+        -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+        >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
   bad "javadoc"

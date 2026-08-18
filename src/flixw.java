@@ -3382,6 +3382,24 @@ public final class flixw {
         }
         System.out.println("installed plugins");
         printAligned(pluginRows);
+
+        // A wrapper-owned companion asset, not a plugin: fetched once per machine per
+        // flixw release the same way --upgrade fetches flixw.java itself, cached under its
+        // own subtree so this trust tier stays visually distinct from user-installed
+        // plugins and project-pinned compilers.
+        Path complDir = cacheHome().resolve("wrapper").resolve("completion");
+        List<Path> complVersions = List.of();
+        try (var s = Files.isDirectory(complDir) ? Files.list(complDir) : null) {
+            if (s != null) complVersions = s.filter(Files::isDirectory).sorted().toList();
+        } catch (IOException ignored) { }
+        List<String[]> complRows = new ArrayList<>();
+        for (Path v : complVersions) {
+            String ver = v.getFileName().toString();
+            complRows.add(new String[] { ver, COMPLETION_ASSET,
+                ver.equals(canonical(WRAPPER_VERSION)) ? "  <= this release" : "" });
+        }
+        System.out.println("cached completion generator");
+        printAligned(complRows);
     }
 
     /**
@@ -4253,6 +4271,16 @@ public final class flixw {
     static final String FLIXW_LATEST =
         "https://github.com/wstein/flixw/releases/latest/download/";
 
+    /** The digest a {@code SHA256SUMS} file names for one file, or null if it does not. */
+    static String digestFor(String sums, String assetName) {
+        String want = null;
+        for (String line : sums.split("\r?\n")) {
+            String[] f = line.trim().split("\\s+");
+            if (f.length == 2 && f[1].equals(assetName)) want = f[0];
+        }
+        return want;
+    }
+
     /**
      * Moves this project to the newest published flixw.
      *
@@ -4272,11 +4300,7 @@ public final class flixw {
      */
     static void upgradeWrapper(Path root) {
         String sums = httpGet(FLIXW_LATEST + "SHA256SUMS");
-        String want = null;
-        for (String line : sums.split("\r?\n")) {
-            String[] f = line.trim().split("\\s+");
-            if (f.length == 2 && f[1].equals("flixw.java")) want = f[0];
-        }
+        String want = digestFor(sums, "flixw.java");
         if (want == null || !want.matches("[0-9a-f]{64}"))
             throw w005("the published SHA256SUMS names no digest for flixw.java");
 
@@ -4381,16 +4405,35 @@ public final class flixw {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--schema' takes no arguments"));
                 System.out.print(lockSchemaJson());
             }
-            // Offline and project-free for the same reason as --schema, and for one more:
-            // the script it prints is byte-identical for every project on a given release,
-            // because everything project-specific is read at completion time from the note
-            // stage 0 leaves in .flixw/local/.  A script that had to be regenerated after
-            // every `pin` would be wrong in the one way a completion script must not be --
-            // silently, and only for the person who forgot.
+            // Project-free for the same reason as --schema: the script it prints is
+            // byte-identical for every project on a given release, because everything
+            // project-specific is read at completion time from the note stage 0 leaves in
+            // .flixw/local/.  A script that had to be regenerated after every `pin` would be
+            // wrong in the one way a completion script must not be -- silently, and only for
+            // the person who forgot.  Not offline, unlike --schema: the generator itself is a
+            // wrapper-owned companion asset, fetched once per machine per release and cached
+            // from there on -- the same shape --install-jdk already has, not --version's.
             case "--completion" -> {
                 if (rest.size() != 1)
                     throw w008(wrapperUsage("'--completion' takes exactly one shell name"));
-                System.out.print(completionScript(rest.get(0)));
+                String shell = rest.get(0);
+                if (!COMPLETION_SHELLS.contains(shell))
+                    throw w008(wrapperUsage("unknown shell " + q(shell)));
+                Path asset = ensureCompletionAsset();
+                List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
+                for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
+                fallback.sort(null);
+                Path javaExe = exeIn(System.getProperty("java.home"));
+                ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), asset.toString(),
+                    shell, String.join(",", fallback)).inheritIO();
+                try {
+                    System.exit(awaitWithReaper(pb.start()));
+                } catch (IOException e) {
+                    throw w005("cannot run " + asset + ": " + why(e));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.exit(130);
+                }
             }
             default -> throw w008(wrapperUsage("unknown operation " + q(op)));
         }
@@ -4414,206 +4457,87 @@ public final class flixw {
 
     static final List<String> COMPLETION_SHELLS = List.of("bash", "zsh", "fish", "pwsh");
 
-    static final String COMPL_BASH = """
-        # flixw TAB completion for bash -- GENERATED by `flixw wrapper --completion bash`.
-        #
-        #   ./flixw wrapper --completion bash > ~/.local/share/bash-completion/completions/flixw
-        #
-        # Candidates are read at TAB time from <project>/.flixw/local/verbs, the note stage 0
-        # leaves after it resolves a compiler, so they follow the pin and this file does not
-        # have to be regenerated after `pin`.  Nothing here starts a JVM: a stage 0 launch
-        # plus the digest re-hash flixw does on every run would cost more than typing the verb.
+    static final String COMPLETION_ASSET = "flixw-completion.java";
 
-        _flixw_root() {
-          # The project is wherever the wrapper being completed lives, not the working
-          # directory: `../other/flixw` is a different project's verb set, and completing it
-          # from this one would be confidently wrong.
-          local d
-          d=$(dirname -- "$1" 2>/dev/null) || d=.
-          [ -n "$d" ] || d=.
-          printf '%s' "$d"
+    /**
+     * Wrapper-owned, not a plugin -- fetched and verified against the release this stage 0
+     * itself is, never installed by a user and never carrying the "3rd-party, unaudited"
+     * warning a real plugin does. Overridable the same shape {@code FLIX_DIST_URL} gives
+     * the compiler's own distribution base: a self-hosted mirror, or (unset in production)
+     * a local fixture for this project's own tests.
+     */
+    static String completionSourceBase() {
+        String o = env("FLIXW_COMPLETION_SOURCE");
+        if (o != null) return o.replaceAll("/+$", "") + "/";
+        return "https://github.com/wstein/flixw/releases/download/v"
+             + canonical(WRAPPER_VERSION) + "/";
+    }
+
+    static Path completionAssetDir() {
+        return cacheHome().resolve("wrapper").resolve("completion").resolve(canonical(WRAPPER_VERSION));
+    }
+
+    /**
+     * Ensures this exact release's completion generator sits verified in the cache,
+     * fetching it on a miss -- the same trust footing {@link #upgradeWrapper} already
+     * gives {@code flixw.java} itself, applied to a companion asset instead: the digest is
+     * checked against the {@code SHA256SUMS} published beside it, same origin, same TLS.
+     *
+     * Verified once, at fetch time, not on every call: unlike the compiler cache, there is
+     * no local record of the expected digest to check against for free (this asset is not
+     * named by any project's lock), so re-fetching {@code SHA256SUMS} on every invocation
+     * would mean every {@code wrapper --completion} needs network forever -- exactly what
+     * "cached, works offline" is supposed to rule out. A sidecar {@code .sha256} file
+     * records what was verified, so every later call still cheaply self-checks the cached
+     * bytes against it, offline, rather than trusting bare presence.
+     */
+    static Path ensureCompletionAsset() {
+        Path dir = completionAssetDir();
+        Path asset = dir.resolve(COMPLETION_ASSET), marker = dir.resolve(COMPLETION_ASSET + ".sha256");
+        if (Files.isRegularFile(asset) && Files.isRegularFile(marker)) {
+            try {
+                if (sha256(asset).equals(Files.readString(marker, StandardCharsets.UTF_8).trim()))
+                    return asset;
+            } catch (IOException ignored) { }
+            // Falls through: a corrupt cache entry re-fetches, exactly like a corrupt
+            // compiler jar does in acquire().
         }
-
-        _flixw() {
-          local cur root note words compl script fn saved0 saved_line
-          cur=${COMP_WORDS[COMP_CWORD]}
-          root=$(_flixw_root "${COMP_WORDS[0]}")
-          note=$root/.flixw/local/verbs
-
-          if [ "$COMP_CWORD" -eq 1 ]; then
-            # No note yet means this project has never resolved a compiler.  The baked-in
-            # list is this wrapper release's own view -- stale in the same harmless way the
-            # built-in verb table in stage 0 is, and better than completing nothing.
-            if [ -r "$note" ]; then words=$(cat -- "$note" 2>/dev/null)
-            else words="@VERBS@"; fi
-            # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "$words" -- "$cur") )
-            return 0
-          fi
-
-          # Past the verb, the compiler owns the arguments.  A picocli-based Flix ships a
-          # completer for them and stage 0 caches it; stock Flix is scopt and ships none, so
-          # the note is absent and `-o default` falls through to filename completion.
-          compl=$root/.flixw/local/completion
-          [ -r "$compl" ] || return 0
-          script=$(cat -- "$compl" 2>/dev/null)
-          [ -n "$script" ] && [ -r "$script" ] || return 0
-
-          # The registration line, which is the only part of a generated completer that is
-          # not the generator's private business: any bash completion script must end with
-          # one for the shell to use it at all.  Reading the function name from there rather
-          # than assuming picocli's `_complete_<name>` spelling means a rename upstream costs
-          # filename completion for one release instead of a broken completer.
-          fn=$(sed -n 's/^complete .*-F \\([A-Za-z_][A-Za-z0-9_]*\\).*/\\1/p' "$script" 2>/dev/null | head -1)
-          [ -n "$fn" ] || return 0
-          if ! declare -F "$fn" >/dev/null 2>&1; then
-            # Sourcing also runs the script's own `complete` call, which registers it for the
-            # compiler's name.  That is harmless -- it is a name this shell would otherwise
-            # have no completion for -- and it is why this happens once per shell, not per TAB.
-            # shellcheck disable=SC1090
-            . "$script" >/dev/null 2>&1 || return 0
-            declare -F "$fn" >/dev/null 2>&1 || return 0
-          fi
-
-          # The generated completer keys off argv[0] being the compiler's own name, which
-          # here is `./flixw`.  Swap it for the length of the call and put it back: COMP_WORDS
-          # belongs to the shell, not to us.
-          saved0=${COMP_WORDS[0]}; saved_line=$COMP_LINE
-          COMP_WORDS[0]=flix
-          COMP_LINE="flix ${COMP_LINE#* }"
-          "$fn"
-          COMP_WORDS[0]=$saved0; COMP_LINE=$saved_line
-          return 0
+        String base = completionSourceBase();
+        String sums;
+        try {
+            sums = base.startsWith("file://")
+                ? Files.readString(Paths.get(URI.create(base + "SHA256SUMS")), StandardCharsets.UTF_8)
+                : httpGet(base + "SHA256SUMS");
+        } catch (IOException e) {
+            throw w005("cannot read " + redact(base) + "SHA256SUMS: " + why(e));
         }
-
-        # Both spellings: nobody puts the wrapper on PATH, so `./flixw` is the form that
-        # matters, and bash matches the command word as typed rather than resolving it.
-        complete -F _flixw -o default flixw ./flixw
-        """;
-
-    static final String COMPL_ZSH = """
-        #compdef flixw ./flixw
-        # flixw TAB completion for zsh -- GENERATED by `flixw wrapper --completion zsh`.
-        #
-        #   ./flixw wrapper --completion zsh > "${fpath[1]}/_flixw"
-        #
-        # Candidates are read at TAB time from <project>/.flixw/local/verbs, the note stage 0
-        # leaves after it resolves a compiler, so they follow the pin and this file does not
-        # have to be regenerated after `pin`.  Nothing here starts a JVM.
-
-        _flixw() {
-          # The project is wherever the wrapper being completed lives, not the working
-          # directory; :h on a bare name yields `.`, which is the same answer.
-          local root=${words[1]:h}
-          [[ -n $root ]] || root=.
-          local note=$root/.flixw/local/verbs
-
-          if (( CURRENT == 2 )); then
-            local -a verbs
-            # No note yet means no compiler has been resolved here; the baked-in list is this
-            # release's own view, stale in the same harmless way stage 0's table is.
-            if [[ -r $note ]]; then verbs=( ${(f)"$(<$note)"} )
-            else verbs=( @VERBS@ ); fi
-            _describe -t flixw-verbs 'flixw verb' verbs
-            return
-          fi
-
-          # Past the verb the compiler owns the arguments.  picocli generates bash and zsh
-          # completers as one bash script, which is not loadable here without bashcompinit
-          # and a compatibility shim; rather than half-load it, fall through to files, which
-          # is what the arguments to `run`, `check` and `build` mostly are.
-          _files
-        }
-
-        _flixw "$@"
-        """;
-
-    static final String COMPL_FISH = """
-        # flixw TAB completion for fish -- GENERATED by `flixw wrapper --completion fish`.
-        #
-        #   ./flixw wrapper --completion fish > ~/.config/fish/completions/flixw.fish
-        #
-        # Candidates are read at TAB time from <project>/.flixw/local/verbs, the note stage 0
-        # leaves after it resolves a compiler, so they follow the pin and this file does not
-        # have to be regenerated after `pin`.  Nothing here starts a JVM.
-        #
-        # Verbs only.  picocli generates bash and zsh completers and no fish one, and fish
-        # cannot load a bash completion script, so past the verb fish's own file completion
-        # takes over -- which is what the arguments to `run`, `check` and `build` mostly are.
-
-        function __flixw_verbs --description 'the verbs the project being completed dispatches'
-            set -l tokens (commandline -opc)
-            test (count $tokens) -gt 0; or return
-            # The project is wherever the wrapper being completed lives, not the working
-            # directory: `../other/flixw` is a different project's verb set.  Done with
-            # builtins rather than dirname, so a keypress costs no process at all.
-            set -l root .
-            if string match -q '*/*' -- $tokens[1]
-                set root (string replace -r '/[^/]*$' '' -- $tokens[1])
-                test -n "$root"; or set root /
-            end
-            set -l note $root/.flixw/local/verbs
-            if test -r $note
-                cat -- $note
-            else
-                # No note yet means this project has never resolved a compiler.  The baked-in
-                # list is this wrapper release's own view -- stale in the same harmless way
-                # the built-in verb table in stage 0 is, and better than completing nothing.
-                printf '%s\\n' @VERBS@
-            end
-        end
-
-        # fish matches on the command's base name, so this one registration covers `flixw`,
-        # `./flixw` and an absolute path alike -- unlike bash, which matches the word as typed.
-        complete -c flixw -f -n __fish_is_first_arg -a '(__flixw_verbs)'
-        complete -c flixw -n 'not __fish_is_first_arg' -F
-        """;
-
-    static final String COMPL_PWSH = """
-        # flixw TAB completion for PowerShell -- GENERATED by
-        # `flixw wrapper --completion pwsh`.
-        #
-        #   ./flixw wrapper --completion pwsh >> $PROFILE
-        #
-        # Candidates are read at TAB time from <project>\\.flixw\\local\\verbs, the note stage 0
-        # leaves after it resolves a compiler, so they follow the pin and this file does not
-        # have to be regenerated after `pin`.  Nothing here starts a JVM.
-        #
-        # This registers against the existing flixw.cmd trampoline; PowerShell completes
-        # native commands including batch files, so nothing has to move to a .ps1 -- and the
-        # trampoline could not move anyway, since a .ps1 is not invokable as a bare command
-        # from cmd.exe or from a build tool, and the default execution policy blocks a
-        # downloaded one.  cmd.exe itself has no per-command completion mechanism at all, so
-        # it gets nothing here and that is an absence in cmd, not a gap in this script.
-        #
-        # Verbs only.  picocli generates bash and zsh completers and no PowerShell one, so
-        # past the verb there is nothing to delegate to and PowerShell's own file completion
-        # takes over.
-        Register-ArgumentCompleter -Native -CommandName flixw, flixw.cmd -ScriptBlock {
-            param($wordToComplete, $commandAst, $cursorPosition)
-
-            $elements = $commandAst.CommandElements
-            # The verb position only; past it the compiler owns the arguments.
-            if ($elements.Count -gt 2) { return }
-            if ($elements.Count -eq 2 -and [string]::IsNullOrEmpty($wordToComplete)) { return }
-
-            # The project is wherever the wrapper being completed lives, not the working
-            # directory: another project's wrapper has another project's verb set.
-            $root = Split-Path -Parent $elements[0].ToString()
-            if ([string]::IsNullOrEmpty($root)) { $root = '.' }
-            $note = Join-Path $root '.flixw/local/verbs'
-
-            # No note yet means no compiler has been resolved here; the baked-in list is this
-            # release's own view, stale in the same harmless way stage 0's table is.
-            $verbs = if (Test-Path -LiteralPath $note) { Get-Content -LiteralPath $note }
-                     else { @(@VERBS@) }
-
-            $verbs | Where-Object { $_ -and $_.StartsWith($wordToComplete) } | ForEach-Object {
-                [System.Management.Automation.CompletionResult]::new(
-                    $_, $_, 'ParameterValue', $_)
+        String want = digestFor(sums, COMPLETION_ASSET);
+        if (want == null || !want.matches("[0-9a-f]{64}"))
+            throw w005("no published flixw " + WRAPPER_VERSION + " release names " + COMPLETION_ASSET
+                     + "\n       run: ./flixw wrapper --upgrade   (or wait for this version to be released)");
+        try {
+            Files.createDirectories(dir);
+            Path tmp = Files.createTempFile(dir, ".completion-", ".part");
+            try {
+                if (base.startsWith("file://"))
+                    Files.copy(Paths.get(URI.create(base + COMPLETION_ASSET)), tmp,
+                               StandardCopyOption.REPLACE_EXISTING);
+                else download(base + COMPLETION_ASSET, tmp);
+                String got = sha256(tmp);
+                if (!got.equals(want))
+                    throw w006("digest mismatch for " + COMPLETION_ASSET
+                             + "\n       expected " + want + "\n       actual   " + got);
+                try { Files.move(tmp, asset, StandardCopyOption.ATOMIC_MOVE); }
+                catch (IOException e) { if (!Files.isRegularFile(asset)) throw e; }
+            } finally {
+                try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
             }
+            writeAtomic(marker, sha256(asset));
+        } catch (IOException e) {
+            throw w007("cannot cache " + COMPLETION_ASSET + ": " + why(e));
         }
-        """;
+        return asset;
+    }
 
     /**
      * The name of the note stage 0 leaves for a completer, holding the verbs this project
@@ -4624,39 +4548,6 @@ public final class flixw {
 
     /** The note naming the pinned compiler's own completion script, when it ships one. */
     static final String COMPL_NOTE = "completion";
-
-    /**
-     * A completion script for one shell, on stdout.
-     *
-     * The script is static and the data is not.  Completion candidates depend on the pinned
-     * compiler -- compiler-first dispatch means a verb set that changes with the lock -- so
-     * a script that baked them in would go stale at the next {@code pin} and say nothing
-     * about it.  Instead the script reads them at TAB time from {@code .flixw/local/verbs},
-     * which stage 0 rewrites on every run that resolves a compiler.  That also keeps the
-     * JVM out of the completion path: a TAB press costs a file read, not a stage 0 launch
-     * plus the mandatory digest re-hash, which together are slower than typing the verb.
-     *
-     * The verb list compiled into each script is the fallback for a project that has not
-     * resolved a compiler yet -- the same bargain {@link #BUILTIN_VERBS} makes, and stale
-     * in the same harmless way.
-     *
-     * @param shell one of {@link #COMPLETION_SHELLS}
-     * @return the script text, ending in a newline
-     */
-    static String completionScript(String shell) {
-        List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
-        for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
-        fallback.sort(null);
-        List<String> quoted = new ArrayList<>();
-        for (String v : fallback) quoted.add(q(v));
-        return switch (shell) {
-            case "bash" -> COMPL_BASH.replace("@VERBS@", String.join(" ", fallback));
-            case "zsh" -> COMPL_ZSH.replace("@VERBS@", String.join(" ", fallback));
-            case "fish" -> COMPL_FISH.replace("@VERBS@", String.join(" ", fallback));
-            case "pwsh" -> COMPL_PWSH.replace("@VERBS@", String.join(",", quoted));
-            default -> throw w008(wrapperUsage("unknown shell " + q(shell)));
-        };
-    }
 
     /**
      * Records the verbs this project dispatches, for a completer to read.

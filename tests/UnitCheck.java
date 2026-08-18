@@ -1,6 +1,6 @@
 // flixw unit checks -- the parts of stage 0 the shell suite cannot reach from outside.
 //
-//   javac -d <out> src/flixw.java tests/UnitCheck.java
+//   javac -d <out> src/flixw.java src/flixw-completion.java tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
 // Compiled and run by tests/run.sh; not a separate CI entry point. The groups, in the
@@ -837,8 +837,17 @@ public final class UnitCheck {
      * stock-Flix path and therefore the common one.
      */
     static void completion() throws IOException {
+        // The fallback baked into each script is the union stage 0 would compute -- the
+        // same argv[1] the --completion dispatch case in flixw.java passes to the
+        // generator -- so a project that has never resolved a compiler still completes
+        // something sensible.
+        List<String> want = new ArrayList<>(flixw.WRAPPER_VERBS);
+        for (String v : flixw.BUILTIN_VERBS) if (!want.contains(v)) want.add(v);
+        want.sort(null);
+        String verbsCsv = String.join(",", want);
+
         for (String shell : flixw.COMPLETION_SHELLS) {
-            String s = flixw.completionScript(shell);
+            String s = flixwcompletion.render(shell, verbsCsv);
             if (s.contains("@VERBS@"))
                 bad("completion: " + shell + " leaves the verb placeholder unsubstituted",
                     "found @VERBS@ in the emitted script");
@@ -852,28 +861,23 @@ public final class UnitCheck {
 
         // The registration is what makes a completer reachable, and `./flixw` is the form
         // that matters: nobody puts the wrapper on PATH.
-        String bash = flixw.completionScript("bash");
+        String bash = flixwcompletion.render("bash", verbsCsv);
         if (bash.contains("complete -F _flixw -o default flixw ./flixw")) ok();
         else bad("completion: bash registers for both flixw and ./flixw",
                  "registration line not found");
         eq("completion: zsh declares its compdef for both spellings",
-           "#compdef flixw ./flixw", firstLine(flixw.completionScript("zsh")));
+           "#compdef flixw ./flixw", firstLine(flixwcompletion.render("zsh", verbsCsv)));
 
         // picocli generates no PowerShell completer, so the pwsh script must not pretend to
         // delegate to one -- and it must register against the trampoline that already ships.
-        String pwsh = flixw.completionScript("pwsh");
+        String pwsh = flixwcompletion.render("pwsh", verbsCsv);
         if (pwsh.contains("-CommandName flixw, flixw.cmd")) ok();
         else bad("completion: pwsh registers against the cmd trampoline", "no registration");
         if (!pwsh.contains("local/completion")) ok();
         else bad("completion: pwsh does not claim to delegate", "it references the delegate note");
 
-        // The fallback baked into each script is the union stage 0 would compute, so a
-        // project that has never resolved a compiler still completes something sensible.
-        List<String> want = new ArrayList<>(flixw.WRAPPER_VERBS);
-        for (String v : flixw.BUILTIN_VERBS) if (!want.contains(v)) want.add(v);
-        want.sort(null);
         for (String shell : List.of("bash", "zsh", "fish")) {
-            if (flixw.completionScript(shell).contains(String.join(" ", want))) ok();
+            if (flixwcompletion.render(shell, verbsCsv).contains(String.join(" ", want))) ok();
             else bad("completion: " + shell + " bakes in the wrapper+builtin union",
                      "list not found");
         }
@@ -884,17 +888,23 @@ public final class UnitCheck {
 
         // fish matches on the command's base name, so one registration covers every
         // spelling; bash matches the word as typed and needs both.
-        String fish = flixw.completionScript("fish");
+        String fish = flixwcompletion.render("fish", verbsCsv);
         if (fish.contains("complete -c flixw -f -n __fish_is_first_arg")) ok();
         else bad("completion: fish registers a first-argument rule", "no registration");
         if (fish.contains("complete -c flixw -n 'not __fish_is_first_arg' -F")) ok();
         else bad("completion: fish hands files to the compiler's arguments", "no file rule");
 
+        // The shell name is validated in flixw.java's dispatch, before the generator is
+        // ever fetched or run (an offline, instant FLIXW008 -- see tests/run.sh); the
+        // generator itself is defensive about the same case, since it has no other caller
+        // to rely on for that.
+        if (!flixw.COMPLETION_SHELLS.contains("csh")) ok();
+        else bad("completion: an unknown shell is not in COMPLETION_SHELLS", "csh was found");
         try {
-            flixw.completionScript("csh");
-            bad("completion: an unknown shell is FLIXW008", "no failure raised");
-        } catch (flixw.Fail f) {
-            eq("completion: an unknown shell is FLIXW008", "FLIXW008", f.code);
+            flixwcompletion.render("csh", verbsCsv);
+            bad("completion: the generator rejects an unknown shell", "no failure raised");
+        } catch (IllegalArgumentException e) {
+            ok();
         }
 
         // The note is the whole interface to a completer, so its content is the contract:
