@@ -437,6 +437,14 @@ public final class UnitCheck {
            flixw.parsePin(java.util.List.of("0.75.2"), null).version(),
            flixw.parsePin(java.util.List.of("v0.75.2"), null).version());
 
+        // owner/repo@version as one token: the shape npm and Go modules train people to
+        // reach for by habit, accepted alongside the two-token form.
+        t = flixw.parsePin(java.util.List.of("wstein/flix-fork@0.75.3+f.1"), null);
+        eq("pin: owner/repo@version splits into repo", "wstein/flix-fork", t.repo());
+        eq("pin: owner/repo@version splits into version", "0.75.3+f.1", t.version());
+        t = flixw.parsePin(java.util.List.of("wstein/flix-fork@v0.75.3"), null);
+        eq("pin: the tag half of owner/repo@tag still normalizes", "0.75.3", t.version());
+
         // Taken only ahead of a digit: `vNext` is a bad version, not the version `Next`.
         for (java.util.List<String> bad : java.util.List.of(
                 java.util.List.<String>of(),
@@ -447,7 +455,9 @@ public final class UnitCheck {
                 java.util.List.of("vNext"),
                 java.util.List.of("vv0.75.2"),
                 java.util.List.of("v0.75"),
-                java.util.List.of("a/b", "not-a-version"))) {
+                java.util.List.of("a/b", "not-a-version"),
+                java.util.List.of("wstein/flix-fork@"),              // nothing after '@'
+                java.util.List.of("wstein/flix-fork@0.75.3", "0.75.4"))) { // two versions
             try { flixw.parsePin(bad, null); bad("pin: " + bad, "accepted"); }
             catch (flixw.Fail e) { ok(); }
         }

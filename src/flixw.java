@@ -781,6 +781,7 @@ public final class flixw {
      */
     static final String PIN_USAGE =
           "usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]"
+        + "\n          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)"
         + "\n          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)";
 
     /** One release asset: what to fetch, and what the publisher says it hashes to. */
@@ -903,7 +904,21 @@ public final class flixw {
                 throw w008("pin: unknown option " + q(a) + "\n       " + PIN_USAGE);
             } else if (a.contains("/")) {
                 if (repo != null) throw w009("pin: two repositories given");
-                repo = checkRepo(a, "pin");
+                // A fork's own release page shows owner/repo@tag nowhere -- GitHub does
+                // not write it that way -- but it is the one-token shape npm and Go
+                // modules train people to reach for by habit, and it costs nothing to
+                // accept alongside the two-token form.
+                int at = a.indexOf('@');
+                if (at < 0) {
+                    repo = checkRepo(a, "pin");
+                } else {
+                    if (version != null) throw w009("pin: two versions given");
+                    repo = checkRepo(a.substring(0, at), "pin");
+                    version = a.substring(at + 1);
+                    if (version.isEmpty())
+                        throw w002("pin: " + q(a) + " -- a version must follow '@'"
+                                 + "\n       for example: " + a.substring(0, at) + "@0.75.2");
+                }
                 repoGiven = true;
             } else {
                 if (version != null) throw w009("pin: two versions given");

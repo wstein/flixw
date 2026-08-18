@@ -402,6 +402,20 @@ t 0  "the tag spelling is silent"                               sh -c '
   # "pinned Flix ..." is the ordinary confirmation; anything about a leading v is not.
   printf "%s" "$out" | grep -qi "leading\|strip\|tag" && exit 1
   exit 0' sh "$work"
+# owner/repo@version as one token -- the shape npm and Go modules train people to reach
+# for -- reaches the same lock as the existing two-token form.
+t 0  "owner/repo@version pins the same as two tokens"           sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  ./flixw pin "flix/flix@'"$version"'" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" = 0 ] && grep -q "^version = \"'"$version"'\"$" .flixw/lock.toml \
+                && grep -q "^repo    = \"flix/flix\"$" .flixw/lock.toml
+  rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+t 81 "owner/repo@ with nothing after '@' is rejected"           ./flixw pin 'flix/flix@'
+g 88 "two versions" "owner/repo@version plus a second version is two versions" sh -c '
+  ./flixw pin "flix/flix@'"$version"'" "'"$version"'"'
+
 # The prefix is taken only ahead of a digit, so these stay bad versions rather than
 # becoming the versions `Next` and `v0.75.2`.
 t 81 "reject a bare v"                                          ./flixw pin v
