@@ -49,6 +49,34 @@
           "pattern": "^[0-9]+(\\.[0-9]+)*$"
         }
       }
+    },
+    "plugins": {
+      "type": "object",
+      "description": "Plugins this project declares -- installed by `flixw plugin install`, which writes this table; never a fetch instruction on its own.",
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "sha256"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "description": "the plugin version last installed",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?(?:\\+[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?$"
+            },
+            "sha256": {
+              "type": "string",
+              "description": "the SHA-256 of the installed artifact: 64 lowercase hex digits",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "source": {
+              "type": "string",
+              "description": "where this plugin came from; informational, never fetched from automatically"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

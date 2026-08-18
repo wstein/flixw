@@ -91,7 +91,7 @@ public final class flixw {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "info", "doctor", "validate", "help");
+        List.of("pin", "info", "doctor", "validate", "help", "plugin", "task");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -349,6 +349,10 @@ public final class flixw {
             if (t.isEmpty()) { for (LockField f : lockFields(t)) props.add(fieldJson(f, "    ")); }
             else props.add(tableJson(t, "    "));
         }
+        // [plugins.<name>] is a dynamic table -- one sub-table per plugin, each the same
+        // shape -- which LOCK_SCHEMA's fixed table-and-key model has no way to describe,
+        // so it is hand-appended here rather than rendered from it.
+        props.add(pluginsTableJson("    "));
         b.append(String.join(",\n", props)).append("\n");
         b.append("  }\n");
         b.append("}\n");
@@ -389,6 +393,52 @@ public final class flixw {
              + indent + "}";
     }
 
+    /**
+     * {@code [plugins.<name>]} for every name at once: an object whose keys are arbitrary
+     * (plugin names) but whose values all share one shape, which JSON Schema expresses
+     * with {@code additionalProperties} as a sub-schema rather than {@code properties}.
+     */
+    static String pluginsTableJson(String indent) {
+        String i2 = indent + "    ", i3 = i2 + "  ", i4 = i3 + "  ", i5 = i4 + "  ";
+        return indent + "\"plugins\": {\n"
+             + indent + "  \"type\": \"object\",\n"
+             + indent + "  \"description\": " + jsonString(
+                 "Plugins this project declares -- installed by `flixw plugin install`,"
+               + " which writes this table; never a fetch instruction on its own.") + ",\n"
+             // A name is a single path segment: it reaches <cache>/plugins/<name>/ before
+             // anything else about the entry is even read, so the schema constrains it as
+             // strictly as stage 0's own validPluginName() does. additionalProperties
+             // alone would bound only the *value* shape, not which keys are allowed, and
+             // would silently accept a plugin name a conforming editor should flag.
+             + indent + "  \"patternProperties\": {\n"
+             + i2 + jsonString("^" + PLUGIN_NAME_PATTERN + "$") + ": {\n"
+             + i3 + "\"type\": \"object\",\n"
+             + i3 + "\"additionalProperties\": false,\n"
+             + i3 + "\"required\": [\"version\", \"sha256\"],\n"
+             + i3 + "\"properties\": {\n"
+             + i4 + "\"version\": {\n"
+             + i5 + "\"type\": \"string\",\n"
+             + i5 + "\"description\": \"the plugin version last installed\",\n"
+             + i5 + "\"pattern\": " + jsonString("^" + SEMVERISH.pattern() + "$") + "\n"
+             + i4 + "},\n"
+             + i4 + "\"sha256\": {\n"
+             + i5 + "\"type\": \"string\",\n"
+             + i5 + "\"description\": \"the SHA-256 of the installed artifact:"
+                       + " 64 lowercase hex digits\",\n"
+             + i5 + "\"pattern\": \"^[0-9a-f]{64}$\"\n"
+             + i4 + "},\n"
+             + i4 + "\"source\": {\n"
+             + i5 + "\"type\": \"string\",\n"
+             + i5 + "\"description\": \"where this plugin came from;"
+                       + " informational, never fetched from automatically\"\n"
+             + i4 + "}\n"
+             + i3 + "}\n"
+             + i2 + "}\n"
+             + indent + "  },\n"
+             + indent + "  \"additionalProperties\": false\n"
+             + indent + "}";
+    }
+
     static String jsonArray(List<String> items) {
         List<String> quoted = new ArrayList<>();
         for (String s : items) quoted.add(jsonString(s));
@@ -417,7 +467,16 @@ public final class flixw {
 
     // ---- lock and manifest ------------------------------------------------
 
-    record Lock(String version, String url, String sha256, String repo, String java) {}
+    record Lock(String version, String url, String sha256, String repo, String java,
+                Map<String, PluginDep> plugins) {}
+
+    /**
+     * A plugin dependency the project declares: not a fetch instruction, only a record of
+     * what {@code flixw plugin install} verified when someone last ran it. {@code source}
+     * is informational, the way a fork's {@code repo} field already is -- {@code pin}
+     * never reads it to download anything.
+     */
+    record PluginDep(String version, String sha256, String source) {}
 
     /**
      * One `key = value` occurrence, the table it was found in, and the line it sits on.
@@ -618,7 +677,94 @@ public final class flixw {
         return s;
     }
 
+    /**
+     * A quoted TOML value, fully unescaped -- unlike {@link #unquote}, which every
+     * existing caller uses for a version, URL or digest, none of which can legally
+     * contain a backslash, so stripping the outer quotes has always been the whole job.
+     * A task's command string is arbitrary shell syntax, where `\"` and embedded quotes
+     * are the ordinary case, so this processes TOML's basic-string escapes for real. A
+     * single-quoted (literal) string has none to process by definition -- exactly the
+     * TOML feature that lets a task avoid this entirely by not using `"..."`.
+     */
+    static String unquoteToml(String v, String where) {
+        if (v.length() < 2 || v.charAt(0) != v.charAt(v.length() - 1)
+            || (v.charAt(0) != '"' && v.charAt(0) != '\''))
+            throw w002(where + ": " + q(v) + " must be a quoted string");
+        String inner = v.substring(1, v.length() - 1);
+        if (v.charAt(0) == '\'') return inner;           // literal string: no escapes
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (c != '\\') { b.append(c); continue; }
+            if (i + 1 >= inner.length()) throw w002(where + ": trailing backslash in " + q(v));
+            char n = inner.charAt(++i);
+            switch (n) {
+                case '"'  -> b.append('"');
+                case '\\' -> b.append('\\');
+                case 'b'  -> b.append('\b');
+                case 't'  -> b.append('\t');
+                case 'n'  -> b.append('\n');
+                case 'f'  -> b.append('\f');
+                case 'r'  -> b.append('\r');
+                // The lowercase and uppercase Unicode escapes differ only in digit count;
+                // malformed hex and an out-of-range or surrogate-half code point are both
+                // "not a valid escape" here rather than an uncaught NumberFormatException
+                // or IllegalArgumentException -- a hand-edited tasks.toml or lock.toml is
+                // exactly where that kind of typo shows up, and it must answer with
+                // FLIXW002, not a stack trace. (Spelled out rather than written literally,
+                // because the sequence backslash-u is itself a Java source escape.)
+                case 'u', 'U' -> {
+                    int len = n == 'u' ? 4 : 8;
+                    if (i + len >= inner.length())
+                        throw w002(where + ": incomplete \\" + n + " escape in " + q(v));
+                    String hex = inner.substring(i + 1, i + 1 + len);
+                    try {
+                        int cp = Integer.parseInt(hex, 16);
+                        if (!Character.isValidCodePoint(cp) || (cp >= 0xD800 && cp <= 0xDFFF))
+                            throw new NumberFormatException();
+                        b.appendCodePoint(cp);
+                    } catch (NumberFormatException e) {
+                        throw w002(where + ": \\" + n + hex
+                                 + " is not a valid Unicode code point in " + q(v));
+                    }
+                    i += len;
+                }
+                default -> throw w002(where + ": invalid escape " + q("\\" + n) + " in " + q(v));
+            }
+        }
+        return b.toString();
+    }
+
     static Path lockPath(Path root) { return root.resolve(WRAPPER_DIR).resolve("lock.toml"); }
+
+    static Path tasksPath(Path root) { return root.resolve(WRAPPER_DIR).resolve("tasks.toml"); }
+
+    /**
+     * `.flixw/tasks.toml`: npm-`scripts`-style name-to-shell-string pairs, hand-edited and
+     * committed like `lock.toml` itself, but never generated or rewritten by `pin` or
+     * `doctor --fix` -- unlike the lock, this file is the human's to write, so it carries
+     * no `#:schema` directive and no "generated" header. Flat by design: a table would
+     * invite grouping that a shell string running through `sh -c`/`cmd /c` gets no benefit
+     * from, and it is one fewer thing {@link #tomlScan}'s callers here have to check for.
+     */
+    static Map<String, String> readTasks(Path root) {
+        Path f = tasksPath(root);
+        if (!Files.isRegularFile(f)) return Map.of();
+        String text;
+        try { text = Files.readString(f, StandardCharsets.UTF_8); }
+        catch (IOException e) { throw w002("cannot read " + f + ": " + why(e)); }
+        String w = f.toString();
+        Map<String, String> out = new LinkedHashMap<>();
+        for (TomlEntry e : tomlScan(text, w).entries()) {
+            if (!e.table().isEmpty())
+                throw w002(w + ": [" + e.table() + "] -- tasks.toml holds only"
+                         + " name = \"command\" pairs, no tables");
+            if (e.multiline())
+                throw w002(w + ": " + q(e.key()) + " must be a single-line string");
+            out.put(e.key(), unquoteToml(e.value(), w));
+        }
+        return out;
+    }
 
     static Lock readLock(Path lockFile) {
         String text;
@@ -641,7 +787,69 @@ public final class flixw {
         // repo is absent in locks written before forks were supported, and means the stock
         // repository. java is absent whenever a project does not care which JDK it gets.
         return new Lock(got.get("compiler.version"), u, got.get("compiler.sha256"),
-                        got.get("compiler.repo"), j);
+                        got.get("compiler.repo"), j, readPlugins(text, w));
+    }
+
+    /**
+     * {@code [plugins.<name>]} tables, keyed by name -- a dynamic set `LOCK_SCHEMA`'s
+     * fixed-table-and-key model cannot describe, so it is read directly from
+     * {@link #tomlScan} rather than through {@link #readLockFields}. Each declared
+     * plugin needs `version` and `sha256`; `source` is optional and never used to fetch
+     * anything, only shown to a reader deciding what to install.
+     */
+    static Map<String, PluginDep> readPlugins(String text, String where) {
+        Map<String, String> version = new LinkedHashMap<>(), sha = new LinkedHashMap<>(),
+                            source = new LinkedHashMap<>();
+        Set<String> seenKeys = new LinkedHashSet<>();
+        Set<String> knownKeys = Set.of("version", "sha256", "source");
+        for (TomlEntry e : tomlScan(text, where).entries()) {
+            if (!e.table().startsWith("plugins.")) continue;
+            String name = e.table().substring("plugins.".length());
+            // Fails closed, the same way an invalid sha256 or version does below: a lock
+            // is exactly as attacker-controlled as anything else committed to a repo, and
+            // a plugin name reaches a filesystem path in resolvePlugin/pluginDir.
+            if (!validPluginName(name))
+                throw w002(where + ": [plugins." + name + "] is not a valid plugin name"
+                         + " -- lowercase letters, digits and hyphens, starting with a letter");
+            // An unrecognized key inside a known table is advisory everywhere else in this
+            // file (unknownLockKeys / FLIXW011) -- a lock a newer flixw wrote is the
+            // ordinary way to meet one. Skipped *before* unquoting, so a future key
+            // holding a non-string value (an integer, a bare array) is exactly as
+            // survivable as a future key holding a string: neither is ever parsed here.
+            if (!knownKeys.contains(e.key())) continue;
+            if (!seenKeys.add(name + "." + e.key()))
+                throw w002(where + ": duplicate " + q(e.key()) + " key in [plugins." + name + "]");
+            if (e.multiline())
+                throw w002(where + ": [plugins." + name + "] " + q(e.key())
+                         + " must be a single-line string");
+            String v = unquoteToml(e.value(), where);
+            switch (e.key()) {
+                case "version" -> version.put(name, v);
+                case "sha256" -> sha.put(name, v);
+                case "source" -> source.put(name, v);
+            }
+        }
+        Map<String, PluginDep> out = new LinkedHashMap<>();
+        Set<String> names = new LinkedHashSet<>();
+        names.addAll(version.keySet());
+        names.addAll(sha.keySet());
+        for (String name : names) {
+            String v = version.get(name);
+            if (v == null)
+                throw w002(where + ": [plugins." + name + "] is missing version");
+            if (!SEMVERISH.matcher(v).matches())
+                throw w002(where + ": [plugins." + name + "] version is " + q(v)
+                         + "\n       expected x.y.z, optionally with a prerelease and"
+                         + " build metadata");
+            String d = sha.get(name);
+            if (d == null)
+                throw w002(where + ": [plugins." + name + "] is missing sha256");
+            if (!d.matches("[0-9a-f]{64}"))
+                throw w002(where + ": [plugins." + name + "] sha256 is " + q(d)
+                         + "\n       expected 64 lowercase hex digits");
+            out.put(name, new PluginDep(v, d, source.get(name)));
+        }
+        return out;
     }
 
     /**
@@ -710,9 +918,13 @@ public final class flixw {
     static List<String> unknownLockKeys(String text, String where) {
         List<String> unknown = new ArrayList<>();
         for (TomlEntry e : tomlScan(text, where).entries()) {
-            boolean known = false;
-            for (LockField f : LOCK_SCHEMA)
-                if (isKey(e, f.table(), f.key())) { known = true; break; }
+            // [plugins.<name>] is a dynamic table LOCK_SCHEMA cannot enumerate by name;
+            // readPlugins() is the authority on which of its keys it actually reads.
+            boolean known = e.table().startsWith("plugins.")
+                          && List.of("version", "sha256", "source").contains(e.key());
+            if (!known)
+                for (LockField f : LOCK_SCHEMA)
+                    if (isKey(e, f.table(), f.key())) { known = true; break; }
             String name = e.table().isEmpty() ? e.key() : "[" + e.table() + "] " + e.key();
             if (!known && !unknown.contains(name)) unknown.add(name);
         }
@@ -783,6 +995,14 @@ public final class flixw {
           "usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]"
         + "\n          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)"
         + "\n          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)";
+
+    /** A single path segment, nothing else -- in particular no `.`, so a name can never
+     *  climb out of {@code <cache>/plugins/} the way {@code ..} would. Checked at every
+     *  point a name reaches a path: the three CLI entry points, and a lock's own {@code
+     *  [plugins.<name>]} table, which is attacker-controlled the moment a lock is. */
+    static final String PLUGIN_NAME_PATTERN = "[a-z][a-z0-9-]*";
+
+    static boolean validPluginName(String name) { return name.matches(PLUGIN_NAME_PATTERN); }
 
     /** One release asset: what to fetch, and what the publisher says it hashes to. */
     record Asset(String name, String url) {}
@@ -2666,7 +2886,12 @@ public final class flixw {
             // Reached with no lock yet -- there is no compiler to ask for its half, so
             // this is the routing table alone. Once a project is pinned, the full
             // `help`/`--help` merge in realMain runs instead and this case is not hit.
-            case "help" -> wrapperHelp();
+            case "help" -> {
+                if (!rest.isEmpty())
+                    throw w008("./flixw help: unknown argument " + q(rest.get(0))
+                             + "\n       usage: ./flixw help");
+                wrapperHelp();
+            }
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
@@ -2697,7 +2922,299 @@ public final class flixw {
                     throw w009(bad + " problem(s); ./flixw doctor --fix repairs the wrapper"
                              + " files, ./flixw pin <version> repairs a drifted lock");
             }
+            // A namespace, not one top-level verb per plugin: `plugin metrics` can never
+            // collide with a compiler verb or another plugin's name, because neither is
+            // ever reachable as a bare top-level word. install/list/remove manage the
+            // machine-wide cache; anything else is treated as a plugin name to invoke.
+            case "plugin" -> {
+                if (rest.isEmpty()) throw w009(PLUGIN_USAGE);
+                String sub = rest.get(0);
+                List<String> args = rest.subList(1, rest.size());
+                switch (sub) {
+                    case "install" -> pluginInstall(root, args);
+                    case "list" -> pluginList();
+                    case "remove" -> pluginRemove(args);
+                    default -> {
+                        ResolvedPlugin p = resolvePlugin(sub, lock);
+                        // Every invocation, not only install: a digest verified once does
+                        // not become a safety review by being run again, and the reader
+                        // of a build log two months from now needs the same warning the
+                        // installer saw.
+                        System.err.println("flixw: running plugin " + sub + " " + p.version()
+                                         + " (" + p.sha256().substring(0, 16) + "...)");
+                        System.err.println("       this is 3rd-party code, not audited by flixw");
+                        Jvm resolvedJvm = jvm != null ? jvm : selectJava(null);
+                        Map<String, String> env = pluginEnv(root, lock, resolvedJvm, jar, sub, p, args);
+                        runArtifact(p.artifact(), resolvedJvm.exe(), jar, args, env);
+                    }
+                }
+            }
+            // Npm's `scripts`, not a new verb per task: a project's own tasks.toml, never
+            // fetched, never installed, no trust question -- it is a shell string in a
+            // file the project already trusts, the same as any other checked-in script.
+            case "task" -> {
+                Map<String, String> tasks = readTasks(root);
+                if (rest.isEmpty()) {
+                    if (tasks.isEmpty()) System.out.println("(no tasks in " + tasksPath(root) + ")");
+                    else tasks.keySet().forEach(System.out::println);
+                    return;
+                }
+                String name = rest.get(0);
+                String cmd = tasks.get(name);
+                if (cmd == null)
+                    throw w009("no task " + q(name) + " in " + tasksPath(root)
+                             + (tasks.isEmpty() ? "" : "\n       known tasks: "
+                               + String.join(", ", tasks.keySet())));
+                runTask(cmd, rest.subList(1, rest.size()));
+            }
             default -> throw w009("no wrapper implementation for " + q(verb));
+        }
+    }
+
+    // ---- plugins ------------------------------------------------------------
+
+    static final String PLUGIN_USAGE =
+          "usage: ./flixw plugin install <name> <version> <url> [--sha256 <digest>]"
+        + "\n          ./flixw plugin list"
+        + "\n          ./flixw plugin remove <name>"
+        + "\n          ./flixw plugin <name> [args...]";
+
+    static Path pluginsDir() { return cacheHome().resolve("plugins"); }
+
+    static Path pluginDir(String name, String version, String sha256) {
+        return pluginsDir().resolve(name).resolve(version + "-" + sha256);
+    }
+
+    /**
+     * The only path a plugin's bytes reach the machine -- explicit, one attempt, same
+     * shape as {@link #acquire} for the compiler. `https://` is verified the ordinary
+     * way; `file://` copies a local path directly, for local plugin development and for
+     * testing this without a public URL. Neither is fetched because a lock named it: a
+     * project's {@code [plugins.<name>]} entry is read only by {@link #resolvePlugin}, never by
+     * this, so nothing about running `pin` or `doctor` can trigger a download here.
+     */
+    static void pluginInstall(Path root, List<String> args) {
+        if (args.size() < 3) throw w009(PLUGIN_USAGE);
+        String name = args.get(0), version = args.get(1), url = args.get(2);
+        if (!validPluginName(name))
+            throw w009("plugin name " + q(name) + " must be lowercase letters, digits and"
+                     + " hyphens, starting with a letter");
+        if (!version.matches(SEMVERISH.pattern()))
+            throw w009("plugin version " + q(version) + " must look like x.y.z"
+                     + " (optionally with a prerelease/build suffix)");
+        String wantSha = null;
+        for (int i = 3; i < args.size(); i++) {
+            if ("--sha256".equals(args.get(i)) && i + 1 < args.size()) wantSha = args.get(++i);
+            else throw w009("plugin install: unknown option " + q(args.get(i))
+                          + "\n       " + PLUGIN_USAGE);
+        }
+        String format = url.endsWith(".jar") ? "jar" : url.endsWith(".java") ? "java"
+                       : url.endsWith(".flix") ? "flix" : null;
+        if (format == null)
+            throw w009("plugin install: url must end in .jar, .java or .flix: " + q(url));
+        if (!url.startsWith("https://") && !url.startsWith("file://"))
+            throw w009("plugin install: refusing " + q(url) + " (must be https:// or file://)");
+
+        Path stagingDir = pluginsDir();
+        Path tmp;
+        try {
+            Files.createDirectories(stagingDir);
+            tmp = Files.createTempFile(stagingDir, ".plugin-", ".part");
+        } catch (IOException e) { throw w009("cannot prepare " + stagingDir + ": " + why(e)); }
+        try {
+            if (url.startsWith("file://"))
+                Files.copy(Paths.get(URI.create(url)), tmp, StandardCopyOption.REPLACE_EXISTING);
+            else download(url, tmp);
+            String got = sha256(tmp);
+            if (wantSha != null && !got.equals(wantSha))
+                throw w006("digest mismatch for " + q(url) + "\n       expected " + wantSha
+                         + "\n       actual   " + got);
+            Path dest = pluginDir(name, version, got);
+            Files.createDirectories(dest);
+            Path artifact = dest.resolve("plugin." + format);
+            try { Files.move(tmp, artifact, StandardCopyOption.ATOMIC_MOVE); }
+            catch (IOException e) { if (!Files.isRegularFile(artifact)) throw e; }
+            System.err.println("flixw: installed plugin " + name + " " + version
+                             + " (" + got.substring(0, 16) + "...)");
+            // Never quieter than a fork pin's own warning: a digest says these are the
+            // same bytes as last time, not that the bytes are safe. Third-party code a
+            // user explicitly asked to install gets no gentler a badge than that.
+            System.err.println("       this is 3rd-party code, not audited by flixw");
+            recordPluginInLock(root, name, version, got, url);
+        } catch (IOException e) {
+            throw w009("plugin install failed: " + why(e));
+        } finally {
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
+        }
+    }
+
+    /**
+     * Only when this project already has a lock: install can run before any `pin`, and
+     * populating the machine-wide cache does not need one. `pin`'s own transaction shape
+     * is not needed here -- a plugin table failing to write leaves the plugin installed
+     * and usable, just not yet recorded, which `doctor` already reports.
+     */
+    static void recordPluginInLock(Path root, String name, String version, String sha256, String url) {
+        Path lf = lockPath(root);
+        if (!Files.isRegularFile(lf)) return;
+        Lock have;
+        try { have = readLock(lf); }
+        catch (Fail ignored) { return; }   // a lock that does not parse is not this command's to fix
+        Map<String, PluginDep> plugins = new LinkedHashMap<>(have.plugins());
+        plugins.put(name, new PluginDep(version, sha256, url));
+        String rewritten = lockText(WRAPPER_VERSION, have.repo() == null ? UPSTREAM_REPO : have.repo(),
+            have.version(), have.url(), have.sha256(), have.java(), plugins);
+        try { writeAtomic(lf, rewritten); System.err.println("       recorded in " + lf); }
+        catch (IOException e) { tr("cannot record plugin in " + lf + ": " + e.getMessage()); }
+    }
+
+    static void pluginList() {
+        Path dir = pluginsDir();
+        List<Path> names = List.of();
+        try (var s = Files.isDirectory(dir) ? Files.list(dir) : null) {
+            if (s != null) names = s.filter(Files::isDirectory).sorted().toList();
+        } catch (IOException ignored) { }
+        if (names.isEmpty()) { System.out.println("(no plugins installed)"); return; }
+        for (Path nameDir : names) {
+            List<Path> versions = List.of();
+            try (var s = Files.list(nameDir)) { versions = s.filter(Files::isDirectory).sorted().toList(); }
+            catch (IOException ignored) { }
+            for (Path v : versions) System.out.println(nameDir.getFileName() + "  " + v.getFileName());
+        }
+    }
+
+    static void pluginRemove(List<String> args) {
+        if (args.isEmpty()) throw w009(PLUGIN_USAGE);
+        String name = args.get(0);
+        // Load-bearing, not defensive style: without this, "flixw plugin remove .." dead-
+        // reckons its way to <cache>/plugins/.. -- the cache root -- and deleteTree wipes
+        // every compiler and JDK this machine has cached, not just a plugin.
+        if (!validPluginName(name))
+            throw w009("plugin name " + q(name) + " must be lowercase letters, digits and"
+                     + " hyphens, starting with a letter");
+        Path dir = pluginsDir().resolve(name);
+        if (!Files.isDirectory(dir)) throw w009("plugin " + q(name) + " is not installed");
+        deleteTree(dir);
+        System.err.println("flixw: removed plugin " + name);
+    }
+
+    /** One resolved, digest-verified plugin build, ready to launch. */
+    record ResolvedPlugin(String version, String sha256, Path artifact) {}
+
+    /**
+     * Which installed build of a plugin this invocation runs, and proof it is still the
+     * bytes it was installed as. A lock's own {@code [plugins.<name>]} entry is
+     * authoritative when present -- exactly what {@code plugin install} last recorded for
+     * this project -- and its absence, not its presence, is what triggers a download;
+     * running with no lock entry at all falls back to "whatever is installed," which only
+     * works while there is exactly one.
+     *
+     * Re-hashed here, every run, exactly like {@link #acquire} re-hashes the compiler
+     * jar: the cache directory name carries the digest install verified, but a directory
+     * name is not evidence about what is inside it now. Skipping this would make a
+     * plugin the one cached, executed artifact in this codebase whose bytes are trusted
+     * on the strength of a install-time check alone.
+     */
+    static ResolvedPlugin resolvePlugin(String name, Lock lock) {
+        if (!validPluginName(name))
+            throw w009("plugin name " + q(name) + " must be lowercase letters, digits and"
+                     + " hyphens, starting with a letter");
+        Path base = pluginsDir().resolve(name);
+        PluginDep want = lock == null ? null : lock.plugins().get(name);
+        Path dir;
+        if (want != null) {
+            dir = base.resolve(want.version() + "-" + want.sha256());
+            if (!Files.isDirectory(dir))
+                throw w009("plugin " + q(name) + " " + want.version() + " ("
+                         + want.sha256().substring(0, 12) + "...) is expected by lock.toml but"
+                         + " not installed\n       run: ./flixw plugin install " + name + " "
+                         + want.version() + " <url> --sha256 " + want.sha256());
+        } else {
+            if (!Files.isDirectory(base))
+                throw w009("plugin " + q(name) + " is not installed"
+                         + "\n       run: ./flixw plugin install " + name + " <version> <url>");
+            List<Path> versions;
+            try (var s = Files.list(base)) { versions = s.filter(Files::isDirectory).sorted().toList(); }
+            catch (IOException e) { throw w009("cannot read " + base + ": " + why(e)); }
+            if (versions.isEmpty())
+                throw w009("plugin " + q(name) + " is not installed"
+                         + "\n       run: ./flixw plugin install " + name + " <version> <url>");
+            if (versions.size() > 1)
+                throw w009("plugin " + q(name) + " has " + versions.size() + " versions installed,"
+                         + " and lock.toml does not say which -- add a [plugins." + name + "] entry"
+                         + " (./flixw plugin install " + name + " <version> <url> --sha256 <digest>)");
+            dir = versions.get(0);
+        }
+        Path artifact = findPluginArtifact(dir);
+        // The directory name is "<version>-<sha256>"; the digest is always the trailing
+        // 64 hex characters, which a version cannot be mistaken for even when the version
+        // itself contains a hyphen (a prerelease tag legally does).
+        String dirName = dir.getFileName().toString();
+        String sha256 = dirName.substring(dirName.length() - 64);
+        String version = dirName.substring(0, dirName.length() - 65);
+        String got = sha256(artifact);
+        if (!got.equals(sha256))
+            throw w006("plugin " + q(name) + " " + version + " no longer matches the digest"
+                     + " it was installed with\n       expected " + sha256
+                     + "\n       actual   " + got
+                     + "\n       run: ./flixw plugin remove " + name
+                     + "   then reinstall");
+        return new ResolvedPlugin(version, sha256, artifact);
+    }
+
+    static Path findPluginArtifact(Path dir) {
+        for (String ext : List.of(".jar", ".java", ".flix")) {
+            Path p = dir.resolve("plugin" + ext);
+            if (Files.isRegularFile(p)) return p;
+        }
+        throw w009("plugin cache at " + dir + " has no plugin.jar, plugin.java or plugin.flix");
+    }
+
+    // ---- tasks --------------------------------------------------------------
+
+    /** cmd.exe's own quoting convention for one command-line word: wrap in double quotes
+     *  if it needs it, doubling any quote already inside. Not a full re-implementation of
+     *  cmd.exe's parser -- nothing short of one is -- just enough that a space or an
+     *  embedded quote in a task argument survives as one word in the common case. */
+    static String cmdQuote(String arg) {
+        if (!arg.isEmpty() && arg.chars().noneMatch(
+                c -> c == ' ' || c == '\t' || c == '"' || c == '&' || c == '|'
+                  || c == '<' || c == '>' || c == '^' || c == '%'))
+            return arg;
+        return '"' + arg.replace("\"", "\"\"") + '"';
+    }
+
+    /**
+     * Runs a task's shell string via the platform shell, inheriting cwd and the three
+     * streams exactly like a plugin or the compiler does. Extra args are appended
+     * positionally -- the same contract `npm run` already has, and the reason for `"$@"`
+     * rather than string concatenation: an argument containing a space must not become
+     * two.
+     */
+    static void runTask(String command, List<String> extraArgs) {
+        List<String> cmd = new ArrayList<>();
+        if (isWindows()) {
+            cmd.add("cmd"); cmd.add("/c"); cmd.add(command);
+            // Best-effort, not a guarantee: `cmd /c` re-parses everything after it as one
+            // command line with its own rules, so a Java-side argv list is not positional
+            // the way POSIX's "$@" is -- an unquoted argument reaching cmd.exe unquoted
+            // would not even survive as one word. Quoting the common case (a space, a
+            // quote) is what a task author can rely on; byte-exact cmd.exe argument
+            // parity is not achievable here for the same reason it is not claimed for the
+            // shim itself -- see docs/LIMITATIONS.md.
+            for (String a : extraArgs) cmd.add(cmdQuote(a));
+        } else {
+            cmd.add("sh"); cmd.add("-c"); cmd.add(command + " \"$@\""); cmd.add("sh");
+            cmd.addAll(extraArgs);
+        }
+        tr("exec " + String.join(" ", cmd));
+        try {
+            System.exit(awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start()));
+        } catch (IOException e) {
+            throw w005("cannot run task: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.exit(130);
         }
     }
 
@@ -2840,6 +3357,31 @@ public final class flixw {
         }
         System.out.println("system JDKs");
         printAligned(systemRows);
+
+        // Every plugin ever installed on this machine, not only what this project
+        // declares -- the same "machine-wide, not project-scoped" listing the sections
+        // above already give compilers and JDKs. A directory read, nothing here reaches
+        // the plugin's own source.
+        List<Path> pluginNames = List.of();
+        try (var s = Files.isDirectory(pluginsDir()) ? Files.list(pluginsDir()) : null) {
+            if (s != null) pluginNames = s.filter(Files::isDirectory).sorted().toList();
+        } catch (IOException ignored) { }
+        List<String[]> pluginRows = new ArrayList<>();
+        for (Path nameDir : pluginNames) {
+            String name = nameDir.getFileName().toString();
+            List<Path> versions;
+            try (var s = Files.list(nameDir)) { versions = s.filter(Files::isDirectory).sorted().toList(); }
+            catch (IOException e) { continue; }
+            PluginDep want = lock == null ? null : lock.plugins().get(name);
+            for (Path v : versions) {
+                boolean wanted = want != null && v.getFileName().toString()
+                                 .equals(want.version() + "-" + want.sha256());
+                pluginRows.add(new String[] { name, v.getFileName().toString(),
+                                              wanted ? "  <= expected by lock.toml" : "" });
+            }
+        }
+        System.out.println("installed plugins");
+        printAligned(pluginRows);
     }
 
     /**
@@ -3073,6 +3615,24 @@ public final class flixw {
         }
         if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
 
+        // Checked against the machine-wide cache alone -- a directory read, nothing about
+        // this reaches the network. A warn, not a FAIL: the project still builds without
+        // it, only `flixw plugin <name>` would fail, and doctor says so without stopping
+        // `validate` over a dependency CI may not have installed either.
+        if (lock != null) {
+            for (var entry : lock.plugins().entrySet()) {
+                String name = entry.getKey();
+                PluginDep want = entry.getValue();
+                if (Files.isDirectory(pluginDir(name, want.version(), want.sha256())))
+                    System.out.println("ok    plugin " + name + " " + want.version() + " is installed");
+                else
+                    System.out.println("warn  plugin " + name + " " + want.version()
+                                     + " is expected by lock.toml but not installed"
+                                     + " (./flixw plugin install " + name + " " + want.version()
+                                     + " <url> --sha256 " + want.sha256() + ")");
+            }
+        }
+
         // The shims execute whatever class sits in the stage-0 cache, on path alone, so a
         // directory anyone else can write to is a way to run code as this user.  Stage 0
         // narrows the permissions it creates; this reports one it did not create.
@@ -3172,7 +3732,7 @@ public final class flixw {
                 throw w002("pin: --java needs a lock that parses"
                          + "\n       run: ./flixw pin <version> --java <version>");
             String lock = lockText(WRAPPER_VERSION, had.repo() == null ? UPSTREAM_REPO : had.repo(),
-                                   had.version(), had.url(), had.sha256(), javaPin);
+                                   had.version(), had.url(), had.sha256(), javaPin, had.plugins());
             try { writeAtomic(lockFile0, lock); }
             catch (IOException e) { throw w009("pin failed: " + why(e)); }
             System.err.println(javaPin == null
@@ -3207,7 +3767,10 @@ public final class flixw {
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
-            String lock = lockText(WRAPPER_VERSION, repo, version, url, digest, javaPin);
+            // Repinning the compiler is unrelated to what plugins the project has declared
+            // -- carried forward exactly like the java pin above, never reset by this.
+            String lock = lockText(WRAPPER_VERSION, repo, version, url, digest, javaPin,
+                                   had == null ? Map.of() : had.plugins());
 
             // The cache is filled first and every failure in it is discarded, which keeps
             // it out of the transaction below.  It is an optimisation -- the next run
@@ -3277,7 +3840,7 @@ public final class flixw {
      * an exact version -- a lock is a pin, including of what it means.
      */
     static String lockText(String wrapper, String repo, String version, String url,
-                           String sha256, String java) {
+                           String sha256, String java, Map<String, PluginDep> plugins) {
         String body = """
             #:schema %s
             # Generated by flixw. Do not edit by hand; commit this file.
@@ -3291,11 +3854,24 @@ public final class flixw {
             """.formatted(LOCK_SCHEMA_URL, wrapper, repo, version, url, sha256);
         // Absent rather than empty when unpinned: a project that does not care which JDK
         // runs the compiler should not have to read a line telling it so.
-        return java == null ? body : body + """
+        if (java != null) body += """
 
             [java]
             version = "%s"
             """.formatted(java);
+        // Not `pin`'s to invent: this only re-emits what `flixw plugin install` already
+        // wrote, so a re-pin of the compiler -- an unrelated event -- does not silently
+        // drop what plugins the project declared. Sorted by name: the map's own order
+        // depends on which lock this was read from, and a rewrite that only ever moved
+        // the same content around would otherwise look like unrelated churn in a diff.
+        for (String name : plugins.keySet().stream().sorted().toList()) {
+            PluginDep p = plugins.get(name);
+            body += "\n[plugins." + name + "]\n"
+                  + "version = \"" + p.version() + "\"\n"
+                  + "sha256  = \"" + p.sha256() + "\"\n"
+                  + (p.source() == null ? "" : "source  = \"" + p.source() + "\"\n");
+        }
+        return body;
     }
 
     static void install(Path target, Path source) {
@@ -3612,7 +4188,7 @@ public final class flixw {
             return new Refresh(false, "the lock carries " + String.join(", ", unknown)
                                     + ", which this flixw does not read and would drop");
         String want = lockText(WRAPPER_VERSION, lock.repo() == null ? UPSTREAM_REPO : lock.repo(),
-                               lock.version(), lock.url(), lock.sha256(), lock.java());
+                               lock.version(), lock.url(), lock.sha256(), lock.java(), lock.plugins());
         if (want.equals(text))
             return new Refresh(false, "the lock is already what flixw " + WRAPPER_VERSION
                                     + " writes");
@@ -4405,6 +4981,9 @@ public final class flixw {
                          + " (-v: cached compilers and JDKs)");
         System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
         System.out.println("  ./flixw validate                 the checks alone, for CI");
+        System.out.println("  ./flixw plugin install <name> <version> <url> [--sha256 <digest>]");
+        System.out.println("  ./flixw plugin list | remove <name> | <name> [args]  installed plugins");
+        System.out.println("  ./flixw task [<name> [args]]     .flixw/tasks.toml's aliases, or list them");
         System.out.println("  ./flixw wrapper [--help | --version | --upgrade | --install-jdk"
                          + " | --schema | --completion]");
         System.out.println();
@@ -4572,6 +5151,162 @@ public final class flixw {
         } finally {
             try { Runtime.getRuntime().removeShutdownHook(hook); }
             catch (IllegalStateException ignored) { }   // already shutting down
+        }
+    }
+
+    /** {@code exe}'s JDK home: two directories up from {@code bin/java}. Null when {@code
+     *  exe} has no parent, which cannot happen for a real path but costs nothing to guard. */
+    static Path javaHomeOf(Path exe) {
+        Path bin = exe.getParent();
+        return bin == null ? null : bin.getParent();
+    }
+
+    /**
+     * The context a plugin ABI version 1 promises: a flat environment-variable tier for
+     * the common case, plus {@code FLIXW_CONTEXT} naming a versioned JSON file for
+     * anything structured. Both are built here, once, for every format -- {@code .flix}
+     * included: stock Flix's {@code Sys.Env.getVar} reads these even though a {@code
+     * .flix} plugin cannot receive {@code args} (verified against a real compiler, not
+     * assumed), so the ABI is the one thing every format can rely on regardless of
+     * whether it can take CLI arguments.
+     *
+     * Compiler and Java fields are simply absent when this project has no lock yet or no
+     * Java was resolved -- a `.jar`/`.java` plugin that does not need a compiler must not
+     * be handed a context it has to guess is incomplete.
+     */
+    static Map<String, String> pluginEnv(Path root, Lock lock, Jvm jvm, Path compilerJar,
+                                         String pluginName, ResolvedPlugin p, List<String> args) {
+        Map<String, String> env = new LinkedHashMap<>();
+        env.put("FLIXW_ABI_VERSION", "1");
+        env.put("FLIXW_PROJECT_ROOT", root.toString());
+        env.put("FLIXW_CACHE_HOME", cacheHome().toString());
+        if (lock != null) {
+            env.put("FLIXW_COMPILER_VERSION", lock.version());
+            env.put("FLIXW_COMPILER_REPO", lock.repo() == null ? UPSTREAM_REPO : lock.repo());
+            env.put("FLIXW_COMPILER_SHA256", lock.sha256());
+        }
+        if (compilerJar != null) env.put("FLIXW_COMPILER_JAR", compilerJar.toString());
+        if (jvm != null) {
+            Path home = javaHomeOf(jvm.exe());
+            if (home != null) env.put("FLIXW_JAVA_HOME", home.toString());
+        }
+        env.put("FLIXW_PLUGIN_NAME", pluginName);
+        env.put("FLIXW_PLUGIN_VERSION", p.version());
+        env.put("FLIXW_PLUGIN_SHA256", p.sha256());
+        env.put("FLIXW_CONTEXT", writeContextFile(root, lock, jvm, compilerJar, pluginName, p, args).toString());
+        return env;
+    }
+
+    /**
+     * The structured half of the ABI: everything {@link #pluginEnv}'s flat variables
+     * carry, plus the arguments this invocation was given, as one versioned JSON object.
+     * Written to a fresh temp file per invocation and deleted by a shutdown hook -- not a
+     * `finally` in the caller, because {@link System#exit} does not run one.
+     */
+    static Path writeContextFile(Path root, Lock lock, Jvm jvm, Path compilerJar,
+                                 String pluginName, ResolvedPlugin p, List<String> args) {
+        StringBuilder b = new StringBuilder();
+        b.append("{\n");
+        b.append("  \"abiVersion\": 1,\n");
+        b.append("  \"flixwVersion\": ").append(jsonString(WRAPPER_VERSION)).append(",\n");
+        b.append("  \"projectRoot\": ").append(jsonString(root.toString())).append(",\n");
+        b.append("  \"cacheHome\": ").append(jsonString(cacheHome().toString())).append(",\n");
+        if (lock == null) {
+            b.append("  \"compiler\": null,\n");
+        } else {
+            b.append("  \"compiler\": {\n");
+            b.append("    \"repo\": ")
+             .append(jsonString(lock.repo() == null ? UPSTREAM_REPO : lock.repo())).append(",\n");
+            b.append("    \"version\": ").append(jsonString(lock.version())).append(",\n");
+            b.append("    \"sha256\": ").append(jsonString(lock.sha256())).append(",\n");
+            b.append("    \"jar\": ")
+             .append(compilerJar == null ? "null" : jsonString(compilerJar.toString())).append("\n");
+            b.append("  },\n");
+        }
+        if (jvm == null) {
+            b.append("  \"java\": null,\n");
+        } else {
+            Path home = javaHomeOf(jvm.exe());
+            b.append("  \"java\": {\n");
+            b.append("    \"home\": ").append(home == null ? "null" : jsonString(home.toString())).append(",\n");
+            b.append("    \"feature\": ").append(jvm.feature()).append("\n");
+            b.append("  },\n");
+        }
+        b.append("  \"plugin\": {\n");
+        b.append("    \"name\": ").append(jsonString(pluginName)).append(",\n");
+        b.append("    \"version\": ").append(jsonString(p.version())).append(",\n");
+        b.append("    \"sha256\": ").append(jsonString(p.sha256())).append("\n");
+        b.append("  },\n");
+        b.append("  \"args\": ").append(jsonArray(args)).append("\n");
+        b.append("}\n");
+        Path dir = pluginsDir();
+        try {
+            Files.createDirectories(dir);
+            Path f = Files.createTempFile(dir, ".context-", ".json");
+            Files.writeString(f, b.toString(), StandardCharsets.UTF_8);
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try { Files.deleteIfExists(f); } catch (IOException ignored) { }
+            }));
+            return f;
+        } catch (IOException e) {
+            throw w009("cannot write plugin context: " + why(e));
+        }
+    }
+
+    /**
+     * Launches one plugin artifact as an opaque subprocess, inheriting cwd and the three
+     * streams exactly like {@link #launch} does for the compiler -- three formats, one
+     * launcher, because a plugin is not otherwise different from the compiler stage 0
+     * already knows how to run. {@code env} is the ABI: everything {@link #pluginEnv}
+     * built, merged into the child's environment alongside whatever it already inherits.
+     *
+     * {@code .flix} always runs against *this project's own pinned compiler*, never a
+     * version the plugin names: a plugin can extend what Flix does here, not choose which
+     * Flix does it, so it cannot pull in a second, unverified compiler.
+     *
+     * A {@code .flix} plugin cannot receive {@code args}: stock Flix has no {@code run
+     * <file>} mode -- {@code run} "runs main for the current project" and refuses a file
+     * argument outright -- so the only way to execute one standalone is the bare-file form
+     * ({@code java -jar flix.jar plugin.flix}), and there every extra positional word is
+     * parsed as one more source file to compile, not a program argument -- verified
+     * against a real compiler, not assumed. A {@code .jar} or {@code .java} plugin
+     * wanting arguments is the workaround until Flix's own CLI grows one; every format
+     * can still read the ABI's environment variables and {@code FLIXW_CONTEXT}.
+     */
+    static void runArtifact(Path artifact, Path javaExe, Path compilerJar, List<String> args,
+                            Map<String, String> env) {
+        String name = artifact.getFileName().toString();
+        List<String> cmd = new ArrayList<>();
+        cmd.add(javaExe.toString());
+        if (name.endsWith(".jar")) {
+            cmd.add("-jar"); cmd.add(artifact.toString());
+            cmd.addAll(args);
+        } else if (name.endsWith(".java")) {
+            cmd.add(artifact.toString());
+            cmd.addAll(args);
+        } else if (name.endsWith(".flix")) {
+            if (compilerJar == null)
+                throw w009("plugin " + q(name) + " is a .flix plugin, but this project has"
+                         + " no compiler pinned\n       run: ./flixw pin <version>");
+            if (!args.isEmpty())
+                throw w009("plugin " + q(name) + " is a .flix plugin: it cannot receive"
+                         + " arguments (stock Flix has no way to pass any to a standalone"
+                         + " file)\n       args given: " + String.join(" ", args));
+            cmd.add("-jar"); cmd.add(compilerJar.toString());
+            cmd.add(artifact.toString());
+        } else {
+            throw w009("plugin artifact " + q(name) + " is not .jar, .java or .flix");
+        }
+        tr("exec " + String.join(" ", cmd));
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
+            pb.environment().putAll(env);
+            System.exit(awaitWithReaper(pb.start()));
+        } catch (IOException e) {
+            throw w005("cannot launch " + artifact + ": " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.exit(130);
         }
     }
 
