@@ -1098,6 +1098,17 @@ t 0  "a read-only verb cache stays silent"                      sh -c '
   chmod -R a-w "$FLIX_CACHE_HOME/verbs"
   ./flixw check; rc=$?
   chmod -R u+w "$FLIX_CACHE_HOME/verbs"; exit $rc'
+# --help/-h/bare help must work on a project's very first command, before anything has
+# ever been pinned -- there is no compiler yet to ask for its half, so this is the routing
+# table alone. It used to fail with FLIXW002, the same "no lock.toml" error every other
+# verb correctly gives, which made the one command meant to explain what to do next
+# unreachable in exactly the state that needed it.
+for spelling in --help -h help; do
+  g 0 'repository-local Flix bootstrap' "$spelling works before any project is pinned" sh -c '
+    d=$1/nolock-help; rm -rf "$d"; mkdir -p "$d"
+    java "$2/src/flixw.java" install "$d" >/dev/null 2>&1
+    cd "$d" && ./flixw '"$spelling"'' sh "$work" "$root"
+done
 
 # --- verb capture across help renderers ------------------------------------
 echo "verb capture"

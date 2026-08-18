@@ -2648,6 +2648,10 @@ public final class flixw {
                     throw w009(PIN_USAGE);
                 pin(root, parsePin(rest, lock));
             }
+            // Reached with no lock yet -- there is no compiler to ask for its half, so
+            // this is the routing table alone. Once a project is pinned, the full
+            // `help`/`--help` merge in realMain runs instead and this case is not hit.
+            case "help" -> wrapperHelp();
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
@@ -4234,12 +4238,19 @@ public final class flixw {
               + "\n       run: ./flixw pin " + triple(mv) + " (or lower the requirement)"
             : null;
 
+        // --help/-h ask for the routing table alone here, same as bare "help" -- there is
+        // no compiler yet to ask for its half, and that must not be why the table itself
+        // is unreachable on a project's very first command. Only when they are the whole
+        // invocation: `--help check` is a flag with arguments, passed through untouched,
+        // same rule the compiler-reachable path below already applies.
+        boolean bareHelp = ("--help".equals(first) || "-h".equals(first)) && argv.size() == 1;
+
         // When the project cannot reach a compiler -- no lock yet, or a lock that
         // disagrees with the manifest -- the verbs that create and diagnose that state
         // must still run, or the repair the diagnostic recommends is unreachable. They
         // route on the built-in wrapper list alone, so no compiler is consulted.
         if ((lock == null || drift != null || manifestError != null) && first != null && !forcedCompiler
-            && WRAPPER_VERBS.contains(first)) {
+            && (WRAPPER_VERBS.contains(first) || bareHelp)) {
             if (lockError != null)
                 System.err.println("flixw: warning: " + lockError.getMessage().split("\n")[0]);
             if (manifestError != null)
@@ -4248,6 +4259,8 @@ public final class flixw {
             routingNotice(first, lock == null ? "none" : lock.version());
             if (first.equals("pin")) {
                 pin(root, parsePin(argv.subList(1, argv.size()), lock));
+            } else if (bareHelp) {
+                wrapperVerb("help", List.of(), root, lock, null, null, null);
             }
             else
                 wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null);
