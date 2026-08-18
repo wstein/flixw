@@ -1,0 +1,13 @@
+#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json
+[compiler]
+version = "0.75.2"
+url     = "https://github.com/flix/flix/releases/download/v0.75.2/flix.jar"
+sha256  = "a2697d875725a0dde6e793b8d54cb220e86167a6d49ec5f0ccb0832966c8c15a"
+
+# A non-string value on purpose: readPlugins skips an unknown key before it is ever
+# unquoted, so a future key holding an integer must be exactly as survivable as one
+# holding a string.
+[plugins.echoer]
+version = "1.0.0"
+sha256  = "a2697d875725a0dde6e793b8d54cb220e86167a6d49ec5f0ccb0832966c8c15a"
+evil    = 123

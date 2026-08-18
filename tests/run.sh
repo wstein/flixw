@@ -190,6 +190,65 @@ javac -d "$work/sleeper" "$work/sleeper/Sleeper.java"
 printf 'Main-Class: Sleeper\n' > "$work/sleeper/mf"
 (cd "$work/sleeper" && jar cfm sleeper.jar mf Sleeper.class)
 
+# Three plugin formats, one echo: each prints every FLIXW_* variable the ABI promises
+# and the raw FLIXW_CONTEXT file body (newlines escaped, so a grep sees one line), so a
+# test can assert the ABI actually delivers correct context without parsing JSON in a
+# POSIX shell. `plugin install` names the destination "plugin.<format>" regardless of
+# the source file's own name, so only the source URL needs the matching extension.
+mkdir -p "$work/pluginjar"
+cat > "$work/pluginjar/EchoPlugin.java" <<'EOF'
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+public final class EchoPlugin {
+    public static void main(String[] a) throws Exception {
+        for (String k : new String[] {
+                "FLIXW_ABI_VERSION", "FLIXW_PROJECT_ROOT", "FLIXW_CACHE_HOME",
+                "FLIXW_COMPILER_VERSION", "FLIXW_COMPILER_JAR", "FLIXW_JAVA_HOME",
+                "FLIXW_PLUGIN_NAME", "FLIXW_PLUGIN_VERSION", "FLIXW_CONTEXT" }) {
+            String v = System.getenv(k);
+            System.out.println(k + "=" + (v == null ? "" : v));
+        }
+        String ctx = System.getenv("FLIXW_CONTEXT");
+        if (ctx != null)
+            System.out.println("CONTEXT_BODY=" + Files.readString(Paths.get(ctx)).replace("\n", "\\n"));
+        System.out.println("ARGS=" + String.join(",", a));
+    }
+}
+EOF
+javac -d "$work/pluginjar" "$work/pluginjar/EchoPlugin.java"
+printf 'Main-Class: EchoPlugin\n' > "$work/pluginjar/mf"
+(cd "$work/pluginjar" && jar cfm plugin.jar mf EchoPlugin.class)
+
+# Same echo, source-launched via JEP 330 instead of packaged -- the `.java` plugin format.
+mkdir -p "$work/pluginjava"
+cat > "$work/pluginjava/plugin.java" <<'EOF'
+public class plugin {
+    public static void main(String[] a) {
+        for (String k : new String[] {
+                "FLIXW_ABI_VERSION", "FLIXW_PROJECT_ROOT", "FLIXW_PLUGIN_NAME", "FLIXW_CONTEXT" }) {
+            String v = System.getenv(k);
+            System.out.println(k + "=" + (v == null ? "" : v));
+        }
+        System.out.println("ARGS=" + String.join(",", a));
+    }
+}
+EOF
+
+# The `.flix` format: no CLI arguments reach it (stock Flix has no `run <file>` mode), so
+# this is the one format that can only prove itself through Sys.Env.Env -- confirmed
+# against a real compiler, not assumed. It runs against the invoking project's own pinned
+# compiler, so the fixture is deliberately this small: proving the channel works, not
+# exercising Flix itself.
+mkdir -p "$work/pluginflix"
+cat > "$work/pluginflix/plugin.flix" <<'EOF'
+def main(): Unit \ {IO, Sys.Env.Env} =
+    match Sys.Env.getVar("FLIXW_PROJECT_ROOT") {
+        case Some(v) => println("FLIXW_PROJECT_ROOT=${v}")
+        case None    => println("FLIXW_PROJECT_ROOT=")
+    }
+EOF
+
 # The project under test.
 mkdir -p "$proj/src"
 cat > "$proj/flix.toml" <<EOF
@@ -1396,6 +1455,164 @@ if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
 else
   s "release archives" "zip/unzip not installed"
 fi
+
+# --- plugins -----------------------------------------------------------
+# A machine-wide, digest-verified, opt-in extension mechanism, entirely separate from the
+# main fixture project above: its own scratch project, so a latent bug here (a stray
+# `rm -rf`, a corrupted lock) cannot leave any earlier section's assumptions one step off.
+echo "plugins"
+pp=$work/pluginproj
+rm -rf "$pp" && mkdir -p "$pp"
+java "$root/src/flixw.java" install "$pp" >/dev/null 2>&1
+git init -q "$pp"
+(cd "$pp" && ./flixw pin "$version" >/dev/null 2>&1)
+ppcv=$(cd "$pp" && ./flixw info 2>/dev/null | awk '/^compiler /{print $2}')
+
+t 0  "plugin with no subcommand prints usage"                    sh -c '
+  cd "$1" || exit 1
+  out=$(./flixw plugin 2>&1); rc=$?
+  [ "$rc" = 88 ] && printf "%s" "$out" | grep -q "usage: ./flixw plugin install"' sh "$pp"
+
+t 0  "plugin install accepts a .jar via file://"                 sh -c '
+  cd "$1" && ./flixw plugin install echoer 1.0.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp" "$work"
+g 0  '\[plugins.echoer\]' "the install is recorded in lock.toml"  sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
+g 0  'echoer  1.0.0-'     "plugin list shows the installed build" sh -c 'cd "$1" && ./flixw plugin list' sh "$pp"
+g 0  'not audited by flixw' "invoking warns it is unaudited 3rd-party code" sh -c '
+  cd "$1" && ./flixw plugin echoer' sh "$pp"
+
+t 0  "plugin invoke delivers the full ABI env tier"               sh -c '
+  cd "$1" || exit 1
+  out=$(./flixw plugin echoer 2>/dev/null) || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_ABI_VERSION=1$"                       || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_PROJECT_ROOT=$1$"                     || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_CACHE_HOME=$2$"                       || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_COMPILER_VERSION=$3$"                 || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_COMPILER_JAR=.*\.jar$"                || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_JAVA_HOME=/"                          || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_PLUGIN_NAME=echoer$"                  || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_PLUGIN_VERSION=1.0.0$"                || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_CONTEXT=.*\.json$"                    || exit 1
+  printf "%s\n" "$out" | grep -q "CONTEXT_BODY=.*\"abiVersion\": 1"            || exit 1
+  printf "%s\n" "$out" | grep -q "CONTEXT_BODY=.*\"projectRoot\": \"$1\""      || exit 1
+  printf "%s\n" "$out" | grep -q "CONTEXT_BODY=.*\"name\": \"echoer\""         || exit 1' \
+  sh "$pp" "$cache" "$ppcv"
+
+# The context file is per-invocation and cleaned up by a shutdown hook -- not a `finally`,
+# because runArtifact ends in System.exit, which finally never survives.
+t 0  "the context file does not outlive its invocation"          sh -c '
+  cd "$1" || exit 1
+  ctx=$(./flixw plugin echoer 2>/dev/null | sed -n "s/^FLIXW_CONTEXT=//p")
+  [ -n "$ctx" ] && [ ! -e "$ctx" ]' sh "$pp"
+
+t 0  "plugin install accepts a .java via file://"                 sh -c '
+  cd "$1" && ./flixw plugin install echoer-java 1.0.0 "file://$2/pluginjava/plugin.java" \
+    >/dev/null 2>&1' sh "$pp" "$work"
+t 0  "a .java plugin receives positional args and the ABI"        sh -c '
+  cd "$1" || exit 1
+  out=$(./flixw plugin echoer-java hello world 2>/dev/null) || exit 1
+  printf "%s\n" "$out" | grep -q "^ARGS=hello,world$"          || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_PLUGIN_NAME=echoer-java$" || exit 1
+  printf "%s\n" "$out" | grep -q "^FLIXW_ABI_VERSION=1$"' sh "$pp"
+
+t 0  "plugin install accepts a .flix via file://"                 sh -c '
+  cd "$1" && ./flixw plugin install echoer-flix 1.0.0 "file://$2/pluginflix/plugin.flix" \
+    >/dev/null 2>&1' sh "$pp" "$work"
+g 0  "FLIXW_PROJECT_ROOT=$pp" "a .flix plugin reads the ABI via Sys.Env.Env" sh -c '
+  cd "$1" && ./flixw plugin echoer-flix' sh "$pp"
+g 88 'cannot receive arguments' ".flix plugin invoke rejects arguments up front" sh -c '
+  cd "$1" && ./flixw plugin echoer-flix oops' sh "$pp"
+
+# The P0 this round carries forward unchanged: `plugin remove ..` dead-reckons to
+# <cache>/plugins/.. -- the cache root -- unless the name is validated before deleteTree
+# ever runs. Exercised against an isolated cache so a regression cannot wipe the shared one.
+travcache=$work/travcache
+rm -rf "$travcache" && mkdir -p "$travcache/plugins/echoer/1.0.0-deadbeef"
+touch "$travcache/plugins/echoer/1.0.0-deadbeef/plugin.jar" "$travcache/marker"
+g 88 'must be lowercase' "plugin remove rejects a traversal name"  sh -c '
+  cd "$1" && env FLIX_CACHE_HOME="$2" ./flixw plugin remove ".."' sh "$pp" "$travcache"
+t 0  "...and the cache root survived the attempt"                 test -f "$travcache/marker"
+t 0  "...and the untouched plugin survived the attempt"           \
+  test -f "$travcache/plugins/echoer/1.0.0-deadbeef/plugin.jar"
+g 88 'must be lowercase' "plugin invoke rejects a traversal name"  sh -c '
+  cd "$1" && ./flixw plugin ".."' sh "$pp"
+g 88 'must be lowercase' "plugin install rejects a traversal name" sh -c '
+  cd "$1" && ./flixw plugin install ".." 1.0.0 "file://$2/pluginjar/plugin.jar"' sh "$pp" "$work"
+
+t 0  "digest mismatch at launch is caught before the plugin runs" sh -c '
+  cd "$1" || exit 1
+  f=$(find "$FLIX_CACHE_HOME/plugins/echoer" -maxdepth 1 -type d -name "1.0.0-*")/plugin.jar
+  cp "$f" "$f.bak"
+  printf corrupt >> "$f"
+  out=$(./flixw plugin echoer 2>&1); rc=$?
+  mv "$f.bak" "$f"
+  [ "$rc" = 85 ] && printf "%s" "$out" | grep -q "no longer matches the digest"' sh "$pp"
+
+g 88 'must look like x.y.z' "plugin install validates the version"     sh -c '
+  cd "$1" && ./flixw plugin install badver latest "file://$2/pluginjar/plugin.jar"' sh "$pp" "$work"
+g 88 'must end in .jar, .java or .flix' "plugin install validates the url's extension" sh -c '
+  cd "$1" && ./flixw plugin install badext 1.0.0 "file://$2/pluginjar/plugin.jar.txt"' sh "$pp" "$work"
+g 88 'must be https:// or file://' "plugin install rejects other url schemes" sh -c '
+  cd "$1" && ./flixw plugin install badscheme 1.0.0 "http://example.invalid/plugin.jar"' sh "$pp"
+g 85 'digest mismatch' "plugin install validates an explicit --sha256"  sh -c '
+  cd "$1" && ./flixw plugin install baddigest 1.0.0 "file://$2/pluginjar/plugin.jar" \
+    --sha256 0000000000000000000000000000000000000000000000000000000000000000' sh "$pp" "$work"
+g 88 'is not installed' "plugin remove on a name never installed fails"  sh -c '
+  cd "$1" && ./flixw plugin remove doesnotexist' sh "$pp"
+g 88 'is not installed' "invoking a name never installed fails"         sh -c '
+  cd "$1" && ./flixw plugin doesnotexist2' sh "$pp"
+
+t 0  "reinstalling a name updates the lock to the new version"    sh -c '
+  cd "$1" && ./flixw plugin install echoer 1.1.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp" "$work"
+g 0  '1\.1\.0' "the lock now points at 1.1.0"                      sh -c '
+  cd "$1" && grep -A2 "\[plugins.echoer\]" .flixw/lock.toml' sh "$pp"
+g 88 'expected by lock.toml but not installed' \
+  "invoking after the pinned build is removed names the repair"   sh -c '
+  cd "$1" || exit 1
+  d=$(find "$FLIX_CACHE_HOME/plugins/echoer" -maxdepth 1 -type d -name "1.1.0-*")
+  rm -rf "$d"
+  ./flixw plugin echoer' sh "$pp"
+g 0  'expected by lock.toml but not installed' \
+  "doctor warns, not fails, on a plugin the lock wants but is missing" sh -c '
+  cd "$1" && ./flixw doctor' sh "$pp"
+
+pp3=$work/pluginproj-nolock
+rm -rf "$pp3" && mkdir -p "$pp3"
+java "$root/src/flixw.java" install "$pp3" >/dev/null 2>&1
+git init -q "$pp3"
+t 0  "plugin install works before any project has ever been pinned" sh -c '
+  cd "$1" && ./flixw plugin install echoer 1.0.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp3" "$work"
+t 0  "...and a .jar plugin needs no compiler to run"               sh -c '
+  cd "$1" && ./flixw plugin echoer >/dev/null 2>&1' sh "$pp3"
+t 0  "...but a .flix plugin does"                                  sh -c '
+  cd "$1" && ./flixw plugin install echoer-flix 1.0.0 "file://$2/pluginflix/plugin.flix" \
+    >/dev/null 2>&1' sh "$pp3" "$work"
+g 88 'no compiler pinned' "...and refuses to run without one"      sh -c '
+  cd "$1" && ./flixw plugin echoer-flix' sh "$pp3"
+t 0  "installing a second version with no lock present"            sh -c '
+  cd "$1" && ./flixw plugin install echoer 2.0.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp3" "$work"
+g 88 'has 2 versions installed' \
+  "an ambiguous plugin with no lock entry names the fix"           sh -c '
+  cd "$1" && ./flixw plugin echoer' sh "$pp3"
+
+# --- tasks ---------------------------------------------------------------
+# npm's `scripts`, not a new verb per task: .flixw/tasks.toml is hand-edited, never
+# fetched, never installed -- a shell string in a file the project already trusts.
+echo "tasks"
+t 0  "task with no tasks.toml lists nothing, offline"              sh -c '
+  cd "$1" && ./flixw task' sh "$pp3"
+printf 'greet = "echo GOT"\n' > "$pp/.flixw/tasks.toml"
+g 0  '^greet$' "task with no name lists the tasks by name"         sh -c 'cd "$1" && ./flixw task' sh "$pp"
+g 0  '^GOT$'   "a task with no extra args runs the bare command"   sh -c 'cd "$1" && ./flixw task greet' sh "$pp"
+g 0  '^GOT extra1 extra2$' "extra args are appended positionally"  sh -c '
+  cd "$1" && ./flixw task greet extra1 extra2' sh "$pp"
+g 88 "no task 'nope'" "an unknown task names the tasks that exist" sh -c '
+  cd "$1" && ./flixw task nope' sh "$pp"
+g 88 'known tasks: greet' "...including the list itself"          sh -c '
+  cd "$1" && ./flixw task nope' sh "$pp"
 
 echo
 echo "passed=$pass failed=$fail skipped=$skipped"
