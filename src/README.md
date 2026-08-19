@@ -8,6 +8,7 @@ loaded, who verifies it, and what breaks if it is wrong.
 | `flixw.java` | **stage 0** | every invocation |
 | `flixw` | shim (POSIX `sh`) | every invocation, before stage 0 |
 | `flixw.cmd` | shim (`cmd.exe`) | every invocation, before stage 0 |
+| `flixw-install.java` | companion asset | only `wrapper --install` and `doctor --fix` |
 | `flixw-completion.java` | companion asset | only `wrapper --completion` |
 | `flixw-jdk.java` | companion asset | only `wrapper --install-jdk` |
 
@@ -21,8 +22,14 @@ invocation, which is why `tests/lint.sh` gates its size — see "Size is a ratch
 ## shims
 
 `flixw` and `flixw.cmd` are **checked-in copies** of the `SHIM` and `CMD` text blocks
-inside `flixw.java`, which is what `install` actually writes out. They are committed so a
-reader can see what they will execute without running anything.
+inside `flixw-install.java`, which is what writes them out. They are committed so a reader
+can see what they will execute without running anything.
+
+Stage 0 no longer holds that text, but it still holds `SHIM_SHA256` and `CMD_SHA256` — so
+`validate` and `doctor` detect a drifted or truncated shim **offline, with no fetch**, and
+only *repairing* one reaches for the asset. Keep the judgement resident and move the bytes;
+a wrapper that could not tell you your shim was wrong without a network would be worse than
+one that cannot fix it.
 
 **Edit both sides or they drift.** `tests/lint.sh` runs `install` into a scratch directory
 and compares byte for byte, so a one-sided edit fails the build rather than shipping a shim
@@ -44,22 +51,23 @@ here — see "What detaches, and what does not" in `AGENTS.md` for what fails it
 Each is a standalone program, launched as `java <asset> <args>`. Stage 0 never references
 their classes, which is what keeps them independently replaceable.
 
-`flixw-jdk.java` carries one extra constraint: it must compile at `SOURCE_FLOOR`, not
-`MIN_JAVA`, because stage 0 launches a companion asset with the JVM it is itself running
-on — and the provisioner exists precisely for the machine whose only JVM is too old.
+`flixw-jdk.java` and `flixw-install.java` both compile at `SOURCE_FLOOR`, not `MIN_JAVA`,
+because stage 0 launches a companion asset with the JVM it is itself running on. For the
+provisioner that JVM is by definition too old; for the installer, `install` itself has to
+work on the oldest JVM stage 0 supports. `tests/lint.sh` compiles both at the floor.
 
 ## why this is one flat directory, and what happens when it is not
 
-Five files, already namespaced by the `flixw-` prefix, and the published asset *name* is
+Six files, already namespaced by the `flixw-` prefix, and the published asset *name* is
 the release contract rather than its path — `pack.sh` flattens into `dist/`, so the layout
-here is free. Subdirectories for five files would be structure ahead of need.
+here is free. Subdirectories for six files would be structure ahead of need.
 
 **The split is deferred, not declined, and its shape is already decided.** Leaving both
 open is how a layout question gets re-argued every time somebody adds a file, so:
 
 | | |
 |---|---|
-| **trigger** | a fourth companion asset lands (`src/flixw-*.java` reaching four files) |
+| **trigger** | a fourth companion asset lands (`src/flixw-*.java` reaching four files; there are now three) |
 | **shape** | `src/stage0/` for `flixw.java` + both shims, `src/assets/` for the companions |
 | **not** | `wrapper/` and `builtins/` — see below |
 | **not** | a top-level split; `src/` stays the source root beside `docs/` and `tests/` |

@@ -38,7 +38,7 @@ you your first Java. Java 21+ is what the compiler needs — see
 ```console
 git init hello && cd hello
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.24.1/flixw.java
-java flixw.java install .
+java flixw.java wrapper --install .
 rm flixw.java
 ```
 
@@ -49,7 +49,7 @@ rm flixw.java
 git init hello; cd hello
 Invoke-WebRequest -OutFile flixw.java `
   https://github.com/wstein/flixw/releases/download/v0.24.1/flixw.java
-java flixw.java install .
+java flixw.java wrapper --install .
 Remove-Item flixw.java
 ```
 
@@ -185,9 +185,13 @@ established.
 ## Adding it to an existing project
 
 A project that already has sources and a `flix.toml` takes the quickstart route unchanged
-— `curl` the single file, `java flixw.java install .`, then `pin`. `install` adds the
+— `curl` the single file, `java flixw.java wrapper --install .`, then `pin`. It adds the
 wrapper without touching anything else: it merges its block into an existing
 `.gitattributes` rather than replacing it, and it never writes `flix.toml`.
+
+The bootstrap sits in flixw's own namespace rather than being a bare `install` verb,
+because `install` is a name Flix could claim for a project's dependencies — so
+`./flixw install` reaches the compiler, like every other word flixw does not own.
 
 The archive is the alternative, for when you would rather not run a downloaded program to
 install a program:

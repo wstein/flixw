@@ -40,7 +40,7 @@ FLIXW_TRACE=1 ./flixw check                   # per-phase timings on stderr
 Exercising it end to end means installing into a scratch project:
 
 ```sh
-java src/flixw.java install /tmp/proj      # writes flixw, flixw.cmd, .flixw/flixw.java, .gitattributes
+java src/flixw.java wrapper --install /tmp/proj   # flixw, flixw.cmd, .flixw/flixw.java, .gitattributes
 cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads the JAR
 ./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flixw pin --refresh                      # rewrite the lock in this release's shape; offline
@@ -68,7 +68,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 293-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 296-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -205,6 +205,16 @@ deprecation notice. `FLIX_BACKEND=wrapper|compiler` forces a side during a trans
 `plugin` and `task` are namespaces, not bare verbs — see below — so nothing under them is
 subject to this retirement; only the two words `plugin` and `task` themselves are.
 
+**The bootstrap is `wrapper --install`, not a bare `install`.** `install` is a name Flix
+could claim — for a project's dependencies, which is what every other tool means by it —
+and holding it meant `./flixw install` reached flixw in any project that had not pinned
+yet, since the old guard only yielded the word once a lock existed. The bare word survives
+*only* with an explicit directory argument, because a published flixw's `--upgrade` spawns
+the downloaded stage 0 as `install <root>` and that cannot be changed retroactively;
+dropping it would break upgrading into this release. A person typing `./flixw install`
+passes no directory, so it routes onward. Drop the bridge once no supported release spawns
+the bare word — the same rule as the `flix.java` name bridge in `tests/pack.sh`.
+
 **Bare wrapper verbs are staying.** Moving them under `wrapper --*` would delete verb
 capture, both help parsers, the `<cache>/verbs/*` records, `routingNotice` and the
 deprecation path — about 220 code lines —
@@ -245,6 +255,7 @@ requires a resolvable project root, and both of these have to answer without one
 |---|---|---|
 | `src/flixw-completion.java` | `wrapper --completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
 | `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
+| `src/flixw-install.java` | `wrapper --install`, `doctor --fix` | runs before the project exists |
 
 `ensureAsset(name, version)` fetches, verifies and caches any of them; see "Completion is
 data, not a generated script" below for the shape, which is now shared. The version is a
@@ -381,9 +392,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3343 | 3050 |
+| code lines in `src/flixw.java` | 2923 | 2900 |
 | comment density | 29% | ≥25% floor |
-| bytes | 279258 | 237000 |
+| bytes | 255285 | 225000 |
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is
@@ -403,8 +414,18 @@ after the JDK move:
 | `listCache` (`info -v`) | 90 | 146 | `knownInstalls`, `probeVersion`, `installedJdk`, `probe` are all kept by `selectJava` |
 | `check`/`report` | 165 | the same 146, plus lock and digest state | a *view over* what the verified chain already computed |
 | gitattributes audit | 84 | — | `mergeGitattributes` is called by `install`; moving only the check splits one concern across two files |
-| `upgradeWrapper` | 60 | ~110 | leans on `digestFor`, `download`, `sha256`, `httpGet`, and `updateWrapper` needs `SHIM`/`CMD` |
+| `upgradeWrapper` | 60 | ~110 | leans on `digestFor`, `download`, `sha256`, `httpGet` |
 | lock-schema JSON renderer | 96 | none | the one clean seam left — but it makes `wrapper --schema` network-dependent and couples the lint gate to an asset fixture, for 96 lines |
+
+The install cluster *was* extractable, and went: `SHIM`, `CMD`, `install`,
+`updateWrapper`, `migrateFromFlixNames`, the templates and `mergeGitattributes` are
+`src/flixw-install.java`, 428 code lines out of stage 0. It passes the self-contained
+test — given a target directory it writes files and needs nothing stage 0 computes — and
+the one thing that looked like a counter-example was solved rather than accepted: stage 0
+keeps `SHIM_SHA256`/`CMD_SHA256`, so `validate` and `doctor` still detect a drifted shim
+**offline, on a cold cache, with no fetch**. Only repair reaches for the asset. That is
+the shape to copy when something looks stuck: keep the *judgement* resident and move the
+*bytes*.
 
 **Rich maintenance is not extractable the way provisioning was.** `info`, `doctor` and
 `validate` are views over state the verified chain computes anyway, so moving them
@@ -419,15 +440,15 @@ measured against today's 3368:
 
 | lever | lands at | status |
 |---|---:|---|
-| clean-seam extraction only | ~3350 | exhausted — nothing large is left |
-| + rich maintenance, duplicating 146 lines of discovery | ~3030 | available, and a poor trade |
-| + retiring bare wrapper verbs | ~2810 | **declined** (see "Dispatch is compiler-first") |
-| + a narrow lock-v2 reader | ~2600 | **declined** (lock-v1 is served indefinitely) |
+| the install cluster → `flixw-install.java` | **2915** | **done** |
+| + rich maintenance, duplicating 146 lines of discovery | ~2600 | available, and a poor trade |
+| + retiring bare wrapper verbs | ~2380 | **declined** (see "Dispatch is compiler-first") |
+| + a narrow lock-v2 reader | ~2170 | **declined** (lock-v1 is served indefinitely) |
 
-So **2650 silently assumed both declined decisions**. The target below is set to 3050 —
-reachable, if the project decides the rich-maintenance duplication is worth paying. It is
-not a promise that it will be paid; it is the honest bound given what has been decided.
-Lower it only by revisiting one of the two declined levers, and say which.
+The 2650 figure silently assumed both declined decisions and a keep-set that has since
+been measured rather than estimated. Extraction is now essentially exhausted: what remains
+is a view over state the verified chain computes, and moving it would duplicate the
+gathering while relocating only the presentation.
 
 The line gate counts **code** lines — blanks and comment-only lines excluded — and the
 density floor pulls the other way on purpose. A gate on *physical* lines is a gate on
@@ -438,10 +459,12 @@ arms starting with `*` and `/*`, so a leading-token classifier would let the den
 be met by shipping more embedded shell.
 
 The three numbers must stay arithmetically compatible, and the byte target is *derived*
-from the other two rather than chosen. At the measured 53 bytes per code line and 69 per
-comment line, 3050 code lines at a 25% density is 4357 physical lines and ~237 KB — so
-**a 100 KB target is unreachable**, being below even the zero-comment cost of 3050 code
-lines (162 KB). When one number moves, re-derive the others rather than picking a round one.
+from the other two rather than chosen. At the measured 52 bytes per code line and 69 per
+comment line, 2900 code lines at a 25% density is 4142 physical lines and ~225 KB — so
+**a 100 KB target is unreachable**, being below even the zero-comment cost of 2900 code
+lines (152 KB). When one number moves, re-derive the others rather than picking a round
+one: this target was briefly set to 208 KB by hand, which no combination of the other two
+could have produced.
 
 Lowering a ceiling is a deliberate edit and belongs in the commit that earned it; lint
 prints a `note` when the slack passes 100 lines or 5 KB rather than failing, because the
