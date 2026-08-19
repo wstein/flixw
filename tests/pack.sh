@@ -4,7 +4,7 @@
 #   flixw-<version>.tar.gz    the wrapper files, over a project root
 #   flixw-<version>.zip       the same, for a machine without tar
 #   flixw.java                stage 0 on its own, for the `java flixw.java wrapper --install` route
-#   flixw-install.java        the installer, fetched on first use and cached
+#   flixw-setup.java        the installer, fetched on first use and cached
 #   flixw-completion.java     the TAB-completion generator, fetched on first use and cached
 #   flixw-jdk.java            the optional JDK provisioner, fetched on first use and cached
 #   SHA256SUMS                digests of all of the above
@@ -53,11 +53,11 @@ trap 'rm -rf "$stage" "$work"' EXIT INT TERM
 fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
-   "$root/src/flixw-jdk.java" "$root/src/flixw-install.java" "$fixture/"
-(cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-install.java \
+   "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" "$fixture/"
+(cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
    > SHA256SUMS)
 FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
-  java "$root/src/flixw-install.java" install "$stage" "$root/src/flixw.java" >/dev/null
+  java "$root/src/flixw-setup.java" setup "$stage" "$root/src/flixw.java" >/dev/null
 
 # What ships is the documented source with its commentary removed. Every adopting project
 # commits .flixw/flixw.java into its own repository, and a third of that file is prose
@@ -119,9 +119,9 @@ cp "$shipped" "$out/flixw.java"
 # `wrapper --install-jdk`, flixw-completion.java by `wrapper --completion <shell>`.
 cp "$root/src/flixw-completion.java" "$out/flixw-completion.java"
 cp "$root/src/flixw-jdk.java" "$out/flixw-jdk.java"
-cp "$root/src/flixw-install.java" "$out/flixw-install.java"
+cp "$root/src/flixw-setup.java" "$out/flixw-setup.java"
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
-              flixw-completion.java flixw-jdk.java flixw-install.java > SHA256SUMS)
+              flixw-completion.java flixw-jdk.java flixw-setup.java > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

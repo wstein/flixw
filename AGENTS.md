@@ -40,7 +40,7 @@ FLIXW_TRACE=1 ./flixw check                   # per-phase timings on stderr
 Exercising it end to end means installing into a scratch project:
 
 ```sh
-java src/flixw-install.java install /tmp/proj src/flixw.java   # the four project files
+java src/flixw-setup.java setup /tmp/proj src/flixw.java   # the four project files
 cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads the JAR
 ./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flixw pin --refresh                      # rewrite the lock in this release's shape; offline
@@ -211,7 +211,7 @@ deprecation notice. `FLIX_BACKEND=wrapper|compiler` forces a side during a trans
 `plugin` and `task` are namespaces, not bare verbs — see below — so nothing under them is
 subject to this retirement; only the two words `plugin` and `task` themselves are.
 
-**Stage 0 has no install verb at all.** The bootstrap is `java flixw-install.java`: the
+**Stage 0 has no install verb at all.** The bootstrap is `java flixw-setup.java`: the
 installer is what somebody downloads, verifies and runs, and it fetches the stage 0 of its
 own release. What has to be read before anything executes is therefore ~640 lines instead
 of 3288 — both are named in the same `SHA256SUMS`, so verifying either establishes the
@@ -264,7 +264,7 @@ requires a resolvable project root, and both of these have to answer without one
 |---|---|---|
 | `src/flixw-completion.java` | `wrapper --completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
 | `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
-| `src/flixw-install.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
+| `src/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
 
 `ensureAsset(name, version)` fetches, verifies and caches any of them; see "Completion is
 data, not a generated script" below for the shape, which is now shared. The version is a
@@ -463,7 +463,7 @@ after the JDK move:
 
 The install cluster *was* extractable, and went: `SHIM`, `CMD`, `install`,
 `updateWrapper`, the templates and `mergeGitattributes` are
-`src/flixw-install.java`, 428 code lines out of stage 0. It passes the self-contained
+`src/flixw-setup.java`, 428 code lines out of stage 0. It passes the self-contained
 test — given a target directory it writes files and needs nothing stage 0 computes — and
 the one thing that looked like a counter-example was solved rather than accepted: stage 0
 keeps `SHIM_SHA256`/`CMD_SHA256`, so `validate` and `doctor` still detect a drifted shim
@@ -507,7 +507,7 @@ measured against today's 3368:
 
 | lever | lands at | status |
 |---|---:|---|
-| the install cluster → `flixw-install.java` | **2915** | **done** |
+| the install cluster → `flixw-setup.java` | **2915** | **done** |
 | + rich maintenance, duplicating 146 lines of discovery | ~2600 | available, and a poor trade |
 | + retiring bare wrapper verbs | ~2380 | **declined** (see "Dispatch is compiler-first") |
 | + a narrow lock-v2 reader | ~2170 | **declined** (lock-v1 is served indefinitely) |

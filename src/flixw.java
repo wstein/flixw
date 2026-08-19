@@ -3363,7 +3363,7 @@ public final class flixw {
      * fetched asset write access to the trust root.
      */
     static void updateWrapper(Path root) {
-        runInstallAsset(List.of("update", root.toString()));
+        runSetupAsset(List.of("update", root.toString()));
         // A lock only `pin <version>` can repair is not this command's to guess at;
         // everything else doctor --fix reports is still reported.
         try {
@@ -3670,9 +3670,9 @@ public final class flixw {
             // The installer of the release being moved to, given the stage 0 this already
             // downloaded and verified -- stage 0 has no install verb to hand over to any
             // more, and fetching a second copy would be a chance to disagree with itself.
-            Path installer = ensureAsset(INSTALL_ASSET, published == null ? WRAPPER_VERSION : published);
+            Path installer = ensureAsset(SETUP_ASSET, published == null ? WRAPPER_VERSION : published);
             ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), installer.toString(),
-                                                   "install", root.toString(), fresh.toString())
+                                                   "setup", root.toString(), fresh.toString())
                                     .inheritIO();
             // The child is a different file in a different directory. Both markers describe
             // *this* process and mean nothing to it -- FLIXW_SOURCE would anchor it in this
@@ -3799,14 +3799,14 @@ public final class flixw {
     /** The optional JDK provisioner; see {@link #runJdkAsset}. */
     static final String JDK_ASSET = "flixw-jdk.java";
 
-    /** The installer; see {@link #runInstallAsset}. */
-    static final String INSTALL_ASSET = "flixw-install.java";
+    /** The installer; see {@link #runSetupAsset}. */
+    static final String SETUP_ASSET = "flixw-setup.java";
 
     /**
      * The SHA-256 of the two shims this release installs, as they are written to disk --
      * the POSIX one with LF, the {@code .cmd} with CRLF.
      *
-     * <p>The shim *text* lives in {@code flixw-install.java}, which is fetched. These two
+     * <p>The shim *text* lives in {@code flixw-setup.java}, which is fetched. These two
      * lines are what stays behind, and they are the reason the move is affordable:
      * {@code validate} and {@code doctor} still detect a drifted or truncated shim
      * offline, on a cold cache, with no network -- only *repairing* it reaches for the
@@ -3825,8 +3825,8 @@ public final class flixw {
      * every other flixw diagnostic does.
      *
      */
-    static void runInstallAsset(List<String> args) {
-        Path asset = ensureAsset(INSTALL_ASSET);
+    static void runSetupAsset(List<String> args) {
+        Path asset = ensureAsset(SETUP_ASSET);
         Path javaExe = exeIn(System.getProperty("java.home"));
         List<String> cmd = new ArrayList<>(List.of(javaExe.toString(), asset.toString()));
         cmd.addAll(args);

@@ -37,9 +37,9 @@ you your first Java. Java 21+ is what the compiler needs — see
 
 ```console
 git init hello && cd hello
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.0-pre.1/flixw-install.java
-java flixw-install.java
-rm flixw-install.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.0-pre.1/flixw-setup.java
+java flixw-setup.java
+rm flixw-setup.java
 ```
 
 <details>
@@ -47,10 +47,10 @@ rm flixw-install.java
 
 ```powershell
 git init hello; cd hello
-Invoke-WebRequest -OutFile flixw-install.java `
-  https://github.com/wstein/flixw/releases/download/v0.25.0-pre.1/flixw-install.java
-java flixw-install.java
-Remove-Item flixw-install.java
+Invoke-WebRequest -OutFile flixw-setup.java `
+  https://github.com/wstein/flixw/releases/download/v0.25.0-pre.1/flixw-setup.java
+java flixw-setup.java
+Remove-Item flixw-setup.java
 ```
 
 Then read `.\flixw.cmd` wherever this page writes `./flixw`: `.\flixw.cmd pin 0.75.2`,
@@ -184,7 +184,7 @@ established.
 ## Adding it to an existing project
 
 A project that already has sources and a `flix.toml` takes the quickstart route unchanged
-— `curl` the single file, `java flixw-install.java`, then `pin`. It adds the
+— `curl` the single file, `java flixw-setup.java`, then `pin`. It adds the
 wrapper without touching anything else: it merges its block into an existing
 `.gitattributes` rather than replacing it, and it never writes `flix.toml`.
 

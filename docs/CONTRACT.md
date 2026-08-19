@@ -494,7 +494,7 @@ about stage 0 and not about the assets beside it: an upgrade is the natural mome
 notice one is missing from the cache. Ahead of the newest release — working on flixw
 itself — nothing is warmed, because assets for an unpublished version cannot exist.
 
-Stage 0 has **no install verb**. Adoption is `java flixw-install.java [dir]`, run on the
+Stage 0 has **no install verb**. Adoption is `java flixw-setup.java [dir]`, run on the
 installer downloaded from a release — it fetches and digest-verifies the stage 0 of its own
 release, then writes the project files. `wrapper --upgrade` uses the same program, handing
 it the stage 0 it has already verified rather than letting it fetch a second copy.

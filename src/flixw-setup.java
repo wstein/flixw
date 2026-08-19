@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  *
  * <p>Fetched once per machine per flixw release by {@code wrapper --install} and by
  * {@code doctor --fix}, verified against that release's own {@code SHA256SUMS}, cached,
- * and run as {@code java flixw-install.java <verb> <target> <version> [<stage0-source>]}.
+ * and run as {@code java flixw-setup.java <verb> <target> <version> [<stage0-source>]}.
  * {@code wrapper --upgrade} warms it along with every other companion asset, so the fetch
  * happens at a moment the user asked for network rather than the next time they did not.
  *
@@ -38,8 +38,8 @@ import java.util.regex.Pattern;
  *
  * <p>Nothing here is on any hot path, so it favours clarity over economy.
  */
-final class flixwinstall {
-    private flixwinstall() {}
+final class flixwsetup {
+    private flixwsetup() {}
 
     /**
      * The wrapper's directory name, which is also written into the shims below.
@@ -133,7 +133,7 @@ final class flixwinstall {
     static String httpGet(String url) {
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(60))
-                .header("User-Agent", "flixw-install/" + WRAPPER_VERSION).build();
+                .header("User-Agent", "flixw-setup/" + WRAPPER_VERSION).build();
         try {
             // Bounded, because this response supplies both the JDK's URL and the digest it
             // will be verified against: a server that answers forever would otherwise be
@@ -169,7 +169,7 @@ final class flixwinstall {
         if (!url.startsWith("https://")) throw w005("refusing non-https url " + redact(url));
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofMinutes(10))
-                .header("User-Agent", "flixw-install/" + WRAPPER_VERSION).build();
+                .header("User-Agent", "flixw-setup/" + WRAPPER_VERSION).build();
         try {
             HttpResponse<Path> res = httpClient().send(req, HttpResponse.BodyHandlers.ofFile(dest));
             if (!"https".equals(res.uri().getScheme()))
@@ -246,7 +246,7 @@ final class flixwinstall {
     }
 
     /**
-     * The bootstrap. {@code java flixw-install.java [dir]} adopts flixw into a project.
+     * The bootstrap. {@code java flixw-setup.java [dir]} adopts flixw into a project.
      *
      * <p>Stage 0 has no install verb at all: this file is what somebody downloads,
      * verifies and runs, and it fetches the stage 0 matching its own release. What has to
@@ -258,19 +258,19 @@ final class flixwinstall {
      * fetching a stage 0, because the project already has one.
      */
     public static void main(String[] args) {
-        String verb = args.length > 0 && (args[0].equals("install") || args[0].equals("update"))
-            ? args[0] : "install";
+        String verb = args.length > 0 && (args[0].equals("setup") || args[0].equals("update"))
+            ? args[0] : "setup";
         List<String> rest = new java.util.ArrayList<>(List.of(args));
         if (!rest.isEmpty() && rest.get(0).equals(verb)) rest.remove(0);
         if (rest.size() > 2) {
-            System.err.println("usage: java flixw-install.java [install] [dir]"
-                             + "\n       java flixw-install.java update <dir>");
+            System.err.println("usage: java flixw-setup.java [setup] [dir]"
+                             + "\n       java flixw-setup.java update <dir>");
             System.exit(87);
         }
         Path target = Paths.get(rest.isEmpty() ? "." : rest.get(0)).toAbsolutePath().normalize();
         try {
             switch (verb) {
-                case "install" -> {
+                case "setup" -> {
                     // An explicit stage 0 is how `wrapper --upgrade` uses this: it has
                     // already downloaded and verified the release it is moving to, and
                     // fetching a second copy would be both wasteful and a chance to
@@ -303,7 +303,7 @@ final class flixwinstall {
     /** Somewhere to land the download; the project directory is not ours to litter. */
     static Path tempDir() {
         try {
-            return Files.createTempDirectory("flixw-install-");
+            return Files.createTempDirectory("flixw-setup-");
         } catch (IOException e) {
             throw w007("cannot create a temporary directory: " + why(e));
         }

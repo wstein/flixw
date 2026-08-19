@@ -8,7 +8,7 @@ loaded, who verifies it, and what breaks if it is wrong.
 | `flixw.java` | **stage 0** | every invocation |
 | `flixw` | shim (POSIX `sh`) | every invocation, before stage 0 |
 | `flixw.cmd` | shim (`cmd.exe`) | every invocation, before stage 0 |
-| `flixw-install.java` | companion asset, **and the bootstrap** | run directly to adopt flixw; `doctor --fix` |
+| `flixw-setup.java` | companion asset, **and the bootstrap** | run directly to adopt flixw; `doctor --fix` |
 | `flixw-completion.java` | companion asset | only `wrapper --completion` |
 | `flixw-jdk.java` | companion asset | only `wrapper --install-jdk` |
 
@@ -29,7 +29,7 @@ invocation, which is why `tests/lint.sh` gates its size — see "Size is a ratch
 ## shims
 
 `flixw` and `flixw.cmd` are **checked-in copies** of the `SHIM` and `CMD` text blocks
-inside `flixw-install.java`, which is what writes them out. They are committed so a reader
+inside `flixw-setup.java`, which is what writes them out. They are committed so a reader
 can see what they will execute without running anything.
 
 Stage 0 no longer holds that text, but it still holds `SHIM_SHA256` and `CMD_SHA256` — so
@@ -58,7 +58,7 @@ here — see "What detaches, and what does not" in `AGENTS.md` for what fails it
 Each is a standalone program, launched as `java <asset> <args>`. Stage 0 never references
 their classes, which is what keeps them independently replaceable.
 
-`flixw-jdk.java` and `flixw-install.java` both compile at `SOURCE_FLOOR`, not `MIN_JAVA`,
+`flixw-jdk.java` and `flixw-setup.java` both compile at `SOURCE_FLOOR`, not `MIN_JAVA`,
 because stage 0 launches a companion asset with the JVM it is itself running on. For the
 provisioner that JVM is by definition too old; for the installer, `install` itself has to
 work on the oldest JVM stage 0 supports. `tests/lint.sh` compiles both at the floor.

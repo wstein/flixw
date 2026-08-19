@@ -39,7 +39,7 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 # exists to flag by default, and exactly what this repository's own multi-file layout is.
 if javac -Xlint:all,-auxiliaryclass -Werror -d "$work/classes" \
         "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
-        "$root/src/flixw-install.java" \
+        "$root/src/flixw-setup.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
@@ -64,20 +64,20 @@ else
 fi
 
 # --- 3. shim byte-parity ---------------------------------------------------
-# The shim text lives in src/flixw-install.java now, fetched and digest-verified at run
+# The shim text lives in src/flixw-setup.java now, fetched and digest-verified at run
 # time -- so this stands a release up in a directory and points the wrapper at it. Same
 # code path as production, only the base URL differs; nothing here touches the network.
 fixture=$work/release
 mkdir -p "$fixture"
-cp "$root/src/flixw.java" "$root/src/flixw-completion.java"    "$root/src/flixw-jdk.java" "$root/src/flixw-install.java" "$fixture/"
+cp "$root/src/flixw.java" "$root/src/flixw-completion.java"    "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" "$fixture/"
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 # shellcheck disable=SC2086  # $sum is a command name plus flags, deliberately split
-(cd "$fixture" && $sum flixw.java flixw-completion.java flixw-jdk.java flixw-install.java    > SHA256SUMS)
+(cd "$fixture" && $sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java    > SHA256SUMS)
 export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
 
 # `install` refuses to run inside an installed project, so give it a clean target.
-if java "$root/src/flixw-install.java" install "$work/parity" "$root/src/flixw.java" \
+if java "$root/src/flixw-setup.java" setup "$work/parity" "$root/src/flixw.java" \
       >"$work/install.log" 2>&1; then
   for f in flixw flixw.cmd; do
     if cmp -s "$work/parity/$f" "$root/src/$f"; then
@@ -119,7 +119,7 @@ done
 # carries WRAPPER_VERSION too. A disagreement would have somebody download 0.25.0's
 # installer and receive some other release's stage 0, with both digests checking out.
 v0=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java" | head -1)
-v1=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw-install.java" | head -1)
+v1=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw-setup.java" | head -1)
 if [ -n "$v0" ] && [ "$v0" = "$v1" ]; then
   say "ok    WRAPPER_VERSION is $v0 in stage 0 and in the installer"
 else
@@ -129,7 +129,7 @@ fi
 # WRAPPER_DIR is written into the shim text, so the installer needs its own copy -- and a
 # disagreement would have stage 0 reading a directory the installer never wrote.
 d0=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
-d1=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/flixw-install.java")
+d1=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/flixw-setup.java")
 if [ -n "$d0" ] && [ "$d0" = "$d1" ]; then
   say "ok    WRAPPER_DIR is '$d0' in stage 0 and in the installer"
 else
@@ -140,7 +140,7 @@ fi
 # One writes the block, the other decides whether a project has one -- so a rename on
 # either side means doctor --fix writes a block validate cannot find, forever.
 m0=$(grep -c '# >>> flixw >>>' "$root/src/flixw.java" || true)
-m1=$(grep -c '# >>> flixw >>>' "$root/src/flixw-install.java" || true)
+m1=$(grep -c '# >>> flixw >>>' "$root/src/flixw-setup.java" || true)
 if [ "$m0" -ge 1 ] && [ "$m1" -ge 1 ]; then
   say "ok    both sides know the .gitattributes block markers"
 else
@@ -189,13 +189,13 @@ fi
 # itself must work on the oldest JVM stage 0 runs on, and stage 0 launches the asset with
 # the JVM it is running on.
 if [ -n "$floor" ]; then
-  if javac --release "$floor" -d "$work/floor-install" "$root/src/flixw-install.java" \
+  if javac --release "$floor" -d "$work/floor-install" "$root/src/flixw-setup.java" \
         >"$work/floor-install.log" 2>&1; then
     say "ok    the installer compiles at Java $floor"
   elif grep -q "release version $floor not supported" "$work/floor-install.log"; then
     say "skip  installer floor check (this javac no longer targets $floor)"
   else
-    bad "src/flixw-install.java no longer compiles at Java $floor"
+    bad "src/flixw-setup.java no longer compiles at Java $floor"
     head -5 "$work/floor-install.log"
   fi
 fi
@@ -332,8 +332,8 @@ fi
 # *wrong*, not about there being fewer of them than a tool would like.
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
         -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
-        "$root/src/flixw-jdk.java" "$root/src/flixw-install.java" \
-        "$root/src/flixw-install.java" \
+        "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
+        "$root/src/flixw-setup.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
