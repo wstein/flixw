@@ -1731,11 +1731,17 @@ t 0  "plugin invoke delivers the full ABI env tier"               sh -c '
   cd "$1" || exit 1
   out=$(./flixw plugin echoer 2>/dev/null) || exit 1
   printf "%s\n" "$out" | grep -q "^FLIXW_ABI_VERSION=1$"                       || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_PROJECT_ROOT=$1$"                     || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_CACHE_HOME=$2$"                       || exit 1
+  # flixw is a Java program and reports native paths, so on Windows these are D:\... and
+  # not the /d/... the shell would give. That is correct -- a plugin receives what it can
+  # open -- so the expectation is converted rather than the value. -F because a Windows
+  # path is full of regex metacharacters.
+  eroot=$1; ecache=$2
+  if command -v cygpath >/dev/null 2>&1; then eroot=$(cygpath -w "$1"); ecache=$(cygpath -w "$2"); fi
+  printf "%s\n" "$out" | grep -Fq "FLIXW_PROJECT_ROOT=$eroot"                  || exit 1
+  printf "%s\n" "$out" | grep -Fq "FLIXW_CACHE_HOME=$ecache"                   || exit 1
   printf "%s\n" "$out" | grep -q "^FLIXW_COMPILER_VERSION=$3$"                 || exit 1
   printf "%s\n" "$out" | grep -q "^FLIXW_COMPILER_JAR=.*\.jar$"                || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_JAVA_HOME=/"                          || exit 1
+  printf "%s\n" "$out" | grep -qE "^FLIXW_JAVA_HOME=(/|[A-Za-z]:)"             || exit 1
   printf "%s\n" "$out" | grep -q "^FLIXW_PLUGIN_NAME=echoer$"                  || exit 1
   printf "%s\n" "$out" | grep -q "^FLIXW_PLUGIN_VERSION=1.0.0$"                || exit 1
   printf "%s\n" "$out" | grep -q "^FLIXW_CONTEXT=.*\.json$"                    || exit 1
@@ -1764,7 +1770,11 @@ t 0  "a .java plugin receives positional args and the ABI"        sh -c '
 t 0  "plugin install accepts a .flix via file://"                 sh -c '
   cd "$1" && ./flixw plugin install echoer-flix 1.0.0 "$2/pluginflix/plugin.flix" \
     >/dev/null 2>&1' sh "$pp" "$(fileurl "$work")"
-g 0  "FLIXW_PROJECT_ROOT=$pp" "a .flix plugin reads the ABI via Sys.Env.Env" sh -c '
+# The value is a *native* path -- D:\... on Windows, where the shell would say /d/... --
+# because flixw is a Java program and a plugin has to be able to open what it is handed.
+# Matched by its last segment rather than in full: `g` greps a regex, and a Windows path
+# is mostly regex metacharacters. What is under test is that the root reaches the plugin.
+g 0  "FLIXW_PROJECT_ROOT=.*pluginproj" "a .flix plugin reads the ABI via Sys.Env.Env" sh -c '
   cd "$1" && ./flixw plugin echoer-flix' sh "$pp"
 g 88 'cannot receive arguments' ".flix plugin invoke rejects arguments up front" sh -c '
   cd "$1" && ./flixw plugin echoer-flix oops' sh "$pp"
