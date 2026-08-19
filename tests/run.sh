@@ -49,6 +49,15 @@ unset FLIXW_STRICT_JAVA FLIXW_TRACE FLIXW_UNSAFE_JVM_OPTS FLIXW_RELAUNCHED FLIXW
 # a companion asset -- the installer among them -- so this has to exist before the first
 # `install` in the suite rather than beside the completion cases that used to own it.
 # Same code path as production; only the base differs, and nothing here touches the network.
+# Git Bash reports paths as /d/a/flixw, which is meaningful to it and to nothing else: a
+# JVM resolves file:///d/a/flixw to \d\a\flixw on the current drive, and nothing is there.
+# Windows had never run a file:// case -- the plugin and asset ones postdate the last green
+# Windows build -- so both platforms were green while every such url was unusable on one.
+fileurl() {
+  if command -v cygpath >/dev/null 2>&1; then printf 'file:///%s' "$(cygpath -m "$1")"
+  else printf 'file://%s' "$1"; fi
+}
+
 relfixture=$work/release
 mkdir -p "$relfixture"
 cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
@@ -60,7 +69,8 @@ else
   (cd "$relfixture" && shasum -a 256 flixw.java flixw-completion.java flixw-jdk.java \
      flixw-setup.java > SHA256SUMS)
 fi
-export FLIXW_ASSET_SOURCE="file://$relfixture/"
+relfixture_url=$(fileurl "$relfixture")
+export FLIXW_ASSET_SOURCE="$relfixture_url/"
 
 pass=0
 fail=0
@@ -1031,7 +1041,9 @@ g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh
   if command -v sha256sum >/dev/null 2>&1; then (cd "$bad" && sha256sum flixw-completion.java > SHA256SUMS)
   else (cd "$bad" && shasum -a 256 flixw-completion.java > SHA256SUMS); fi
   printf "\n// tampered\n" >> "$bad/flixw-completion.java"
-  FLIXW_ASSET_SOURCE="file://$bad/" ./flixw wrapper --completion bash' \
+  if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
+  else u="file://$bad"; fi
+  FLIXW_ASSET_SOURCE="$u/" ./flixw wrapper --completion bash' \
   sh "$cache" "$work" "$complfixture"
 t 0  "...and nothing was cached"                                sh -c '
   ! find "$1/wrapper/assets" -name flixw-completion.java 2>/dev/null | grep -q .' sh "$cache"
@@ -1043,7 +1055,7 @@ rm -rf "$empty" && mkdir -p "$empty"
 : > "$empty/SHA256SUMS"
 g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific problem" sh -c '
   rm -rf "$1/wrapper"
-  FLIXW_ASSET_SOURCE="file://$2/" ./flixw wrapper --completion bash' sh "$cache" "$empty"
+  FLIXW_ASSET_SOURCE="$2/" ./flixw wrapper --completion bash' sh "$cache" "$(fileurl "$empty")"
 # Restore a warm, valid cache: later sections in this suite share $cache, and leaving it
 # in whatever failure state the last negative case above left it in would be a trap for
 # the next person adding a case here, not a property this suite promises to anyone else.
@@ -1062,7 +1074,9 @@ g 85 'digest mismatch' "a tampered provisioner is refused before it is cached"  
   then (cd "$bad" && sha256sum flixw-completion.java flixw-jdk.java > SHA256SUMS)
   else (cd "$bad" && shasum -a 256 flixw-completion.java flixw-jdk.java > SHA256SUMS); fi
   printf "\n// tampered\n" >> "$bad/flixw-jdk.java"
-  FLIXW_ASSET_SOURCE="file://$bad/" ./flixw wrapper --install-jdk' \
+  if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
+  else u="file://$bad"; fi
+  FLIXW_ASSET_SOURCE="$u/" ./flixw wrapper --install-jdk' \
   sh "$cache" "$work" "$complfixture"
 t 0  "...and the provisioner was not cached"                    sh -c '
   ! find "$1/wrapper/assets" -name flixw-jdk.java 2>/dev/null | grep -q .' sh "$cache"
@@ -1073,7 +1087,7 @@ g 84 'cannot reach' "no network on a cold cache names the source, not Adoptium" 
 # actually asked for rather than whichever is checked first.
 g 84 'flixw-jdk.java' "SHA256SUMS silent on the provisioner names it specifically" sh -c '
   rm -rf "$1/wrapper"
-  FLIXW_ASSET_SOURCE="file://$2/" ./flixw wrapper --install-jdk' sh "$cache" "$empty"
+  FLIXW_ASSET_SOURCE="$2/" ./flixw wrapper --install-jdk' sh "$cache" "$(fileurl "$empty")"
 
 # The asset stands alone -- it is a program, launched by a JVM that may predate this one --
 # so its own argument handling is asserted directly, with no stage 0 and no network.
@@ -1100,7 +1114,7 @@ then (cd "$stub" && sha256sum flixw-completion.java flixw-jdk.java > SHA256SUMS)
 else (cd "$stub" && shasum -a 256 flixw-completion.java flixw-jdk.java > SHA256SUMS); fi
 g 0 'is installed' "the provisioner is fetched, verified, launched and believed"  sh -c '
   rm -rf "$1/wrapper"
-  FLIXW_ASSET_SOURCE="file://$2/" ./flixw wrapper --install-jdk' sh "$cache" "$stub"
+  FLIXW_ASSET_SOURCE="$2/" ./flixw wrapper --install-jdk' sh "$cache" "$(fileurl "$stub")"
 t 0  "...and it was cached under the shared asset tree"         sh -c '
   find "$1/wrapper/assets" -name "flixw-jdk.java.sha256" | grep -q .' sh "$cache"
 
@@ -1580,8 +1594,8 @@ upgproj=$work/upgraded-real
 rm -rf "$upgproj" && mkdir -p "$upgproj"
 java "$root/src/flixw-setup.java" setup "$upgproj" "$root/src/flixw.java" >/dev/null 2>&1
 g 0 '0.25.0-pre.2 -> 9.9.9' "upgrade moves the project to a newer release"  sh -c '
-  cd "$1" && FLIXW_RELEASE_SOURCE="file://$2/" FLIXW_ASSET_SOURCE="file://$2/" \
-    ./flixw wrapper --upgrade 2>&1' sh "$upgproj" "$newrel"
+  cd "$1" && FLIXW_RELEASE_SOURCE="$2/" FLIXW_ASSET_SOURCE="$2/" \
+    ./flixw wrapper --upgrade 2>&1' sh "$upgproj" "$(fileurl "$newrel")"
 t 0 "...and the project now carries that stage 0"                sh -c '
   grep -q "WRAPPER_VERSION = \"9.9.9\"" "$1/.flixw/flixw.java"' sh "$upgproj"
 t 0 "...and its shims were rewritten by the new release"         sh -c '
@@ -1602,7 +1616,9 @@ java "$root/src/flixw-setup.java" setup "$tamperproj" "$root/src/flixw.java" >/d
 g 85 'digest mismatch' "upgrade refuses a release whose stage 0 was tampered with"  sh -c '
   bad=$2-tampered; rm -rf "$bad"; cp -R "$2" "$bad"
   printf "\n// tampered\n" >> "$bad/flixw.java"
-  cd "$1" && FLIXW_RELEASE_SOURCE="file://$bad/" FLIXW_ASSET_SOURCE="file://$bad/" \
+  if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
+  else u="file://$bad"; fi
+  cd "$1" && FLIXW_RELEASE_SOURCE="$u/" FLIXW_ASSET_SOURCE="$u/" \
     ./flixw wrapper --upgrade 2>&1' sh "$tamperproj" "$newrel"
 t 0 "...and left the project on the stage 0 it had"              sh -c '
   grep -q "WRAPPER_VERSION = \"0.25.0-pre.2\"" "$1/.flixw/flixw.java"' sh "$tamperproj"
@@ -1704,8 +1720,8 @@ t 0  "plugin with no subcommand prints usage"                    sh -c '
   [ "$rc" = 88 ] && printf "%s" "$out" | grep -q "usage: ./flixw plugin install"' sh "$pp"
 
 t 0  "plugin install accepts a .jar via file://"                 sh -c '
-  cd "$1" && ./flixw plugin install echoer 1.0.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
-  sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install echoer 1.0.0 "$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp" "$(fileurl "$work")"
 g 0  '\[plugins.echoer\]' "the install is recorded in lock.toml"  sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
 g 0  'echoer  1.0.0-'     "plugin list shows the installed build" sh -c 'cd "$1" && ./flixw plugin list' sh "$pp"
 g 0  'not audited by flixw' "invoking warns it is unaudited 3rd-party code" sh -c '
@@ -1736,8 +1752,8 @@ t 0  "the context file does not outlive its invocation"          sh -c '
   [ -n "$ctx" ] && [ ! -e "$ctx" ]' sh "$pp"
 
 t 0  "plugin install accepts a .java via file://"                 sh -c '
-  cd "$1" && ./flixw plugin install echoer-java 1.0.0 "file://$2/pluginjava/plugin.java" \
-    >/dev/null 2>&1' sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install echoer-java 1.0.0 "$2/pluginjava/plugin.java" \
+    >/dev/null 2>&1' sh "$pp" "$(fileurl "$work")"
 t 0  "a .java plugin receives positional args and the ABI"        sh -c '
   cd "$1" || exit 1
   out=$(./flixw plugin echoer-java hello world 2>/dev/null) || exit 1
@@ -1746,8 +1762,8 @@ t 0  "a .java plugin receives positional args and the ABI"        sh -c '
   printf "%s\n" "$out" | grep -q "^FLIXW_ABI_VERSION=1$"' sh "$pp"
 
 t 0  "plugin install accepts a .flix via file://"                 sh -c '
-  cd "$1" && ./flixw plugin install echoer-flix 1.0.0 "file://$2/pluginflix/plugin.flix" \
-    >/dev/null 2>&1' sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install echoer-flix 1.0.0 "$2/pluginflix/plugin.flix" \
+    >/dev/null 2>&1' sh "$pp" "$(fileurl "$work")"
 g 0  "FLIXW_PROJECT_ROOT=$pp" "a .flix plugin reads the ABI via Sys.Env.Env" sh -c '
   cd "$1" && ./flixw plugin echoer-flix' sh "$pp"
 g 88 'cannot receive arguments' ".flix plugin invoke rejects arguments up front" sh -c '
@@ -1767,7 +1783,7 @@ t 0  "...and the untouched plugin survived the attempt"           \
 g 88 'must be lowercase' "plugin invoke rejects a traversal name"  sh -c '
   cd "$1" && ./flixw plugin ".."' sh "$pp"
 g 88 'must be lowercase' "plugin install rejects a traversal name" sh -c '
-  cd "$1" && ./flixw plugin install ".." 1.0.0 "file://$2/pluginjar/plugin.jar"' sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install ".." 1.0.0 "$2/pluginjar/plugin.jar"' sh "$pp" "$(fileurl "$work")"
 
 t 0  "digest mismatch at launch is caught before the plugin runs" sh -c '
   cd "$1" || exit 1
@@ -1779,22 +1795,22 @@ t 0  "digest mismatch at launch is caught before the plugin runs" sh -c '
   [ "$rc" = 85 ] && printf "%s" "$out" | grep -q "no longer matches the digest"' sh "$pp"
 
 g 88 'must look like x.y.z' "plugin install validates the version"     sh -c '
-  cd "$1" && ./flixw plugin install badver latest "file://$2/pluginjar/plugin.jar"' sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install badver latest "$2/pluginjar/plugin.jar"' sh "$pp" "$(fileurl "$work")"
 g 88 'must end in .jar, .java or .flix' "plugin install validates the url's extension" sh -c '
-  cd "$1" && ./flixw plugin install badext 1.0.0 "file://$2/pluginjar/plugin.jar.txt"' sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install badext 1.0.0 "$2/pluginjar/plugin.jar.txt"' sh "$pp" "$(fileurl "$work")"
 g 88 'must be https:// or file://' "plugin install rejects other url schemes" sh -c '
   cd "$1" && ./flixw plugin install badscheme 1.0.0 "http://example.invalid/plugin.jar"' sh "$pp"
 g 85 'digest mismatch' "plugin install validates an explicit --sha256"  sh -c '
-  cd "$1" && ./flixw plugin install baddigest 1.0.0 "file://$2/pluginjar/plugin.jar" \
-    --sha256 0000000000000000000000000000000000000000000000000000000000000000' sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install baddigest 1.0.0 "$2/pluginjar/plugin.jar" \
+    --sha256 0000000000000000000000000000000000000000000000000000000000000000' sh "$pp" "$(fileurl "$work")"
 g 88 'is not installed' "plugin remove on a name never installed fails"  sh -c '
   cd "$1" && ./flixw plugin remove doesnotexist' sh "$pp"
 g 88 'is not installed' "invoking a name never installed fails"         sh -c '
   cd "$1" && ./flixw plugin doesnotexist2' sh "$pp"
 
 t 0  "reinstalling a name updates the lock to the new version"    sh -c '
-  cd "$1" && ./flixw plugin install echoer 1.1.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
-  sh "$pp" "$work"
+  cd "$1" && ./flixw plugin install echoer 1.1.0 "$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp" "$(fileurl "$work")"
 g 0  '1\.1\.0' "the lock now points at 1.1.0"                      sh -c '
   cd "$1" && grep -A2 "\[plugins.echoer\]" .flixw/lock.toml' sh "$pp"
 g 88 'expected by lock.toml but not installed' \
@@ -1812,18 +1828,18 @@ rm -rf "$pp3" && mkdir -p "$pp3"
 java "$root/src/flixw-setup.java" setup "$pp3" >/dev/null 2>&1
 git init -q "$pp3"
 t 0  "plugin install works before any project has ever been pinned" sh -c '
-  cd "$1" && ./flixw plugin install echoer 1.0.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
-  sh "$pp3" "$work"
+  cd "$1" && ./flixw plugin install echoer 1.0.0 "$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp3" "$(fileurl "$work")"
 t 0  "...and a .jar plugin needs no compiler to run"               sh -c '
   cd "$1" && ./flixw plugin echoer >/dev/null 2>&1' sh "$pp3"
 t 0  "...but a .flix plugin does"                                  sh -c '
-  cd "$1" && ./flixw plugin install echoer-flix 1.0.0 "file://$2/pluginflix/plugin.flix" \
-    >/dev/null 2>&1' sh "$pp3" "$work"
+  cd "$1" && ./flixw plugin install echoer-flix 1.0.0 "$2/pluginflix/plugin.flix" \
+    >/dev/null 2>&1' sh "$pp3" "$(fileurl "$work")"
 g 88 'no compiler pinned' "...and refuses to run without one"      sh -c '
   cd "$1" && ./flixw plugin echoer-flix' sh "$pp3"
 t 0  "installing a second version with no lock present"            sh -c '
-  cd "$1" && ./flixw plugin install echoer 2.0.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
-  sh "$pp3" "$work"
+  cd "$1" && ./flixw plugin install echoer 2.0.0 "$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
+  sh "$pp3" "$(fileurl "$work")"
 g 88 'has 2 versions installed' \
   "an ambiguous plugin with no lock entry names the fix"           sh -c '
   cd "$1" && ./flixw plugin echoer' sh "$pp3"
