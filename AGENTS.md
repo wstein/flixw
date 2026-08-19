@@ -67,7 +67,7 @@ people's repositories already point at the schema URL this serves.
 The repository's configured checks, both required before a commit:
 
 ```sh
-sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF, size
+sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
 sh tests/run.sh     # 293-case regression suite; one ~32MB download on a cold cache
 ```
 
@@ -169,6 +169,17 @@ not read, since the rewrite is from the values read. `pin --refresh` prints whic
 --fix` stays quiet, because there it is one item among several. A key the schema does not
 describe is `FLIXW011` and never fatal — a lock is committed, so an unknown key is usually
 a collaborator's newer flixw.
+
+**A published schema URL is permanent.** Every generated lock names one on its first line
+as a Taplo `#:schema` directive, and that lock is committed in somebody else's repository
+for as long as they keep it. A schema that stops being served therefore does not break
+flixw — it breaks the editor of a project that has already shipped, and nothing in a
+version bump would notice: `pin --refresh` rewrites the *local* lock, and no CI anywhere
+runs on a repository that has not upgraded. So `docs/schema/lock-v*.schema.json` is
+append-only, `tests/pages.sh` publishes the whole glob rather than the current version, and
+`tests/lint.sh` fails if `lock-v1.schema.json` disappears or if the publisher narrows to
+one file. A lock-v2 that made an existing lock unreadable would be a migration to design,
+not a rename to perform, and v1 would go on being served throughout it.
 
 `docs/schema/lock-v1.schema.json` is the committed copy of that render; `tests/lint.sh`
 diffs the two, so **regenerate it rather than editing it**:

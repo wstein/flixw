@@ -131,7 +131,14 @@ https://wstein.github.io/flixw/schema/lock-v1.schema.json
 
 `v1` is the *lock format's* major version, not the wrapper's. It moves only when a lock an
 older flixw wrote would stop being readable; adding an optional key is not that, and does
-not move it.
+not move it. `[compiler].reported_version` was added exactly that way.
+
+**Every version ever published stays published.** The URL above is committed, verbatim, in
+the lock of every project that has ever run a flixw that wrote it — so if `v2` ever
+arrives, `v1` keeps resolving. Retiring it would not break flixw; it would break the editor
+of a project that shipped a year ago and has upgraded nothing. `tests/pages.sh` publishes
+`docs/schema/lock-v*.schema.json` as a glob for that reason, and `tests/lint.sh` fails if
+`lock-v1.schema.json` disappears or if the publisher is narrowed to a single version.
 
 The schema is not a second description of the lock kept alongside the code — it is
 rendered from the same list stage 0 validates against, and `./flixw wrapper --schema`

@@ -34,7 +34,21 @@ fi
 rm -f "$out/.schema.check"
 
 mkdir -p "$out/schema"
-cp "$committed" "$out/schema/lock-$schema_version.schema.json"
+# *Every* version, not only the current one. A lock names its schema URL on its first line
+# and that lock is committed, in someone else's repository, for as long as they keep it --
+# so the day LOCK_SCHEMA_VERSION moves to v2, publishing only v2 would 404 the editor of
+# every project still on v1. Publishing by glob makes that impossible to get wrong by
+# forgetting; the versioned files are append-only and none is ever removed.
+published=0
+for f in "$root"/docs/schema/lock-v*.schema.json; do
+  [ -f "$f" ] || continue
+  cp "$f" "$out/schema/$(basename "$f")"
+  published=$((published + 1))
+done
+if [ "$published" -eq 0 ]; then
+  echo "docs/schema/ publishes no lock-v*.schema.json at all" >&2
+  exit 1
+fi
 # An unversioned alias for anyone who wants "whatever flixw writes now" rather than a pin.
 # Byte-identical, so its $id still names the versioned URL -- which is correct: $id is the
 # schema's identity, not the path it happened to be fetched from.

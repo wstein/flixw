@@ -200,6 +200,29 @@ else
   say "ok    docs/schema/ carries the lock format version stage 0 declares ($schema_version)"
 fi
 
+# Superseded schemas are never removed, and v1 is the one with locks in the wild naming it.
+# Every generated lock carries `#:schema <url>` on its first line, and that lock is
+# committed in somebody else's repository for as long as they keep it -- so a schema that
+# stops being served does not break flixw, it breaks the editor of a project that has
+# already been shipped. Nothing in a version bump would otherwise notice: `pin --refresh`
+# rewrites the *local* lock, and no CI anywhere runs on a repository that has not upgraded.
+if [ -f "$root/docs/schema/lock-v1.schema.json" ]; then
+  say "ok    lock-v1.schema.json is still served (locks in the wild name that URL)"
+else
+  bad "docs/schema/lock-v1.schema.json is gone; published schema URLs are permanent"
+  say "      restore it -- it is named by every lock any released flixw has written"
+fi
+
+# ...and the publisher must take them by glob, or a bump silently stops serving the old one.
+# Anchored on the loop itself, not on the string appearing anywhere: the first version of
+# this check also matched the glob inside pages.sh's own error message, so it went on
+# passing after the loop had been changed to publish exactly one file.
+if grep -qE '^for f in .*docs/schema/lock-v\*\.schema\.json' "$root/tests/pages.sh"; then
+  say "ok    tests/pages.sh publishes every schema version, not just the current"
+else
+  bad "tests/pages.sh must publish docs/schema/lock-v*.schema.json, not one version"
+fi
+
 
 # docs/schema/ is what GitHub Pages serves, and what every generated lock points an editor
 # at with its `#:schema` line. A schema describing a lock flixw no longer writes is worse
