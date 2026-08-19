@@ -412,7 +412,7 @@ public final class UnitCheck {
      */
     static void pinTargets() {
         flixw.Lock forked = new flixw.Lock("0.75.2+f.1", "https://x/y.jar", "a".repeat(64),
-                                         "wstein/flix-fork", null, java.util.Map.of());
+                                         "wstein/flix-fork", null, null, java.util.Map.of());
         flixw.Pin t = flixw.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);
         eq("pin: repository then version", "wstein/flix-fork", t.repo());
         eq("pin: version survives its build metadata", "0.75.2+f.1", t.version());

@@ -305,14 +305,42 @@ The digest settles *which bytes* run. It does not settle that those bytes are th
 the lock names — a fork that tagged over an older build, or an upstream asset re-uploaded
 under the same tag, was pinned, verified and run without a word.
 
-flixw therefore reads the version out of the compiler's own help header, which it already
-captures for the verb set, and compares it with the pin:
+`pin` therefore reads the version out of the compiler's own help header, once, and records
+it in the lock as `[compiler].reported_version` beside the digest that vouches for it:
+
+```toml
+[compiler]
+version = "0.75.2"
+sha256  = "a2697d…"
+reported_version = "0.75.2"
+```
+
+Asked once rather than per run, because the answer is a property of the bytes. Every run
+re-hashes those bytes anyway, so a digest that still matches is a version that still
+matches; a per-run capture would re-derive what the digest already proves, at the cost of a
+subprocess and a cache file. The *comparison* is free once both strings are in the lock, so
+it stays on every run — and it is what catches a lock edited or merged after `pin` wrote it,
+the one case pin-time checking cannot see.
 
 | | |
 |---|---|
 | they agree | nothing is said; `validate` reports `ok` |
 | build metadata differs only | a note in `info` and `doctor`, `warn` in `validate` |
 | the versions differ | `FLIXW010` on **every** run, and `validate` **fails** |
+| the JAR just pinned disagrees | `FLIXW010` from `pin` itself, naming the version to pin instead |
+| the lock has no `reported_version` | `warn` in `validate`; `pin --refresh` backfills it |
+
+The key is optional. A lock written before it existed has no second opinion and says so
+rather than claiming agreement — `pin --refresh` and `doctor --fix` fill it in from the
+already-cached JAR, which needs no network, and only from bytes that still hash to what the
+lock pins. That last condition is the point: without it a refresh would launder an
+unverified JAR's self-description into the lock, where every later run would treat it as
+something `pin` had checked.
+
+`FLIX_JAR` is outside this guarantee by construction. An override's bytes are not the
+locked ones and the lock never described them, so `reported_version` says nothing about
+them. `info` and `doctor` report the override separately, and an override pointing inside
+`<cache>/compilers/` is `FLIXW010` on every run for a different reason entirely.
 
 Build metadata is not a mismatch. It identifies a build rather than a release, so a
 compiler built from `0.75.3+stable.names.3` and reporting `0.75.3` is agreeing — and a
@@ -321,7 +349,9 @@ matters. The comparison is `canonical()`, the same normalization used for releas
 cache coordinates.
 
 A compiler whose header carries no version is not an error; it is the absence of a second
-opinion, and `validate` says so rather than failing. Nothing here can stop a run: the
+opinion, and `validate` says so rather than failing — `pin` records no key at all in that
+case, and on a machine with no usable Java it records none either, because writing a lock
+must never depend on being able to run what it pins. Nothing here can stop a run: the
 compiler is the authority on what it will execute, this is flixw's account of what was
 asked for, and `FLIXW010` is printed and never sets exit status.
 
@@ -792,7 +822,6 @@ between shim and stage 0, not an implementation detail:
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
 <cache>/verbs/<identity>.compl        # only if the compiler ships its own completer
-<cache>/verbs/<identity>.version      # the version the compiler reports about itself
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
 <cache>/jdks/default                 # one line: the java the last install produced
 <cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}

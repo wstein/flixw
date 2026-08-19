@@ -36,6 +36,11 @@
           "type": "string",
           "description": "the SHA-256 of that JAR: 64 lowercase hex digits",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "reported_version": {
+          "type": "string",
+          "description": "the version that JAR reports of itself, captured when it was pinned",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?(?:\\+[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?$"
         }
       }
     },

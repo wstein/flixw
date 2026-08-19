@@ -300,6 +300,8 @@ public final class flixw {
             "the https URL the compiler JAR is downloaded from"),
         new LockField("compiler", "sha256", true, "[0-9a-f]{64}",
             "the SHA-256 of that JAR: 64 lowercase hex digits"),
+        new LockField("compiler", "reported_version", false, SEMVERISH.pattern(),
+            "the version that JAR reports of itself, captured when it was pinned"),
         new LockField("java", "version", false, JAVA_PIN_PATTERN,
             "the Java that runs the compiler: a feature release (21) or an exact one (21.0.12)"));
 
@@ -468,7 +470,7 @@ public final class flixw {
     // ---- lock and manifest ------------------------------------------------
 
     record Lock(String version, String url, String sha256, String repo, String java,
-                Map<String, PluginDep> plugins) {}
+                String reportedVersion, Map<String, PluginDep> plugins) {}
 
     /**
      * A plugin dependency the project declares: not a fetch instruction, only a record of
@@ -787,7 +789,8 @@ public final class flixw {
         // repo is absent in locks written before forks were supported, and means the stock
         // repository. java is absent whenever a project does not care which JDK it gets.
         return new Lock(got.get("compiler.version"), u, got.get("compiler.sha256"),
-                        got.get("compiler.repo"), j, readPlugins(text, w));
+                        got.get("compiler.repo"), j, got.get("compiler.reported_version"),
+                        readPlugins(text, w));
     }
 
     /**
@@ -2063,29 +2066,7 @@ public final class flixw {
             // A read-only cache is a correct configuration, not an error.  Stay silent.
             tr("cannot cache verbs at " + vf + ": " + e.getMessage());
         }
-        // From the same capture: the version costs nothing here and a second `--help` run
-        // to fetch it later would cost a subprocess on somebody's hot path.
-        writeVersionRecord(identity, parseReportedVersion(help));
         return v;
-    }
-
-    /** Beside the verb record and keyed the same way, so a re-pin gets a fresh one. */
-    static Path versionFile(String identity) {
-        return cacheHome().resolve("verbs").resolve(identity + ".version");
-    }
-
-    /**
-     * The version record {@link #verbs} already wrote, if any -- a file read, never a
-     * subprocess. Used to list cached compilers by what they actually report ({@code
-     * 0.75.3+stable.names.4}, not just the canonical {@code 0.75.3} the cache directory
-     * names), without paying for a `--help` capture per cached jar on a verb that stays
-     * offline and fast.
-     */
-    static String cachedVersionRecord(String identity) {
-        try {
-            String s = Files.readString(versionFile(identity), StandardCharsets.UTF_8).trim();
-            return s.isEmpty() ? null : s;
-        } catch (IOException e) { return null; }
     }
 
     /** What a lock pinned this digest as: the exact tag and repository, not what the compiler
@@ -2129,72 +2110,6 @@ public final class flixw {
         } catch (IOException e) {
             tr("cannot cache the pin record at " + f + ": " + e.getMessage());
         }
-    }
-
-    /** A blank record is written when the header carried no version, so it is asked once. */
-    static void writeVersionRecord(String identity, String reported) {
-        Path f = versionFile(identity);
-        try {
-            Files.createDirectories(f.getParent());
-            Path tmp = Files.createTempFile(f.getParent(), ".version-", ".part");
-            Files.writeString(tmp, (reported == null ? "" : reported) + "\n", StandardCharsets.UTF_8);
-            Files.move(tmp, f, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            tr("cannot cache the reported version at " + f + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     * What the pinned compiler says its version is, or null if it will not say.
-     *
-     * Read from the cache written when the verbs were captured.  A cache filled by an
-     * earlier flixw has the verbs and not this, so it is captured once and kept -- one
-     * subprocess, on one run, rather than leaving every project upgraded from an older
-     * release permanently unchecked.
-     */
-    static String reportedVersion(Path javaExe, Path jar, String identity) {
-        Path f = versionFile(identity);
-        try {
-            if (Files.isRegularFile(f)) {
-                String s = Files.readString(f, StandardCharsets.UTF_8).trim();
-                return s.isEmpty() ? null : s;
-            }
-        } catch (IOException ignored) { }
-        String reported;
-        try { reported = parseReportedVersion(captureHelp(javaExe, jar)); }
-        catch (Fail f2) { tr("cannot ask the compiler its version: " + f2.getMessage()); return null; }
-        writeVersionRecord(identity, reported);
-        return reported;
-    }
-
-    /**
-     * Says so when the compiler is not the version the lock claims.
-     *
-     * The digest settles *which bytes* run and nothing settles that those bytes are the
-     * release the lock names.  A mislabelled release asset -- a fork that tagged
-     * {@code v0.75.4} over a 0.75.2 build, an upstream re-upload -- is pinned, verified and
-     * run without a word, and {@code info} goes on reporting the lock's version forever.
-     * The compiler's own answer is the only second opinion available, and it is already on
-     * screen when the verbs are captured.
-     *
-     * Compared through {@link #canonical}, because build metadata identifies a build rather
-     * than a release: a compiler built from {@code 0.75.3+stable.names.3} reporting
-     * {@code 0.75.3} is agreeing, not disagreeing, and warning on every run of every fork
-     * would train the reader to ignore the line that matters. That difference is still
-     * visible -- {@code info} and {@code doctor} print both strings whenever they differ.
-     *
-     * {@code FLIXW010}: printed, never fatal.  The compiler is the authority on what it
-     * will run, this is flixw's account of what was asked for, and a wrapper that refused
-     * to start over a version string would be wrong more often than the mismatch is.
-     */
-    static void reportVersionGap(Lock lock, String reported) {
-        if (lock == null || reported == null) return;
-        if (canonical(reported).equals(canonical(lock.version()))) return;
-        w010("the pinned compiler reports itself as " + q(reported)
-           + ", but the lock pins " + q(lock.version())
-           + "\n          the digest still pins these exact bytes; what is in doubt is the"
-           + " version they were published under"
-           + "\n          run: ./flixw pin " + reported + "   (to pin what is actually here)");
     }
 
     /** The compiler's `--help`, bounded, as text.  The two parses read it separately. */
@@ -2260,6 +2175,61 @@ public final class flixw {
 
     /** How much of a help screen counts as the header for {@link #parseReportedVersion}. */
     static final int HEADER_LINES = 3;
+
+    /**
+     * Asks a JAR what version it says it is, for the lock.  Best-effort in every
+     * direction: null when no JVM can be selected, when the JAR will not run, or when its
+     * header carries no version token.
+     *
+     * <p>Nothing here may throw. This runs inside {@code pin}, which is the documented
+     * repair for a project that cannot reach a compiler -- a machine with no usable Java
+     * must still be able to write a lock, and losing the second opinion is a far smaller
+     * loss than losing the ability to pin at all.
+     */
+    static String captureReportedVersion(Path jar, String javaPin) {
+        try {
+            Jvm jvm = selectJava(javaPin);
+            return parseReportedVersion(captureHelp(jvm.exe(), jar));
+        } catch (RuntimeException e) {          // Fail is one; so is anything selectJava trips over
+            tr("cannot ask the compiler its version: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Says so when the two version strings recorded about one compiler disagree.
+     *
+     * <p>The digest settles *which bytes* the lock pins, and nothing settles that those
+     * bytes are the release it names. A mislabelled release asset -- a fork that tagged
+     * {@code v0.75.4} over a 0.75.2 build, an upstream re-upload -- would otherwise be
+     * pinned, verified and run without a word.
+     *
+     * <p>The compiler is *asked* once, by {@code pin}, and its answer is recorded in the
+     * lock beside the digest. Every later run re-hashes those bytes anyway, so a digest
+     * that still matches is a version that still matches: a per-run second opinion would
+     * re-derive what the digest already proves, at the cost of a subprocess and a cache
+     * file. The comparison, unlike the capture, is free once both strings are in the lock,
+     * so it stays on every run -- it is what catches a lock edited or merged after pin
+     * wrote it, which is exactly the case pin-time checking cannot see.
+     *
+     * <p>Compared through {@link #canonical}, because build metadata identifies a build
+     * rather than a release: a compiler built from {@code 0.75.3+stable.names.3} reporting
+     * {@code 0.75.3} is agreeing, not disagreeing.
+     *
+     * <p>{@code FLIXW010}: printed, never fatal. Pinning a mislabelled asset on purpose is
+     * legitimate, and the lock records both strings so {@code validate} can decide what a
+     * build should do about it.
+     *
+     * @param lead how the disagreement is introduced, which differs between the moment of
+     *     pinning ("the JAR just pinned") and every run afterwards ("the pinned compiler")
+     */
+    static void reportVersionGap(String lead, String pinned, String reported) {
+        if (reported == null || canonical(reported).equals(canonical(pinned))) return;
+        w010(lead + " reports itself as " + q(reported) + ", but the lock pins " + q(pinned)
+           + "\n          the digest still pins these exact bytes; what is in doubt is the"
+           + " version they were published under"
+           + "\n          run: ./flixw pin " + reported + "   (to pin what is actually here)");
+    }
 
     /** Two-space indent, a lowercase name, then the column gap before its description. */
     static final Pattern COMMAND_ENTRY = Pattern.compile("^ {2}([a-z][a-z0-9_-]*)(?:\\s|$)");
@@ -2726,7 +2696,7 @@ public final class flixw {
                     if (!a.equals("--verbose") && !a.equals("-v"))
                         throw w008("./flixw info: unknown option " + q(a)
                                  + "\n       usage: ./flixw info [--verbose | -v]");
-                report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
+                report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock));
                 if (verbose) { System.out.println(); listCache(lock, jvm); }
             }
             case "validate" -> {
@@ -2740,7 +2710,7 @@ public final class flixw {
                         throw w008("./flixw doctor: unknown option " + q(a)
                                  + "\n       usage: ./flixw doctor [--fix]");
                 if (fix) { updateWrapper(root); System.out.println(); }
-                report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock, jar, jvm));
+                report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock));
                 System.out.println();
                 int bad = check(root, lock, jar, jvm);
                 if (bad > 0)
@@ -2888,7 +2858,7 @@ public final class flixw {
         Map<String, PluginDep> plugins = new LinkedHashMap<>(have.plugins());
         plugins.put(name, new PluginDep(version, sha256, url));
         String rewritten = lockText(WRAPPER_VERSION, have.repo() == null ? UPSTREAM_REPO : have.repo(),
-            have.version(), have.url(), have.sha256(), have.java(), plugins);
+            have.version(), have.url(), have.sha256(), have.reportedVersion(), have.java(), plugins);
         try { writeAtomic(lf, rewritten); System.err.println("       recorded in " + lf); }
         catch (IOException e) { tr("cannot record plugin in " + lf + ": " + e.getMessage()); }
     }
@@ -3043,10 +3013,16 @@ public final class flixw {
         }
     }
 
-    /** The reported version for the verbs that print state; null whenever there is no jar. */
-    static String askedVersion(Lock lock, Path jar, Jvm jvm) {
-        if (lock == null || jar == null || jvm == null) return null;
-        return reportedVersion(jvm.exe(), jar, verbIdentity(jar, lock, env("FLIX_JAR") != null));
+    /**
+     * What the pinned compiler reports of itself, as {@code pin} recorded it; null when a
+     * lock predates the key and no refresh has backfilled it.
+     *
+     * <p>Read rather than asked: the value is a property of the pinned bytes, so the
+     * digest every run already checks is what keeps it honest. Says nothing about a
+     * {@code FLIX_JAR} override -- see {@link #reportOverrideGap} for those bytes.
+     */
+    static String askedVersion(Lock lock) {
+        return lock == null ? null : lock.reportedVersion();
     }
 
     static void report(Path root, Lock lock, Path jar, Jvm jvm, List<String> cv, String reported) {
@@ -3124,19 +3100,17 @@ public final class flixw {
             try { size = Files.size(jar); } catch (IOException e) { size = -1; }
             boolean pinned = sha != null && lock != null && sha.equals(lock.sha256());
             // The cache directory names only the canonical x.x.x -- build metadata, which
-            // is what actually tells two builds of one release apart, lives in one of three
-            // places, tried in order. Best is the pin record `pin`/`acquire` write: it is
-            // what a lock actually pinned this exact digest as, repo included, and it
-            // survives long after the project that wrote it moved on to another pin. Next
-            // is the version record `verbs()` wrote from the compiler's own `--help` header
-            // -- a fork routinely omits its own build metadata there, so this alone would
-            // have lost exactly the information the pin record keeps. Last is the canonical
-            // name the directory entry itself carries. All three are file reads: asking
-            // every cached jar directly would mean a subprocess per entry on a verb that
-            // stays fast and offline.
+            // is what actually tells two builds of one release apart, comes from the pin
+            // record `pin`/`acquire` write: it is what a lock actually pinned this exact
+            // digest as, repo included, and it survives long after the project that wrote
+            // it moved on to another pin. Failing that, the canonical name the directory
+            // entry itself carries.
+            //
+            // The lock's reported_version is deliberately not consulted: it describes one
+            // project's pinned compiler and this listing is machine-wide, so most entries
+            // belong to no lock this command can see.
             PinRecord pin = sha == null ? null : cachedPinRecord(sha);
-            String reported = sha == null ? null : cachedVersionRecord(sha);
-            String version = pin != null ? pin.version() : reported != null ? reported : canonicalVersion;
+            String version = pin != null ? pin.version() : canonicalVersion;
             String repo = pin != null ? pin.repo() : null;
             // A version string disambiguates only when it says more than the canonical
             // name the cache directory already gives every entry; whenever it does not --
@@ -3447,10 +3421,10 @@ public final class flixw {
         // thing a build should refuse rather than mention. Build metadata is not that --
         // the compiler is entitled to report the release it was built from.
         if (lock != null && jar != null && jvm != null) {
-            String rv = askedVersion(lock, jar, jvm);
+            String rv = askedVersion(lock);
             if (rv == null)
-                System.out.println("warn  the compiler does not report a version; nothing to"
-                                 + " check the lock against");
+                System.out.println("warn  the lock records no reported_version; nothing to"
+                                 + " check it against (./flixw pin --refresh)");
             else if (canonical(rv).equals(canonical(lock.version())))
                 System.out.println(rv.equals(lock.version())
                     ? "ok    the compiler reports the version the lock pins"
@@ -3581,7 +3555,8 @@ public final class flixw {
                 throw w002("pin: --java needs a lock that parses"
                          + "\n       run: ./flixw pin <version> --java <version>");
             String lock = lockText(WRAPPER_VERSION, had.repo() == null ? UPSTREAM_REPO : had.repo(),
-                                   had.version(), had.url(), had.sha256(), javaPin, had.plugins());
+                                   had.version(), had.url(), had.sha256(), had.reportedVersion(),
+                                   javaPin, had.plugins());
             try { writeAtomic(lockFile0, lock); }
             catch (IOException e) { throw w009("pin failed: " + why(e)); }
             System.err.println(javaPin == null
@@ -3616,10 +3591,6 @@ public final class flixw {
         try {
             download(rewriteBase(url), tmp);
             String digest = sha256(tmp);
-            // Repinning the compiler is unrelated to what plugins the project has declared
-            // -- carried forward exactly like the java pin above, never reset by this.
-            String lock = lockText(WRAPPER_VERSION, repo, version, url, digest, javaPin,
-                                   had == null ? Map.of() : had.plugins());
 
             // The cache is filled first and every failure in it is discarded, which keeps
             // it out of the transaction below.  It is an optimisation -- the next run
@@ -3634,6 +3605,18 @@ public final class flixw {
                     Files.move(tmp, jar, StandardCopyOption.ATOMIC_MOVE);
                 } catch (IOException ignored) { }
             }
+
+            // Asked once, here, and recorded beside the digest that will vouch for it on
+            // every later run. The JAR is read from wherever it actually landed: the move
+            // above is allowed to fail, and a cache that could not be written must not
+            // cost the project its second opinion.
+            String reported = captureReportedVersion(
+                Files.isRegularFile(jar) ? jar : tmp, javaPin);
+
+            // Repinning the compiler is unrelated to what plugins the project has declared
+            // -- carried forward exactly like the java pin above, never reset by this.
+            String lock = lockText(WRAPPER_VERSION, repo, version, url, digest, reported, javaPin,
+                                   had == null ? Map.of() : had.plugins());
             // Written here, not left for the next `acquire()`: a project that pins and then
             // immediately pins again -- trying one fork build after another, say -- never
             // runs any other command against the one in between, so `acquire()` would never
@@ -3650,6 +3633,7 @@ public final class flixw {
             if (!repo.equals(UPSTREAM_REPO))
                 System.err.println("       a fork is not stock-compatibility evidence;"
                                  + " see docs/LIMITATIONS.md");
+            reportVersionGap("the JAR just pinned", version, reported);
             // Said now rather than only on the next command. pin still writes it -- the
             // floor lives in the project's own file and lowering it may be exactly the
             // plan -- but "accepted, and every later run will refuse" is not something to
@@ -3689,7 +3673,8 @@ public final class flixw {
      * an exact version -- a lock is a pin, including of what it means.
      */
     static String lockText(String wrapper, String repo, String version, String url,
-                           String sha256, String java, Map<String, PluginDep> plugins) {
+                           String sha256, String reportedVersion, String java,
+                           Map<String, PluginDep> plugins) {
         String body = """
             #:schema %s
             # Generated by flixw. Do not edit by hand; commit this file.
@@ -3701,6 +3686,11 @@ public final class flixw {
             url     = "%s"
             sha256  = "%s"
             """.formatted(LOCK_SCHEMA_URL, wrapper, repo, version, url, sha256);
+        // Absent when it could not be captured -- an older flixw wrote the lock, or no JVM
+        // was selectable at pin time. Absent means "no second opinion was recorded", never
+        // "the compiler agreed": `pin --refresh` backfills it from the cached JAR.
+        if (reportedVersion != null)
+            body += "reported_version = \"" + reportedVersion + "\"\n";
         // Absent rather than empty when unpinned: a project that does not care which JDK
         // runs the compiler should not have to read a line telling it so.
         if (java != null) body += """
@@ -4036,8 +4026,24 @@ public final class flixw {
         if (!unknown.isEmpty())
             return new Refresh(false, "the lock carries " + String.join(", ", unknown)
                                     + ", which this flixw does not read and would drop");
+        // The one value a refresh may *add* rather than re-emit. Locks written before the
+        // compiler's self-reported version was recorded have no second opinion and could
+        // never acquire one, since the check now happens at pin time and re-pinning means
+        // a fresh download. Backfilling it here keeps the promise reachable without one:
+        // the JAR is already in the cache, and reading it is not network.
+        //
+        // Only from a cache entry whose bytes still hash to what the lock pins. Otherwise
+        // this would launder an unverified JAR's self-description into the lock, where
+        // every later run would treat it as something pin had checked.
+        String reported = lock.reportedVersion();
+        if (reported == null) {
+            Path cached = compilerPath(lock);
+            if (Files.isRegularFile(cached) && sha256(cached).equals(lock.sha256()))
+                reported = captureReportedVersion(cached, lock.java());
+        }
         String want = lockText(WRAPPER_VERSION, lock.repo() == null ? UPSTREAM_REPO : lock.repo(),
-                               lock.version(), lock.url(), lock.sha256(), lock.java(), lock.plugins());
+                               lock.version(), lock.url(), lock.sha256(), reported, lock.java(),
+                               lock.plugins());
         if (want.equals(text))
             return new Refresh(false, "the lock is already what flixw " + WRAPPER_VERSION
                                     + " writes");
@@ -4625,8 +4631,8 @@ public final class flixw {
         recordVerbs(root, compilerVerbs);
         Path compl = compilerCompletion(jvm.exe(), jar, verbId, compilerVerbs);
         if (compl != null) recordCompletion(root, compl);
-        String reported = reportedVersion(jvm.exe(), jar, verbId);
-        reportVersionGap(lock, reported);
+        if (lock != null)
+            reportVersionGap("the pinned compiler", lock.version(), lock.reportedVersion());
         selfCompile(selfSource());
 
         // ---- dispatch ----------------------------------------------------

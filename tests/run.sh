@@ -1114,13 +1114,45 @@ g 0 'override digest' "info prints the digest of the overridden jar"  sh -c '
 # The digest settles which bytes run; nothing settled that those bytes are the release the
 # lock names. A mislabelled asset -- a fork that tagged over an older build, an upstream
 # re-upload -- was pinned, verified and run without a word. The compiler's own answer is
-# the only second opinion available, and it is already on screen when the verbs are read.
+# the second opinion, and `pin` now asks for it once and records it in the lock beside the
+# digest that vouches for it on every later run.
 echo "reported version"
+# Recorded at pin time, so it is in the committed lock and a fresh clone inherits the
+# answer rather than having to re-derive it.
+g 0 '^reported_version = ' "pin records what the jar reports of itself"  sh -c '
+  cat .flixw/lock.toml'
+# The comparison stayed per-run even though the capture did not: both strings are in the
+# lock by the time it is parsed, so it costs a string compare and catches the one case pin
+# cannot see -- a lock edited, or merged, after pin wrote it.
+g 0 'reports itself as' "an edited reported_version is caught on an ordinary run"  sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  sed "s/^reported_version = .*/reported_version = \"0.99.0\"/" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw check 2>&1
+  cp "$1/lock.keep" .flixw/lock.toml' sh "$work"
+# A lock from a flixw that predated the key has no second opinion and could never acquire
+# one, since the check moved to pin time and re-pinning means a fresh download. The refresh
+# backfills it from the cache -- offline, no network, and only from bytes that still hash
+# to what the lock pins.
+t 0  "a lock without the key says so rather than claiming agreement"  sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  grep -v "^reported_version" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw validate 2>&1 | grep -q "records no reported_version"; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+t 0  "pin --refresh backfills it from the cached jar, offline"  sh -c '
+  cp .flixw/lock.toml "$1/lock.keep"
+  grep -v "^reported_version" "$1/lock.keep" > .flixw/lock.toml
+  ./flixw pin --refresh >/dev/null 2>&1
+  grep -q "^reported_version = " .flixw/lock.toml; rc=$?
+  cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
+# The run path must not have kept a back door to the compiler for this.
+t 1  "no per-run version record is written to the cache"       sh -c '
+  find "$FLIX_CACHE_HOME/verbs" -name "*.version" 2>/dev/null | grep -q .'
+
 t 0  "agreement is not worth saying"                           sh -c '
   ./flixw info 2>&1 | grep -q "^reported " && exit 1
   ./flixw validate | grep -q "^ok    the compiler reports the version the lock pins"'
 # A lock that misnames its compiler is loud on every run, not only when someone looks.
-g 0 'reports itself as' "a mismatch is reported on an ordinary run"  sh -c '
+g 0 'reports itself as' "a misnamed version is reported on an ordinary run"  sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
   sed "s/^version = .*/version = \"0.99.0\"/" "$1/lock.keep" > .flixw/lock.toml
   ./flixw check 2>&1

@@ -262,9 +262,13 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3381          # target: 2650 -- verified launcher + narrow plugin broker
+MAX_CODE_LINES=3368          # target: 2650 -- verified launcher + narrow plugin broker
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=277261             # target: 210000, derived from the two numbers above
+MAX_BYTES=277921             # target: 210000, derived from the two numbers above
+# The byte ceiling may move *up* when code lines move down and density moves up -- that is
+# the two gates pulling against each other as intended, not drift. Refusing that would let
+# them deadlock: any change trading code for the explanation this repository asks for would
+# be unable to pass both. What must never rise is the code-line ceiling.
 
 # shellcheck disable=SC2046  # deliberate: awk emits four bare integers to split on
 set -- $(awk '

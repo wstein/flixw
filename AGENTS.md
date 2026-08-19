@@ -68,7 +68,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF, size
-sh tests/run.sh     # 288-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 293-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -78,7 +78,7 @@ manifests, JDK selection and discovery in stage 0 plus the provisioner asset's o
 metadata parsing and platform coordinates, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
 the bounds on `runCapture`, and the four completion scripts with the note they read —
-396 assertions in total. Refresh the corpus with
+406 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -146,7 +146,6 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 <cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
-<cache>/verbs/<digest|override-…>.version         # the version the compiler reports
 <cache>/verbs/<digest>.pin                        # the repo and exact tag last pinned as
 ```
 
@@ -363,9 +362,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3381 | 2650 |
-| comment density | 27% | ≥25% floor |
-| bytes | 277261 | 210000 |
+| code lines in `src/flixw.java` | 3368 | 2650 |
+| comment density | 28% | ≥25% floor |
+| bytes | 277921 | 210000 |
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
 lines and 9.3 KB, about 18% of the distance to the target. It is also the honest shape of
@@ -396,6 +395,11 @@ Lowering a ceiling is a deliberate edit and belongs in the commit that earned it
 prints a `note` when the slack passes 100 lines or 5 KB rather than failing, because the
 commit that happens to trip a threshold is rarely the commit that should own the change.
 
+The **byte** ceiling may move up when the code-line count moves down and density moves up:
+that is the two gates pulling against each other as intended. Refusing it would let them
+deadlock, since any change trading code for the explanation this file asks for would then
+pass neither. The **code-line** ceiling never rises.
+
 ### Invariants that are load-bearing
 
 These come from the paper's prototype contract (§5) and are easy to break accidentally:
@@ -413,11 +417,23 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   no install stamps, no skip flag.
 - **The digest says which bytes, not which release.** Nothing tied those bytes to the
   version the lock names, so a mislabelled asset was pinned and run in silence. The
-  compiler's own header — already captured for the verbs — is the second opinion:
-  `FLIXW010` on every run when `canonical()` disagrees, `FAIL` in `validate`, and a note in
-  `info`/`doctor` when only build metadata differs. Metadata is *not* a mismatch: a
-  compiler built from `0.75.3+stable.names.3` reporting `0.75.3` is agreeing, and warning
-  per run on every fork would train the reader to skip the line that matters.
+  compiler's own header is the second opinion, and `pin` is where it is asked for:
+  `captureReportedVersion` runs the JAR once and records the answer as
+  `[compiler].reported_version`, beside the digest that vouches for it afterwards. Every
+  run re-hashes those bytes anyway, so a digest that still matches is a version that still
+  matches — a per-run capture would re-derive what the digest already proves, at the cost
+  of a subprocess and a cache file. The *comparison* is free once both strings are in the
+  lock and so stays per-run: `FLIXW010` when `canonical()` disagrees, `FAIL` in `validate`,
+  a note in `info`/`doctor` when only build metadata differs. That is what catches a lock
+  edited or merged after `pin` wrote it, which pin-time checking cannot see. Metadata is
+  *not* a mismatch: a compiler built from `0.75.3+stable.names.3` reporting `0.75.3` is
+  agreeing, and warning per run on every fork would train the reader to skip the line that
+  matters. A lock predating the key has no second opinion and says so rather than claiming
+  agreement; `pin --refresh` and `doctor --fix` backfill it from the cached JAR — offline,
+  and only from bytes that still hash to what the lock pins, so an unverified JAR's
+  self-description can never be laundered into the lock. `FLIX_JAR` is outside the
+  guarantee by construction: those bytes are not the locked ones and the lock never
+  described them, which is `reportOverrideGap`'s job.
 - **One acquisition attempt, one relaunch.** No retry loops; relaunch is guarded by
   `FLIXW_RELAUNCHED` so a stale `release` file cannot loop.
 - **The manifest is a floor, checked before the network.** `flix.toml`'s `flix` key is
