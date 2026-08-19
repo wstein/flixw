@@ -164,6 +164,30 @@ else
   printf '%s\n' "$stale" | sed 's/^/      /'
 fi
 
+# --- 3d. the digest README tells people to compare against ------------------
+# README prints the setup asset's SHA-256 so an adopter can check it against something
+# other than the file's own download. That is only a second opinion while it is right, and
+# a wrong one is worse than none: it would train someone to accept a mismatch. The asset
+# ships verbatim, so what a release publishes is exactly this file's digest.
+readme_sha=$(grep -oE '^[0-9a-f]{64}  flixw-setup\.java$' "$root/README.md" \
+             | cut -d' ' -f1 | head -1)
+# Against the *stripped* file, because that is what a release publishes -- comparing with
+# src/ would have gone quietly wrong the moment the assets started shipping stripped.
+setup_ver=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw-setup.java" | head -1)
+java "$root/tests/strip.java" "$root/src/flixw-setup.java" "$setup_ver" flixw-setup.java \
+  > "$work/setup-shipped.java"
+if command -v sha256sum >/dev/null 2>&1; then real_sha=$(sha256sum "$work/setup-shipped.java" | cut -d' ' -f1)
+else real_sha=$(shasum -a 256 "$work/setup-shipped.java" | cut -d' ' -f1); fi
+if [ -z "$readme_sha" ]; then
+  bad "README names no SHA-256 for flixw-setup.java"
+elif [ "$readme_sha" = "$real_sha" ]; then
+  say "ok    README's flixw-setup.java digest matches what a release ships"
+else
+  bad "README's flixw-setup.java digest is stale"
+  say "      README says $readme_sha"
+  say "      src/ hashes  $real_sha"
+fi
+
 # --- 4. the Java floor is stated in three files ----------------------------
 # MIN_JAVA is the authority, but a shim cannot import a Java constant, so the floor is
 # written out in both of them -- in a message and in a numeric comparison. That is
