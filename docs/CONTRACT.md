@@ -829,50 +829,6 @@ prints the unverified note on stderr, and those runs are not stock-compatibility
 jar's path, size and mtime rather than on a digest, so a rebuilt jar re-runs `--help` once
 and then caches again.
 
-### The `.envrc.example` template
-
-`install` writes an `.envrc.example` into the project root — a commented-out template for
-[direnv](https://direnv.net) covering `FLIX_JAVA_HOME`, `FLIX_JAR`, `FLIX_CACHE_HOME`,
-`FLIX_DIST_URL`, the proxy variables, `FLIX_JVM_OPTS` and `FLIXW_TRACE`.
-
-It is written only when absent, so an edited copy survives re-running `install` or
-`wrapper --upgrade`; extracting a release archive does overwrite it, which is the one place
-the install route and the archive route differ on purpose. It is deliberately outside the
-wrapper contract: not in the canonical-bytes comparison, not in the tracked-file audit, not
-in the `.gitattributes` block. Deleting it is a valid answer and nothing will nag about it.
-
-The name matters. direnv refuses an `.envrc` it has not been shown and reprints
-`direnv: error … is blocked` on every `cd` into the directory until someone runs
-`direnv allow` or deletes it — and the refusal is keyed on the file's hash, so a fully
-commented-out `.envrc` is blocked exactly like a live one. Shipping one would hand
-recurring noise to the only people it could help.
-
-**flixw never reads `.envrc` or `.env`.** It reads the environment through one call,
-`System.getenv`. direnv works by mutating the *shell's* environment before flixw starts,
-which is also the source of its limits: it needs direnv installed and hooked plus a
-per-clone `direnv allow`; it does not reach an editor-spawned `flixw lsp`, because a GUI
-editor never passes through a shell prompt; and there is no `cmd.exe` or PowerShell
-equivalent, so on Windows the variables must be set some other way.
-
-The hook differs per shell, and without it an `.envrc` is an inert text file:
-
-| Shell | Line, in the startup file named |
-|---|---|
-| bash | `eval "$(direnv hook bash)"` — `~/.bashrc` |
-| zsh | `eval "$(direnv hook zsh)"` — `~/.zshrc` |
-| fish | `direnv hook fish \| source` — `~/.config/fish/config.fish` |
-
-The `.envrc` itself is bash in every case: direnv evaluates it with bash and exports the
-resulting difference, so a fish user still writes `export FOO=bar` rather than
-`set -x FOO bar`. The template says so, because getting it wrong produces a direnv error
-rather than a flixw one and the two are easy to confuse.
-
-`doctor` output is meant to be pasted into bug reports, so every value it prints that can
-carry a credential is redacted: user-info and query string are stripped from proxy and
-distribution URLs, and `-D…password=`-shaped JVM options are masked. The JVM's own
-`Picked up JAVA_TOOL_OPTIONS: …` line is written by the JVM to stderr before stage 0
-runs, and no wrapper can suppress it.
-
 ## Cache layout
 
 The shims must locate the compiled stage 0, so these paths are a versioned interface

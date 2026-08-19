@@ -1577,28 +1577,6 @@ g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
   cp "$3/.flixw/lock.toml" "$d/.flixw/lock.toml"
   java "$2/src/flixw.java" wrapper --install "$d" 2>&1' sh "$work" "$root" "$proj"
 
-# --- the .envrc.example template -------------------------------------------
-echo "envrc template"
-# The one file install writes and then never rewrites. It sits at the project root among
-# files the project owns, nothing reads it, and its whole purpose is to be copied and
-# edited -- so restoring it on drift would be overwriting someone's notes to repair a file
-# that does nothing.
-t 0 "install writes .envrc.example"                             sh -c '
-  d=$1/envrc-new; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
-  grep -q FLIX_JAVA_HOME "$d/.envrc.example"' sh "$work" "$root"
-t 0 "re-installing leaves an edited template alone"             sh -c '
-  d=$1/envrc-edit; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
-  echo "# edited by hand" >> "$d/.envrc.example"
-  cp "$d/.envrc.example" "$d/before"
-  java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
-  cmp -s "$d/before" "$d/.envrc.example"' sh "$work" "$root"
-# Deliberately outside the wrapper contract: no canonical-bytes comparison, no tracked-file
-# audit, no .gitattributes rule. Deleting it is a valid answer and nothing should nag.
-t 0 "no check mentions the template"                            sh -c '
-  ! ./flixw validate 2>&1 | grep -q envrc'
-
 # --- git integration -------------------------------------------------------
 echo "git integration"
 t 0  "validate warns when generated files are untracked"        sh -c 'git init -q . 2>/dev/null; ./flixw validate'

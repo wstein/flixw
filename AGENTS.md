@@ -74,7 +74,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 296-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 293-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -435,7 +435,7 @@ commit:
 |---|---:|---:|
 | code lines in `src/flixw.java` | 2923 | 2900 |
 | comment density | 29% | ≥25% floor |
-| bytes | 255412 | 225000 |
+| bytes | 255404 | 225000 |
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is

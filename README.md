@@ -118,7 +118,7 @@ tested JDK it can find, which is what it has always done.
 Commit, and a collaborator with nothing but a JDK gets the same compiler you have:
 
 ```console
-git add flixw flixw.cmd .flixw .gitattributes .envrc.example flix.toml src test
+git add flixw flixw.cmd .flixw .gitattributes flix.toml src test
 ```
 
 Verify what you downloaded before you run it: every release publishes the SHA-256 of
@@ -143,7 +143,6 @@ hello/
 │   ├── lock.toml          the pin — repository, version, URL, SHA-256
 │   └── local/java         the JDK this machine resolved to — not committed
 ├── .gitattributes         line endings for the five above, as a block in your file
-├── .envrc.example         optional direnv template; nothing reads it, delete at will
 ├── flix.toml              your project: name, dependencies, the minimum Flix
 ├── src/Main.flix          your code
 └── test/TestMain.flix     your tests
@@ -206,7 +205,7 @@ install a program:
 base=https://github.com/wstein/flixw/releases/download/v0.24.1
 curl -fsSLO $base/flixw-0.24.1.tar.gz
 curl -fsSL  $base/SHA256SUMS | grep flixw-0.24.1.tar.gz | shasum -a 256 -c -
-tar -xzf flixw-0.24.1.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java, .envrc.example
+tar -xzf flixw-0.24.1.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
 rm flixw-0.24.1.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
                                     # 0.75.2 or v0.75.2 -- the release tag works too
@@ -350,10 +349,11 @@ those runs are not evidence about the stock compiler. And a valid `.flixw/lock.t
 still required: the lock is read and drift is checked before the override is, so pin a
 release first even if you intend to override it every time.
 
-`install` writes an `.envrc.example` into the project root with this and the other
-variables — `FLIX_JAVA_HOME`, `FLIX_CACHE_HOME`, `FLIX_DIST_URL`, `FLIX_JVM_OPTS` — as
-commented-out [direnv](https://direnv.net) exports. Copy it to `.envrc`, uncomment what you
-need, and run `direnv allow`. direnv needs its hook in your shell's startup file first:
+To set this and the other variables — `FLIX_JAVA_HOME`, `FLIX_CACHE_HOME`,
+`FLIX_DIST_URL`, `FLIX_JVM_OPTS` — per project rather than per shell, write them into an
+`.envrc` for [direnv](https://direnv.net) and run `direnv allow`. The full table is in
+[docs/CONTRACT.md](docs/CONTRACT.md). direnv needs its hook in your shell's startup file
+first:
 
 ```sh
 eval "$(direnv hook bash)"   # ~/.bashrc
@@ -364,7 +364,7 @@ direnv hook fish | source    # ~/.config/fish/config.fish
 The `.envrc` is bash whatever your own shell is — direnv evaluates it with bash and exports
 the difference — so fish users still write `export FOO=bar` in it, not `set -x FOO bar`.
 
-flixw itself never reads either file; direnv sets the variables in your shell before flixw
+flixw itself never reads it; direnv sets the variables in your shell before flixw
 starts, which is why it works in a terminal but not for an editor-spawned `flixw lsp`, and
 why there is no `cmd.exe` equivalent. The template is safe to delete — nothing checks for
 it. See [`docs/CONTRACT.md`](docs/CONTRACT.md#running-a-locally-built-compiler) for the full

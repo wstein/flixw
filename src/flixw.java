@@ -4337,7 +4337,7 @@ public final class flixw {
                          + " | --install-jdk | --schema | --completion]");
         System.out.println();
         System.out.println("  FLIX_JAR=<path> ./flixw <verb>   run a locally built compiler"
-                         + " (unverified; see ./.envrc.example)");
+                         + " (unverified; see docs/CONTRACT.md)");
 
         System.out.println();
         System.out.println("cache            " + cacheHome());

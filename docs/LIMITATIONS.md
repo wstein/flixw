@@ -36,10 +36,10 @@ environment variable on purpose. It dies with the shell, so its blast radius is 
 terminal session.
 
 That has real costs, and they are not hypothetical. It does not reach an editor-spawned
-`flixw lsp`, because a GUI editor never passes through a shell prompt. `.envrc` covers the
+`flixw lsp`, because a GUI editor never passes through a shell prompt. A `.envrc` covers the
 POSIX-terminal case, but needs direnv installed and allowed per clone, and has no
 `cmd.exe` or PowerShell equivalent — so on Windows there is no project-scoped answer at
-all. The `.envrc.example` that `install` writes narrows the gap; it does not close it.
+all, and flixw no longer ships a template for it either.
 
 A persistent per-project override — a `wrapper --dev-jar` verb writing a gitignored marker
 under `.flixw/local/` — was designed in full and rejected. The reason is not that it is hard;
