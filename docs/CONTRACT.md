@@ -503,11 +503,12 @@ installer downloaded from a release — it fetches and digest-verifies the stage
 release, then writes the project files. `wrapper --upgrade` uses the same program, handing
 it the stage 0 it has already verified rather than letting it fetch a second copy.
 
-Setup also writes `~/bin/flixw` (or `FLIXW_BIN_HOME/flixw`) as a user-wide convenience
-launcher. It walks upward from the caller's working directory for the nearest executable
-`flixw` with `.flixw/flixw.java`, then `exec`s it. It owns no Java, compiler, cache or lock
-policy; those remain solely with the checked-in wrapper it found. Outside such a project it
-fails rather than searching elsewhere or downloading anything.
+Setup also writes `<cache>/bin/flixw` as a machine-wide convenience launcher, where
+`<cache>` is the cache `./flixw info` reports. It walks upward from the caller's working
+directory for the nearest executable `flixw` with `.flixw/flixw.java`, then `exec`s it. It
+owns no Java, compiler, cache or lock policy; those remain solely with the checked-in
+wrapper it found. Outside such a project it fails rather than searching elsewhere or
+downloading anything.
 
 `install` is therefore a name flixw does not own, and `./flixw install` reaches the
 compiler like any other word it does not own — which is where a project asking to install

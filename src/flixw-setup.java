@@ -636,7 +636,7 @@ final class flixwsetup {
     static final String GLOBAL_SHIM = """
         #!/bin/sh
         # flixw project launcher -- GENERATED; DO NOT EDIT.
-        # Written by flixw-setup.java into ~/bin (or $FLIXW_BIN_HOME). It finds the
+        # Written by flixw-setup.java into the global flixw cache's bin directory. It finds the
         # nearest checked-in flixw wrapper and delegates all policy to it.
         set -eu
         here=$(pwd -P)
@@ -652,14 +652,24 @@ final class flixwsetup {
         exit 87
         """;
 
-    /** The user-wide bin directory; the override also keeps automated installs isolated. */
+    /** Mirrors stage 0's cache location, so setup's global launcher lives with flixw. */
     static Path globalBin() {
-        String override = System.getenv("FLIXW_BIN_HOME");
-        if (override != null && !override.isBlank()) return Paths.get(override).toAbsolutePath().normalize();
-        return Paths.get(System.getProperty("user.home"), "bin").toAbsolutePath().normalize();
+        String override = System.getenv("FLIX_CACHE_HOME");
+        if (override != null && !override.isBlank())
+            return Paths.get(override).toAbsolutePath().normalize().resolve("bin");
+        String home = System.getProperty("user.home");
+        if (isWindows()) {
+            String local = System.getenv("LOCALAPPDATA");
+            return Paths.get(local != null && !local.isBlank() ? local : home, "flixw", "bin");
+        }
+        if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac"))
+            return Paths.get(home, "Library", "Caches", "flixw", "bin");
+        String xdg = System.getenv("XDG_CACHE_HOME");
+        return (xdg != null && !xdg.isBlank() ? Paths.get(xdg) : Paths.get(home, ".cache"))
+            .resolve("flixw").resolve("bin");
     }
 
-    /** Installs the policy-free global launcher without changing any project file. */
+    /** Installs the policy-free global launcher in the machine-wide flixw cache. */
     static Path installGlobalShim() throws IOException {
         Path bin = globalBin();
         Files.createDirectories(bin);

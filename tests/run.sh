@@ -36,7 +36,6 @@ proj=$work/proj
 if command -v cygpath >/dev/null 2>&1; then cache_native=$(cygpath -m "$cache")
 else cache_native=$cache; fi
 export FLIX_CACHE_HOME="$cache_native"
-export FLIXW_BIN_HOME="$work/bin"
 
 # The suite asserts what flixw does with a *clean* environment, and every variable below
 # changes that. A developer working on a Flix fork legitimately has FLIX_JAR exported, and
@@ -359,6 +358,12 @@ git init -q "$proj"
 cd "$proj"
 echo "flixw regression suite  (Flix $version, cache $cache)"
 echo
+
+# The global launcher has no compiler policy of its own: from a project it must simply
+# enter the checked-in shim, while outside one it must refuse rather than guess.
+g 0  'flixw' "global launcher delegates to the project wrapper" "$cache_native/bin/flixw" wrapper --version
+g 87 'no checked-in flixw wrapper' "global launcher refuses outside a project" \
+  sh -c 'cd "$1" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
 
 # --- lock lifecycle --------------------------------------------------------
 echo "lock lifecycle"

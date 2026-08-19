@@ -55,14 +55,14 @@ strings, digests and paths will differ on your machine.
 The expected SHA-256 for v0.25.2 is
 
 ```
-a956a320b48f173a1c00bf3423b49e6bb0239f388dfe84566cfe6201d61045b1  flixw-setup.java
+30c39391d5fa115a8ad5b98afba0e726d36993e554f2d4bcb40873302f7e7acd  flixw-setup.java
 ```
 
 ```console
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.2/flixw-setup.java
 
 # paste the digest above; this prints "OK" and exits non-zero if it does not match
-echo "a956a320b48f173a1c00bf3423b49e6bb0239f388dfe84566cfe6201d61045b1  flixw-setup.java" \
+echo "30c39391d5fa115a8ad5b98afba0e726d36993e554f2d4bcb40873302f7e7acd  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -129,11 +129,10 @@ rm flixw-setup.java
 In your project it writes the wrapper files and nothing else — it merges its block into an
 existing `.gitattributes` rather than replacing it, and never touches `flix.toml` or
 `.flixw/lock.toml`. It does reach the network once, to fetch and digest-verify this
-release's wrapper code into a cache outside your project. It also writes a small
-user-wide launcher to `~/bin/flixw` (or `FLIXW_BIN_HOME/flixw`): once `~/bin` is on your
-`PATH`, `flixw info` from a project delegates to that project's checked-in `./flixw`.
-The launcher never selects a compiler or supplies a lock, and reports an error outside a
-project tree.
+release's wrapper code into a cache outside your project. It also writes a small launcher
+to `<cache>/bin/flixw` (shown by `./flixw info`): add that directory to your `PATH` if you
+want `flixw info` to delegate to the current project's checked-in `./flixw`. The launcher
+never selects a compiler or supplies a lock, and reports an error outside a project tree.
 
 **Its last line tells you which of two situations you are in.**
 
