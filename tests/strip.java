@@ -96,7 +96,60 @@ final class strip {
                 i++;
             }
         }
-        return tidy(out.toString());
+        return reindent(tidy(out.toString()));
+    }
+
+    /**
+     * Halves the leading indentation of every line that starts in code.
+     *
+     * <p>21% of the shipped file was leading spaces. Two rather than one because this file
+     * still gets read -- it turns up as a diff in somebody's repository after an upgrade --
+     * and one-space Java reads as damage rather than as economy.
+     *
+     * <p>A separate pass, and it has to be: by the time {@link #tidy} runs, a text block's
+     * content is indistinguishable from code. Only lines *starting* in code are touched, so
+     * a text block's body and its closing delimiter are left exactly as written -- those,
+     * not the opening line, are what Java measures incidental indentation from, and
+     * changing them would change the bytes a generated lock file gets.
+     */
+    static String reindent(String s) {
+        StringBuilder out = new StringBuilder(s.length());
+        String[] lines = s.split("\n", -1);
+        String[] state = {"code"};
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            boolean inCode = state[0].equals("code");
+            scan(line, state);
+            if (inCode) {
+                int lead = 0;
+                while (lead < line.length() && line.charAt(lead) == ' ') lead++;
+                line = " ".repeat(lead / 2) + line.substring(lead);
+            }
+            out.append(line);
+            if (i < lines.length - 1) out.append('\n');
+        }
+        return out.toString();
+    }
+
+    /** Advances the text-block/string state across one line. Comments are already gone. */
+    static void scan(String line, String[] state) {
+        int i = 0, n = line.length();
+        while (i < n) {
+            if (state[0].equals("text")) {
+                if (line.startsWith("\"\"\"", i)) { state[0] = "code"; i += 3; }
+                else i++;
+                continue;
+            }
+            if (line.startsWith("\"\"\"", i)) { state[0] = "text"; i += 3; continue; }
+            char c = line.charAt(i);
+            if (c == '"' || c == '\'') {
+                int j = i + 1;
+                while (j < n && line.charAt(j) != c) j += line.charAt(j) == '\\' ? 2 : 1;
+                i = j + 1;
+                continue;
+            }
+            i++;
+        }
     }
 
     /**
