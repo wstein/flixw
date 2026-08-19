@@ -1555,6 +1555,58 @@ t 0 "the installer ignores a stale FLIXW_SOURCE"                sh -c '
       >/dev/null 2>&1 || exit 1
   test -x "$2/upgraded/flixw" && test -f "$2/upgraded/.flixw/flixw.java"' sh "$root" "$work"
 
+# The half that actually moves a project: fetch the manifest, verify the new stage 0,
+# refuse a downgrade, hand the verified bytes to the setup asset, warm the new release's
+# assets. None of it was reachable by any test until FLIXW_RELEASE_SOURCE existed -- the
+# suite could assert the refusal and nothing else, so the path whose failure leaves a user
+# with no way forward ran first in somebody's project.
+newrel=$work/newrelease
+rm -rf "$newrel" && mkdir -p "$newrel"
+# A release that is genuinely newer, so the downgrade guard has to let it through. Same
+# tree with the version rewritten: what is under test is the upgrade machinery, not a diff.
+sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
+  "$root/src/flixw.java" > "$newrel/flixw.java"
+sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
+  "$root/src/flixw-setup.java" > "$newrel/flixw-setup.java"
+cp "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" "$newrel/"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$newrel" && sha256sum flixw.java flixw-setup.java flixw-completion.java \
+     flixw-jdk.java > SHA256SUMS)
+else
+  (cd "$newrel" && shasum -a 256 flixw.java flixw-setup.java flixw-completion.java \
+     flixw-jdk.java > SHA256SUMS)
+fi
+upgproj=$work/upgraded-real
+rm -rf "$upgproj" && mkdir -p "$upgproj"
+java "$root/src/flixw-setup.java" setup "$upgproj" "$root/src/flixw.java" >/dev/null 2>&1
+g 0 '0.25.0-pre.1 -> 9.9.9' "upgrade moves the project to a newer release"  sh -c '
+  cd "$1" && FLIXW_RELEASE_SOURCE="file://$2/" FLIXW_ASSET_SOURCE="file://$2/" \
+    ./flixw wrapper --upgrade 2>&1' sh "$upgproj" "$newrel"
+t 0 "...and the project now carries that stage 0"                sh -c '
+  grep -q "WRAPPER_VERSION = \"9.9.9\"" "$1/.flixw/flixw.java"' sh "$upgproj"
+t 0 "...and its shims were rewritten by the new release"         sh -c '
+  test -x "$1/flixw" && test -f "$1/flixw.cmd"' sh "$upgproj"
+# The assets are version-keyed, so an upgrade that did not warm them would leave every
+# later --completion and --install-jdk reaching for the network.
+t 0 "...and the new release's assets were warmed"                sh -c '
+  find "$FLIX_CACHE_HOME/wrapper/assets/9.9.9" -name "flixw-setup.java" | grep -q .'
+# A tampered release must not be installed, and must leave the project on what it had.
+#
+# From a project that has *not* already been upgraded. The first version of this case
+# reused the one above, which by then carried the very stage 0 the manifest names -- so
+# upgrade answered "already the newest release" and returned 0 without downloading
+# anything. It asserted nothing while looking like it asserted the digest guard.
+tamperproj=$work/upgraded-tampered
+rm -rf "$tamperproj" && mkdir -p "$tamperproj"
+java "$root/src/flixw-setup.java" setup "$tamperproj" "$root/src/flixw.java" >/dev/null 2>&1
+g 85 'digest mismatch' "upgrade refuses a release whose stage 0 was tampered with"  sh -c '
+  bad=$2-tampered; rm -rf "$bad"; cp -R "$2" "$bad"
+  printf "\n// tampered\n" >> "$bad/flixw.java"
+  cd "$1" && FLIXW_RELEASE_SOURCE="file://$bad/" FLIXW_ASSET_SOURCE="file://$bad/" \
+    ./flixw wrapper --upgrade 2>&1' sh "$tamperproj" "$newrel"
+t 0 "...and left the project on the stage 0 it had"              sh -c '
+  grep -q "WRAPPER_VERSION = \"0.25.0-pre.1\"" "$1/.flixw/flixw.java"' sh "$tamperproj"
+
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
 # that keeps it from walking backwards -- and it must hold whether this version is newer
 # than the newest release (working on flixw) or exactly it (the commit a release was cut
