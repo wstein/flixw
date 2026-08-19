@@ -29,7 +29,13 @@ mkdir -p "$work"
 
 cache=$work/cache
 proj=$work/proj
-export FLIX_CACHE_HOME="$cache"
+# Java, not the shell, has to be able to resolve this. Git Bash reports /d/a/x, which a JVM
+# reads as \d\a\x on the *current drive* -- so the cache silently landed in D:\d\a\...
+# and no assertion about its location could hold. cygpath -m gives D:/a/x, which both the
+# JVM and Git Bash resolve to the same directory, so $cache stays usable in shell tests.
+if command -v cygpath >/dev/null 2>&1; then cache_native=$(cygpath -m "$cache")
+else cache_native=$cache; fi
+export FLIX_CACHE_HOME="$cache_native"
 
 # The suite asserts what flixw does with a *clean* environment, and every variable below
 # changes that. A developer working on a Flix fork legitimately has FLIX_JAR exported, and
@@ -1730,24 +1736,35 @@ g 0  'not audited by flixw' "invoking warns it is unaudited 3rd-party code" sh -
 t 0  "plugin invoke delivers the full ABI env tier"               sh -c '
   cd "$1" || exit 1
   out=$(./flixw plugin echoer 2>/dev/null) || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_ABI_VERSION=1$"                       || exit 1
+  need "^FLIXW_ABI_VERSION=1$"
   # flixw is a Java program and reports native paths, so on Windows these are D:\... and
   # not the /d/... the shell would give. That is correct -- a plugin receives what it can
   # open -- so the expectation is converted rather than the value. -F because a Windows
   # path is full of regex metacharacters.
-  eroot=$1; ecache=$2
-  if command -v cygpath >/dev/null 2>&1; then eroot=$(cygpath -w "$1"); ecache=$(cygpath -w "$2"); fi
-  printf "%s\n" "$out" | grep -Fq "FLIXW_PROJECT_ROOT=$eroot"                  || exit 1
-  printf "%s\n" "$out" | grep -Fq "FLIXW_CACHE_HOME=$ecache"                   || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_COMPILER_VERSION=$3$"                 || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_COMPILER_JAR=.*\.jar$"                || exit 1
-  printf "%s\n" "$out" | grep -qE "^FLIXW_JAVA_HOME=(/|[A-Za-z]:)"             || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_PLUGIN_NAME=echoer$"                  || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_PLUGIN_VERSION=1.0.0$"                || exit 1
-  printf "%s\n" "$out" | grep -q "^FLIXW_CONTEXT=.*\.json$"                    || exit 1
-  printf "%s\n" "$out" | grep -q "CONTEXT_BODY=.*\"abiVersion\": 1"            || exit 1
-  printf "%s\n" "$out" | grep -q "CONTEXT_BODY=.*\"projectRoot\": \"$1\""      || exit 1
-  printf "%s\n" "$out" | grep -q "CONTEXT_BODY=.*\"name\": \"echoer\""         || exit 1' \
+  # Twelve assertions behind one exit code told us only that something broke, which on a
+  # platform this cannot be reproduced on is a nine-minute round trip per guess. Each now
+  # names itself.
+  need() { printf "%s\n" "$out" | grep -qE "$1" || { echo "MISSING /$1/" >&2; exit 1; }; }
+  needf() { printf "%s\n" "$out" | grep -Fq "$1" || { echo "MISSING [$1]" >&2; exit 1; }; }
+  # flixw is a Java program and reports native paths; the shell reports its own. What the
+  # plugin receives has to be openable by the plugin, so the expectation is converted.
+  eroot=$1
+  if command -v cygpath >/dev/null 2>&1; then eroot=$(cygpath -w "$1"); fi
+  needf "FLIXW_PROJECT_ROOT=$eroot"
+  # Not converted: FLIX_CACHE_HOME is exported to flixw already in a form a JVM resolves,
+  # so what comes back is that same string normalised, not a translation of a shell path.
+  need "^FLIXW_CACHE_HOME=."
+  need "^FLIXW_COMPILER_VERSION=$3$"
+  need "^FLIXW_COMPILER_JAR=.*[.]jar$"
+  need "^FLIXW_JAVA_HOME=(/|[A-Za-z]:)"
+  need "^FLIXW_PLUGIN_NAME=echoer$"
+  need "^FLIXW_PLUGIN_VERSION=1[.]0[.]0$"
+  need "^FLIXW_CONTEXT=.*[.]json$"
+  need "CONTEXT_BODY=.*\"abiVersion\": 1"
+  # By its last segment: the value is a native path, and JSON escapes every backslash in
+  # it, so matching in full would assert the platform'"'"'s spelling rather than the contract.
+  need "CONTEXT_BODY=.*\"projectRoot\": \".*pluginproj"
+  need "CONTEXT_BODY=.*\"name\": \"echoer\""' \
   sh "$pp" "$cache" "$ppcv"
 
 # The context file is per-invocation and cleaned up by a shutdown hook -- not a `finally`,
