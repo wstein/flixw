@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import picocli.AutoComplete;
 import picocli.CommandLine;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Model.CommandSpec;
@@ -240,11 +241,30 @@ final class flixwhelp {
      * work out which of them is currently winning.
      */
     static void overview(Ctx c) {
+        render(tree(c, "./flixw"));
+
+        System.out.println();
+        System.out.println("  ./flixw help flix [<command>]    the pinned compiler's own help");
+        System.out.println("  ./flixw help wrapper             the wrapper's own reference");
+        System.out.println("  ./flixw help plugin [<name>]     installed plugins");
+        System.out.println("  ./flixw help task [<name>]       this project's tasks");
+        System.out.println("  ./flixw -- --help                stock Flix help, unedited");
+    }
+
+    /**
+     * The command tree this project would actually dispatch, as one picocli model.
+     *
+     * <p>Built once and used twice -- to render {@code help}, and as the model picocli's own
+     * {@code AutoComplete} turns into a bash/zsh completion. That sharing is the point: a
+     * completion generated from a different tree than the help screen describes is a
+     * completion that disagrees with the documentation on the same terminal.
+     */
+    static CommandSpec tree(Ctx c, String name) {
         List<String> compilerVerbs = c.words("compilerVerbs");
         Map<String, String> desc = c.get("helpFile").isEmpty()
             ? Map.of() : commands(readOrEmpty(c.get("helpFile")));
 
-        CommandSpec root = base("./flixw",
+        CommandSpec root = base(name,
             "flixw " + c.get("flixwVersion") + " -- repository-local Flix bootstrap.",
             "",
             c.get("compilerVersion").isEmpty()
@@ -256,14 +276,8 @@ final class flixwhelp {
         for (String v : compilerVerbs) sub(root, v, desc.getOrDefault(v, ""));
         for (String v : c.words("wrapperVerbs"))
             if (!compilerVerbs.contains(v)) sub(root, v, "(wrapper) " + wrapperDesc(v));
-        render(root);
-
-        System.out.println();
-        System.out.println("  ./flixw help flix [<command>]    the pinned compiler's own help");
-        System.out.println("  ./flixw help wrapper             the wrapper's own reference");
-        System.out.println("  ./flixw help plugin [<name>]     installed plugins");
-        System.out.println("  ./flixw help task [<name>]       this project's tasks");
-        System.out.println("  ./flixw -- --help                stock Flix help, unedited");
+        if (!c.get("helpFile").isEmpty()) addOptions(root, readOrEmpty(c.get("helpFile")));
+        return root;
     }
 
     static String wrapperDesc(String verb) {
@@ -495,69 +509,115 @@ final class flixwhelp {
         System.exit(89);
     }
 
-    // ---- generated fish completion ------------------------------------------
+    // ---- the completers ------------------------------------------------------
 
     /**
-     * A fish completion generated from the pinned compiler's own help: verbs with their
-     * descriptions, and the compiler's options.
+     * One completer per shell, all from the one {@link #tree} the help screen renders.
      *
-     * <p>This is the enriched counterpart to {@code completion fish}, which stays
-     * static and project-independent by design -- it reads {@code .flixw/local/verbs} at TAB
-     * time so it cannot go stale at the next {@code pin}. What it cannot do is carry
-     * descriptions or options, because those are not in that note. This one can, at the price
-     * of being generated for one pinned compiler and needing regeneration after a re-pin.
+     * <p>The script is a snapshot of the pinned compiler and must be regenerated after a
+     * re-pin. An earlier design emitted a static script that read its candidates at TAB time
+     * from a note, so it never went stale -- but a note holds bare verb names, which is why
+     * it could carry neither a description nor an option. This trades staleness for the
+     * thing a completion is actually for.
      *
-     * <p><b>The approach is gencomp's; the parse is not.</b> Deriving fish completions by
-     * scanning a program's {@code --help} is exactly what {@code gencomp} does, and its output
-     * shape is the right one -- {@code __fish_use_subcommand} for the verb position,
-     * {@code __fish_seen_subcommand_from} for what follows, {@code -f} to keep filenames out
-     * of the verb slot. Its parser is where it breaks on Flix: a generic "commands?" section
-     * detector matches the line {@code Command: init} itself and skips it, so every entry it
-     * emits is the first word of the *description* on the next line -- {@code creates},
-     * {@code checks}, {@code builds} five times over, and not one real verb. Measured against
-     * a real compiler, not assumed. The layout-specific parse in this file is what fixes it,
-     * and it is also why the picocli layout is handled properly rather than accidentally.
-     *
-     * <p>Two things gencomp does not do are added here because the parsed data supports them:
-     * an option that takes a value is marked {@code -r}, so fish stops offering the next verb
-     * where an argument belongs, and descriptions are escaped rather than assumed quote-free.
+     * <p><b>gencomp's shape, not gencomp's parse.</b> Deriving completions by scanning a
+     * program's {@code --help} is what {@code gencomp} does, and its output shape is right --
+     * {@code __fish_use_subcommand} for the verb slot, {@code -f} to keep filenames out of
+     * it. Its parse is where it breaks on Flix: a generic {@code commands?} section detector
+     * matches the line {@code Command: init} itself and skips it, so every entry it emits is
+     * the first word of the description below -- {@code creates}, {@code checks},
+     * {@code builds} five times, and not one real verb. Measured against a real 0.75.3, not
+     * assumed. Working from a model rather than from prose is what avoids that whole class
+     * of error, which is the argument for the {@code CommandSpec} in the first place.
      */
     static void completion(Ctx c, String shell) {
-        if (!"fish".equals(shell)) {
-            System.err.println("flixw: help completion generates fish only");
-            System.err.println("       for bash, zsh, fish or pwsh: ./flixw completion <shell>");
-            System.exit(89);
+        CommandSpec spec = tree(c, "flixw");
+        switch (shell) {
+            // picocli's own generator, from the same tree `help` renders. One script serves
+            // both shells. Writing a second bash generator beside a maintained one would be
+            // inventing work and the two would drift.
+            case "bash", "zsh" -> System.out.print(AutoComplete.bash("flixw", new CommandLine(spec)));
+            // picocli generates neither of these, so they are flixw code walking the same
+            // model rather than a second parse of anything. That is the whole reason the tree
+            // exists as a value: four shells, one description of what the commands are.
+            case "fish" -> fish(spec);
+            case "pwsh" -> pwsh(spec);
+            default -> {
+                System.err.println("flixw: unknown shell " + q(shell));
+                System.exit(89);
+            }
         }
-        String help = c.get("helpFile").isEmpty() ? "" : readOrEmpty(c.get("helpFile"));
-        Map<String, String> cmds = commands(help);
-        List<String> compilerVerbs = c.words("compilerVerbs");
+    }
 
-        System.out.println("# fish completion for flixw, generated from Flix "
-                         + c.get("compilerVersion") + "'s own help.");
-        System.out.println("# Regenerate after a re-pin:  ./flixw help completion fish");
-        System.out.println("# Matched on the command's base name, so this one registration covers");
-        System.out.println("# `flixw`, `./flixw` and an absolute path alike.");
+    /**
+     * fish, walking the command tree.
+     *
+     * <p>fish matches on the command's <em>base name</em>, so one registration covers
+     * {@code flixw}, {@code ./flixw} and an absolute path alike -- bash matches the word as
+     * typed and needs both spellings, which is why only this one gets away with a single
+     * {@code -c}. Value-taking options are marked {@code -r} so fish stops offering verbs
+     * where an argument belongs.
+     */
+    static void fish(CommandSpec spec) {
+        System.out.println("# flixw TAB completion for fish, generated from this project's"
+                         + " pinned compiler.");
+        System.out.println("# Regenerate after a re-pin:  ./flixw completion fish");
         System.out.println();
-
-        for (String v : compilerVerbs)
+        for (Map.Entry<String, CommandLine> e : spec.subcommands().entrySet())
             System.out.println("complete -f -c flixw -n __fish_use_subcommand -a "
-                             + fq(v) + " -d " + fq(cmds.getOrDefault(v, "")));
-        for (String v : c.words("wrapperVerbs"))
-            if (!compilerVerbs.contains(v))
-                System.out.println("complete -f -c flixw -n __fish_use_subcommand -a "
-                                 + fq(v) + " -d " + fq("(wrapper) " + wrapperDesc(v)));
-
+                             + fq(e.getKey()) + " -d " + fq(describe(e.getValue().getCommandSpec())));
         System.out.println();
-        for (String[] o : options(help).values()) {
+        for (OptionSpec o : spec.options()) {
             StringBuilder b = new StringBuilder("complete -c flixw");
-            if (!o[0].isEmpty()) b.append(" -s ").append(fq(o[0].substring(1)));
-            if (!o[1].isEmpty()) b.append(" -l ").append(fq(o[1].substring(2)));
-            // -r where the compiler documented a value: without it fish keeps offering verbs
-            // in the slot an argument belongs in, which reads as the completion being broken.
-            if (!o[2].isEmpty()) b.append(" -r");
-            b.append(" -d ").append(fq(o[3]));
+            for (String n : o.names()) {
+                if (n.startsWith("--")) b.append(" -l ").append(fq(n.substring(2)));
+                else if (n.length() == 2) b.append(" -s ").append(fq(n.substring(1)));
+            }
+            if (o.arity().max() > 0) b.append(" -r");
+            b.append(" -d ").append(fq(describe(o)));
             System.out.println(b);
         }
+    }
+
+    /**
+     * PowerShell, walking the same tree.
+     *
+     * <p>Registered against {@code flixw.cmd}, which is the trampoline a Windows shell
+     * actually invokes; there is no {@code .ps1} to attach to, and there deliberately is not
+     * one -- a {@code .ps1} cannot be run as a bare command from {@code cmd.exe} or a build
+     * tool, and an execution policy can make it administratively unrunnable.
+     */
+    static void pwsh(CommandSpec spec) {
+        System.out.println("# flixw TAB completion for PowerShell, generated from this"
+                         + " project's pinned compiler.");
+        System.out.println("# Regenerate after a re-pin:  ./flixw completion pwsh");
+        System.out.println();
+        StringBuilder words = new StringBuilder();
+        for (String k : spec.subcommands().keySet()) {
+            if (words.length() > 0) words.append(',');
+            words.append('\'').append(k).append('\'');
+        }
+        for (OptionSpec o : spec.options())
+            for (String n : o.names()) words.append(",'").append(n).append('\'');
+        System.out.println("Register-ArgumentCompleter -Native -CommandName flixw,flixw.cmd"
+                         + " -ScriptBlock {");
+        System.out.println("    param($wordToComplete, $commandAst, $cursorPosition)");
+        System.out.println("    @(" + words + ") |");
+        System.out.println("        Where-Object { $_ -like \"$wordToComplete*\" } |");
+        System.out.println("        ForEach-Object { [System.Management.Automation"
+                         + ".CompletionResult]::new($_, $_, 'ParameterValue', $_) }");
+        System.out.println("}");
+    }
+
+    /** A one-line description, or empty; picocli models it as an array of lines. */
+    static String describe(CommandSpec s) {
+        String[] d = s.usageMessage().description();
+        return d == null || d.length == 0 ? "" : collapse(d[0]);
+    }
+
+    static String describe(OptionSpec o) {
+        String[] d = o.description();
+        return d == null || d.length == 0 ? "" : collapse(d[0]);
     }
 
     /**

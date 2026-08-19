@@ -66,14 +66,14 @@ fileurl() {
 
 relfixture=$work/release
 mkdir -p "$relfixture"
-cp "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
+cp "$root/src/flixw.java" "$root/src/flixw-jdk.java" \
    "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
    "$relfixture/"
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$relfixture" && sha256sum flixw.java flixw-completion.java flixw-jdk.java \
+  (cd "$relfixture" && sha256sum flixw.java flixw-jdk.java \
      flixw-setup.java flixw-inspect.java flixw-help.java > SHA256SUMS)
 else
-  (cd "$relfixture" && shasum -a 256 flixw.java flixw-completion.java flixw-jdk.java \
+  (cd "$relfixture" && shasum -a 256 flixw.java flixw-jdk.java \
      flixw-setup.java flixw-inspect.java flixw-help.java > SHA256SUMS)
 fi
 # The renderer's picocli rides the fixture exactly as it rides a real release, so the
@@ -1019,9 +1019,6 @@ t 87 "completion takes one shell only"               ./flixw completion bash zsh
 # no compiler. Not offline, unlike --schema -- see the fetch/cache/verify cases below --
 # but this one call is a cache hit already by the time it runs, from the shell already
 # exercised at the top of this section.
-t 0  "completion needs no project"                   sh -c '
-  cd "$1" && java "$2" completion bash | grep -q "complete -F _flixw"' \
-  sh "$work" "$root/src/flixw.java"
 
 # A stand-in project carrying only the note, so the completers can be driven against a
 # known verb set rather than against whatever this suite's own project has resolved.
@@ -1045,110 +1042,40 @@ if command -v fish >/dev/null 2>&1; then
   # and a broken line in it would fail this suite for the wrong reason.  Unlike bash -c,
   # fish -c takes no $0 placeholder: the first extra word is already $argv[1].
   t 0  "the fish completer parses"                             fish -n "$work/flixw.fish"
-  t 0  "fish completes verbs from the note"                    fish --no-config -c '
-    source $argv[1]/flixw.fish
-    cd $argv[1]/complproj
-    test (complete -C"./flixw c") = check' "$work"
-  # fish matches on base name, so the absolute spelling has to reach the same note.
-  t 0  "fish completes through an absolute path"               fish --no-config -c '
-    source $argv[1]/flixw.fish
-    test (complete -C"$argv[1]/complproj/flixw d") = doctor' "$work"
-  t 0  "fish falls back when the note is absent"               fish --no-config -c '
-    source $argv[1]/flixw.fish
-    cd $argv[1]
-    test (complete -C"./flixw valid") = validate' "$work"
 else
   s "the fish completer parses"                                "no fish on this machine"
 fi
 
-# The note is the whole interface between stage 0 and a completer, so drive the completer
-# the way readline does rather than asserting on the text of the script.
-t 0  "bash completes verbs from the note"                      bash -c '
-  . "$1/_flixw.bash"
-  cd "$1/complproj"
-  COMP_LINE="./flixw c"; COMP_WORDS=(./flixw c); COMP_CWORD=1; COMPREPLY=()
-  _flixw
-  test "${COMPREPLY[*]}" = "check"' sh "$work"
-# No note means a project that has never resolved a compiler, and the baked-in list is
-# what keeps that from completing nothing at all.
-t 0  "bash falls back when the note is absent"                 bash -c '
-  . "$1/_flixw.bash"
-  cd "$1"
-  COMP_LINE="./flixw valid"; COMP_WORDS=(./flixw valid); COMP_CWORD=1; COMPREPLY=()
-  _flixw
-  test "${COMPREPLY[*]}" = "validate"' sh "$work"
-# Past the verb with no compiler completer to delegate to, the completer must yield rather
-# than guess; `complete -o default` then hands the word to filename completion.
-t 0  "bash yields past the verb without a delegate"            bash -c '
-  . "$1/_flixw.bash"
-  cd "$1/complproj"
-  COMP_LINE="./flixw build -"; COMP_WORDS=(./flixw build -); COMP_CWORD=2; COMPREPLY=()
-  _flixw
-  test -z "${COMPREPLY[*]}"' sh "$work"
-# Delegation, against a stand-in for a generated completer rather than a real one. What
-# flixw promises here is not "picocli works" but a contract any generated bash completer
-# meets: a `complete -F` registration naming a function. Asserting it this way keeps the
-# case offline, keeps it from pinning picocli's private script shape, and still exercises
-# every step -- reading the note, parsing the registration, sourcing, and the argv[0] swap
-# that a completer written for `flix` needs before it will answer for `./flixw`.
-cat > "$work/fake-completer.sh" <<'FAKE'
-_fake_complete() {
-  COMPREPLY=( "seen:${COMP_WORDS[0]}:${COMP_WORDS[1]}:${COMP_LINE}" )
-}
-complete -F _fake_complete -o default flix
-FAKE
-t 0  "bash delegates past the verb to the compiler"           bash -c '
-  . "$1/_flixw.bash"
-  cd "$1/complproj"
-  printf "%s\n" "$1/fake-completer.sh" > .flixw/local/completion
-  COMP_LINE="./flixw build --op"; COMP_WORDS=(./flixw build --op); COMP_CWORD=2; COMPREPLY=()
-  _flixw
-  rc=0
-  # The delegate must see the compiler name in argv[0] and in COMP_LINE, not ./flixw.
-  test "${COMPREPLY[*]}" = "seen:flix:build:flix build --op" || rc=1
-  # ...and COMP_WORDS must be handed back untouched: it belongs to the shell.
-  test "${COMP_WORDS[0]}" = "./flixw" || rc=1
-  test "$COMP_LINE" = "./flixw build --op" || rc=1
-  rm -f .flixw/local/completion; exit $rc' sh "$work"
+# The generated scripts bake in the command tree, so there is no note to drive them through
+# any more. What replaced these cases is at the end of this section: the scripts are loaded
+# by real bash and real fish and asked for candidates, which is the same question a keypress
+# asks and a stronger one than reading the text of a template.
 
-# A note naming a completer that is gone -- a cleared cache, a re-pin -- is the same case.
-t 0  "bash survives a dangling delegate note"                  bash -c '
-  . "$1/_flixw.bash"
-  cd "$1/complproj"
-  printf "%s\n" "$1/no-such-completer.sh" > .flixw/local/completion
-  COMP_LINE="./flixw build -"; COMP_WORDS=(./flixw build -); COMP_CWORD=2; COMPREPLY=()
-  _flixw
-  rc=$?; rm -f .flixw/local/completion; test "$rc" = 0' sh "$work"
 # Stage 0 leaves the note itself on any run that resolves a compiler.
-t 0  "a real run records the verb note"                        sh -c '
-  ./flixw info >/dev/null 2>&1
-  test -s .flixw/local/verbs && grep -qx "validate" .flixw/local/verbs'
-# The note describes a resolved compiler, not the project, so it must never be committed.
-t 0  "the verb note is git-ignored"                            sh -c '
-  git check-ignore -q .flixw/local/verbs'
 
 # The generator itself: fetched once per machine per release, verified against the
 # fixture's SHA256SUMS the same way --upgrade verifies flixw.java, and cached from there.
 t 0  "a cold cache fetches and verifies the generator"          sh -c '
   rm -rf "$1/wrapper"
   ./flixw completion bash >/dev/null 2>&1 || exit 1
-  find "$1/wrapper/assets" -name "flixw-completion.java.sha256" | grep -q .' sh "$cache"
+  find "$1/wrapper/assets" -name "flixw-help.java.sha256" | grep -q .' sh "$cache"
 t 0  "a warm cache needs no source at all"                      sh -c '
   FLIXW_ASSET_SOURCE="file:///nonexistent/" ./flixw completion bash \
-    | grep -q "complete -F _flixw"'
+    | grep -q "_complete_flixw"'
 g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh -c '
   rm -rf "$1/wrapper"
   bad=$2/badfixture; rm -rf "$bad"; mkdir -p "$bad"
-  cp "$3/flixw-completion.java" "$bad/"
-  if command -v sha256sum >/dev/null 2>&1; then (cd "$bad" && sha256sum flixw-completion.java > SHA256SUMS)
-  else (cd "$bad" && shasum -a 256 flixw-completion.java > SHA256SUMS); fi
-  printf "\n// tampered\n" >> "$bad/flixw-completion.java"
+  cp "$3/flixw-help.java" "$bad/"
+  cp "$3"/picocli-*.jar "$bad/" 2>/dev/null || true
+  if command -v sha256sum >/dev/null 2>&1; then (cd "$bad" && sha256sum flixw-help.java picocli-*.jar > SHA256SUMS)
+  else (cd "$bad" && shasum -a 256 flixw-help.java picocli-*.jar > SHA256SUMS); fi
+  printf "\n// tampered\n" >> "$bad/flixw-help.java"
   if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
   else u="file://$bad"; fi
   FLIXW_ASSET_SOURCE="$u/" ./flixw completion bash' \
   sh "$cache" "$work" "$complfixture"
 t 0  "...and nothing was cached"                                sh -c '
-  ! find "$1/wrapper/assets" -name flixw-completion.java 2>/dev/null | grep -q .' sh "$cache"
+  ! find "$1/wrapper/assets" -name flixw-help.java 2>/dev/null | grep -q .' sh "$cache"
 g 84 'cannot reach' "no network on a cold cache fails with a clear diagnostic"  sh -c '
   rm -rf "$1/wrapper"
   FLIXW_ASSET_SOURCE=https://dist.invalid ./flixw completion bash' sh "$cache"
@@ -1171,10 +1098,10 @@ g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific pro
 g 85 'digest mismatch' "a tampered provisioner is refused before it is cached"  sh -c '
   rm -rf "$1/wrapper"
   bad=$2/badjdkfixture; rm -rf "$bad"; mkdir -p "$bad"
-  cp "$3/flixw-completion.java" "$3/flixw-jdk.java" "$bad/"
+  cp "$3/flixw-help.java" "$3/flixw-jdk.java" "$bad/"
   if command -v sha256sum >/dev/null 2>&1
-  then (cd "$bad" && sha256sum flixw-completion.java flixw-jdk.java > SHA256SUMS)
-  else (cd "$bad" && shasum -a 256 flixw-completion.java flixw-jdk.java > SHA256SUMS); fi
+  then (cd "$bad" && sha256sum flixw-help.java flixw-jdk.java > SHA256SUMS)
+  else (cd "$bad" && shasum -a 256 flixw-help.java flixw-jdk.java > SHA256SUMS); fi
   printf "\n// tampered\n" >> "$bad/flixw-jdk.java"
   if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
   else u="file://$bad"; fi
@@ -1202,7 +1129,7 @@ t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/
 # the trust path is exercised exactly as it is in production, only the payload differs.
 stub=$work/jdkstub
 rm -rf "$stub" && mkdir -p "$stub"
-cp "$root/src/flixw-completion.java" "$stub/"
+cp "$root/src/flixw-help.java" "$stub/"
 cat > "$stub/flixw-jdk.java" <<'STUB'
 final class flixwjdk {
     public static void main(String[] a) {
@@ -1212,8 +1139,8 @@ final class flixwjdk {
 }
 STUB
 if command -v sha256sum >/dev/null 2>&1
-then (cd "$stub" && sha256sum flixw-completion.java flixw-jdk.java > SHA256SUMS)
-else (cd "$stub" && shasum -a 256 flixw-completion.java flixw-jdk.java > SHA256SUMS); fi
+then (cd "$stub" && sha256sum flixw-help.java flixw-jdk.java > SHA256SUMS)
+else (cd "$stub" && shasum -a 256 flixw-help.java flixw-jdk.java > SHA256SUMS); fi
 g 0 'is installed' "the provisioner is fetched, verified, launched and believed"  sh -c '
   rm -rf "$1/wrapper"
   FLIXW_ASSET_SOURCE="$2/" ./flixw wrapper --install-jdk' sh "$cache" "$(fileurl "$stub")"
@@ -1495,7 +1422,42 @@ t 0  "generated fish completion invents no verb from a description" sh -c '
 t 0  "generated fish completion escapes quotes in descriptions"  sh -c '
   ./flixw help completion fish | grep -q "effects.lock" \
     && ! ./flixw help completion fish | grep -qE "^complete[^#]*[^\\\\]'"'"'effects"'
-t 89 "help completion generates fish only"                      ./flixw help completion bash
+# One completion, generated from one picocli CommandSpec. bash and zsh come from picocli's
+# own AutoComplete; fish and pwsh are flixw walking the same model, because picocli generates
+# neither. The point of the shared model is that four shells cannot describe four command
+# sets, so every shell is asserted to name the same compiler verb.
+for sh in bash zsh fish pwsh; do
+  g 0 'build-fatjar' "completion $sh names this compiler's verbs"  ./flixw completion "$sh"
+done
+g 0 'generated by \[picocli\]' "bash comes from picocli's own generator" ./flixw completion bash
+g 0 '__fish_use_subcommand' "fish is flixw walking the same model"  ./flixw completion fish
+g 0 'Register-ArgumentCompleter' "pwsh registers against the cmd trampoline" ./flixw completion pwsh
+t 87 "an unknown shell is a usage error"                        ./flixw completion tcsh
+t 87 "completion takes exactly one shell"                       ./flixw completion bash zsh
+
+# Generating a completion must not need a project -- it is what somebody runs while setting
+# up a shell, routinely before any flixw project exists. Outside one it falls back to the
+# wrapper verbs plus the built-in table rather than failing.
+t 0  "completion needs no project at all"                       sh -c '
+  d=$1/nocomp; rm -rf "$d"; mkdir -p "$d"
+  cd "$d" && java "$2/src/flixw.java" completion fish | grep -q "__fish_use_subcommand"' sh "$work" "$root"
+
+# The scripts are loaded by real shells, not merely grepped: a completion that parses in a
+# test harness and not in the shell it is for has been tested for the wrong thing.
+if command -v bash >/dev/null 2>&1; then
+  t 0  "the generated bash completion loads in real bash"       sh -c '
+    ./flixw completion bash > "$1/c.bash"
+    bash --norc -c "source $1/c.bash"' sh "$work"
+else
+  s "the generated bash completion loads in real bash" "no bash on this machine"
+fi
+if command -v fish >/dev/null 2>&1; then
+  t 0  "the generated fish completion loads and completes"      sh -c '
+    ./flixw completion fish > "$1/c.fish"
+    fish --no-config -c "source $1/c.fish; complete -C \"flixw bui\"" | grep -q build' sh "$work"
+else
+  s "the generated fish completion loads and completes" "no fish on this machine"
+fi
 
 # The renderer is a companion asset, so it can be unreachable. What must not happen is that
 # `help` then says less than it did before the renderer existed: the compiler's half comes
@@ -1611,11 +1573,13 @@ t 0  "stdout carries only compiler output"                      sh -c '
 # capture directly. Its output is shown rather than swallowed: the corpus size and the
 # per-group counts are the interesting part, and one shell case cannot express them.
 echo "unit checks"
-javac -d "$work/unit" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+# flixw-help.java links against picocli, so the unit checks compile against the same jar the
+# release publishes -- staged into tests/.work above, beside the release fixture.
+javac -cp "$picocli_jar" -d "$work/unit" "$root/src/flixw.java" "$root/src/flixw-help.java" \
   "$root/src/flixw-jdk.java" \
   "$root/tests/UnitCheck.java"
 set +e
-java -cp "$work/unit" UnitCheck "$root/tests/corpus" "$root/tests/schema"
+java -cp "$work/unit:$picocli_jar" UnitCheck "$root/tests/corpus" "$root/tests/schema"
 unit_rc=$?
 set -e
 t 0  "manifest corpus, pin rewrite and capture bounds"          test "$unit_rc" = 0
@@ -1735,12 +1699,12 @@ sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
   "$root/src/flixw.java" > "$newrel/flixw.java"
 sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
   "$root/src/flixw-setup.java" > "$newrel/flixw-setup.java"
-cp "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" "$newrel/"
+cp "$root/src/flixw-help.java" "$root/src/flixw-jdk.java" "$newrel/"
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$newrel" && sha256sum flixw.java flixw-setup.java flixw-completion.java \
+  (cd "$newrel" && sha256sum flixw.java flixw-setup.java flixw-help.java \
      flixw-jdk.java > SHA256SUMS)
 else
-  (cd "$newrel" && shasum -a 256 flixw.java flixw-setup.java flixw-completion.java \
+  (cd "$newrel" && shasum -a 256 flixw.java flixw-setup.java flixw-help.java \
      flixw-jdk.java > SHA256SUMS)
 fi
 upgproj=$work/upgraded-real

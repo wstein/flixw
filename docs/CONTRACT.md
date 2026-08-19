@@ -17,7 +17,6 @@ flixw.cmd             cmd.exe shim
 .flixw/lock.toml      the pin: version, URL, SHA-256
 .flixw/.gitignore     keeps .flixw/local/ out of git
 .flixw/local/java     the JDK this machine resolved to; NOT committed
-.flixw/local/verbs    the verbs this project dispatches; NOT committed
 ```
 
 The installer also merges a marked block into `.gitattributes` — the sixth file, and the
@@ -462,10 +461,8 @@ reached only when no explicit setting exists and the running JVM is unusable.
    anything else. `--version` and `--help` are offline: no project, no lock, no network,
    no compiler. `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
    a JDK and needs the network. `--schema` prints to stdout and is offline too.
-   `--completion <shell>` also prints to stdout, but is not offline the first time: the
-   generator is a wrapper-owned companion asset, fetched and verified once per machine per
-   release and cached from there — see "Completion" below. A bare `wrapper` prints the
-   routing table.
+   A bare `wrapper` prints the routing table. `completion <shell>` is a verb of its own,
+   not an operation here — see "Completion" below.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
 4. Otherwise, if it is `pin`, `info`, `doctor`, `validate`, `help`, `plugin` or `task`,
@@ -577,43 +574,33 @@ Nothing is installed into the project; you place the output where your shell loo
 ./flixw completion pwsh >> $PROFILE
 ```
 
-The script is byte-identical for every project on a given release, because it contains no
-verbs. Candidates are read when you press TAB from `.flixw/local/verbs`, the note stage 0
-rewrites on any run that resolves a compiler — the compiler's verbs plus the wrapper verbs
-it has not displaced. That follows from dispatch: the verb set is a property of the pin, so
-a completion script with the verbs baked in would go stale at the next `pin` and give no
-sign of it.
+The script describes the compiler this project has pinned, so **regenerate it after a
+re-pin**. That is a deliberate reversal of what earlier releases did, and the trade is worth
+stating plainly: completion used to be byte-identical across projects and read its verbs at
+TAB time from a note, so it never went stale — but it could carry only bare verb names, no
+descriptions and no options, because a note cannot hold them. It now carries all three, at
+the cost of being a snapshot.
 
-Nothing on the **TAB-press** path starts a JVM. A TAB press costs one file read; routing it
-through stage 0 would cost a launch plus the digest re-hash flixw does on every run, which
-together take longer than typing the verb. Before a project has ever resolved a compiler
-there is no note, and the script falls back to a list fixed at emission — one release stale
-at worst, the same trade the built-in verb table makes.
+Everything is generated from one picocli `CommandSpec`: the pinned compiler's commands with
+their own descriptions, the wrapper verbs they have not displaced, and the compiler's
+options with the value-taking ones marked as such. `help` renders that same tree, so a
+completion cannot disagree with the help screen on the same terminal.
 
-The `--completion <shell>` *setup* call is a different question from the TAB press it sets
-up for. It has always been a one-time, explicit command that already cost a JVM launch; the
-templates it fills in now live in `src/flixw-completion.java`, a small companion source
-file fetched from the same flixw release this stage 0 is, verified against that release's
-own `SHA256SUMS` — the same trust footing `wrapper --upgrade` already gives `flixw.java`
-itself — and cached under `<cache>/wrapper/assets/<version>/`. Only the *first*
-`--completion` call on a machine, for a given release, needs network; every call after
-that, from any project, is an offline cache hit. A cold cache with no network reachable
-fails with `FLIXW005` naming what could not be reached, the same shape a failed compiler
-acquisition already has — there is no silent partial fallback, because a completion script
-installed into a shell startup that quietly stopped delegating to the compiler would be
-found out only by someone wondering, days later, why `run --` no longer completes anything.
+bash and zsh come from picocli's own `AutoComplete`, which emits one script serving both.
+fish and PowerShell are flixw walking the same model, because picocli generates neither.
+`cmd.exe` gets nothing — it has no per-command completion mechanism to hook.
 
-Past the verb the compiler owns the arguments. A picocli-based Flix answers
-`generate-completion`; flixw caches that script and the bash completer delegates to it, so
-options and per-verb arguments complete too. Stock Flix is scopt, ships no completer, and
-completion stops at the verb, where the shell's own filename completion takes over. flixw
-detects the difference at no cost — picocli registers `generate-completion` as an ordinary
-subcommand, so it appears in the verb set already captured from `--help`.
+Generating a script needs **no project**. It is what somebody runs while setting up a shell,
+routinely before any flixw project exists on the machine; outside a project the tree is the
+wrapper's own verbs plus the built-in table. Inside one, no compiler is downloaded or
+launched either — the verb set is read from the cache record, so a project whose compiler is
+not cached yet still gets a working script.
 
-Only bash delegates. zsh, fish and PowerShell complete verbs and then hand over to file
-completion: picocli emits a bash script, which zsh cannot load without `bashcompinit` and
-fish cannot load at all, and picocli generates no fish or PowerShell completer to begin
-with. `cmd.exe` gets nothing — it has no per-command completion mechanism to hook.
+It does need the renderer, which is a companion asset. Only the *first* `completion` call on
+a machine, for a given release, needs the network; every call after that is an offline cache
+hit. A cold cache with nothing reachable fails with `FLIXW005` naming what it could not
+reach, rather than emitting a partial script — one installed into a shell startup and
+quietly wrong would be found out days later, by someone wondering why nothing completes.
 
 bash needs both `flixw` and `./flixw` registered, because it matches the command word as
 typed. zsh, fish and PowerShell each resolve the name from the path, so one registration
@@ -866,8 +853,8 @@ between shim and stage 0, not an implementation detail:
 <cache>/jdks/default                 # one line: the java the last install produced
 <cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}
 <cache>/plugins/.context-*.json      # one per invocation, deleted by a shutdown hook
-<cache>/wrapper/assets/<version>/flixw-completion.java        # the TAB-completion generator
-<cache>/wrapper/assets/<version>/flixw-completion.java.sha256 # verified once, checked locally after
+<cache>/wrapper/assets/<version>/flixw-help.java        # the TAB-completion generator
+<cache>/wrapper/assets/<version>/flixw-help.java.sha256 # verified once, checked locally after
 <cache>/wrapper/assets/<version>/flixw-jdk.java               # the optional JDK provisioner
 <cache>/wrapper/assets/<version>/flixw-jdk.java.sha256        # same, one sidecar per asset
 ```

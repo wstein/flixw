@@ -5,7 +5,6 @@
 #   flixw-<version>.zip       the same, for a machine without tar
 #   flixw.java                stage 0 on its own, for the `java flixw.java wrapper --install` route
 #   flixw-setup.java        the installer, fetched on first use and cached
-#   flixw-completion.java     the TAB-completion generator, fetched on first use and cached
 #   flixw-jdk.java            the optional JDK provisioner, fetched on first use and cached
 #   SHA256SUMS                digests of all of the above
 #
@@ -52,12 +51,12 @@ trap 'rm -rf "$stage" "$work"' EXIT INT TERM
 # it: the asset a release ships must be the one that wrote that release's archives.
 fixture=$work/release
 mkdir -p "$fixture"
-cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+cp "$root/src/flixw.java" \
    "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
    "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" "$fixture/"
 # Unstripped here on purpose: this fixture exists only so the staging install can run
 # offline, and the stage 0 it writes is replaced by $shipped a few lines below.
-(cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
+(cd "$fixture" && sum flixw.java flixw-jdk.java flixw-setup.java \
    flixw-inspect.java flixw-help.java \
    > SHA256SUMS)
 FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
@@ -120,7 +119,7 @@ cp "$shipped" "$out/flixw.java"
 # Not packed into the archives: neither is ever installed into a project. Both are fetched
 # on first use and cached machine-wide -- ensureAsset in src/flixw.java expects them as
 # bare release assets beside flixw.java, not inside a tarball. flixw-jdk.java is reached by
-# `wrapper --install-jdk`, flixw-completion.java by `completion <shell>`.
+# `wrapper --install-jdk`, flixw-help.java by `help` and `completion <shell>`.
 # Stripped too, for the same reason stage 0 is: the commentary is written for whoever
 # audits flixw, and that reader is in the repository or on the site -- both named in the
 # header the stripper leaves behind. Compiled after stripping, because a release shipping
@@ -143,7 +142,7 @@ got=$(sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
 [ "$got" = "$PICOCLI_SHA256" ] || {
   echo "pack: picocli $pv digest mismatch: pinned $PICOCLI_SHA256, served $got" >&2; exit 1; }
 
-for a in completion jdk inspect setup help; do
+for a in jdk inspect setup help; do
   java "$root/tests/strip.java" "$root/src/flixw-$a.java" "$version" "flixw-$a.java" \
     > "$out/flixw-$a.java"
   # flixw-help.java is the one asset with a compile-time dependency, and it is the jar this
@@ -159,7 +158,7 @@ done
 cp "$root/THIRD_PARTY_NOTICES.md" "$out/THIRD_PARTY_NOTICES.md"
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
-              flixw-completion.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
+              flixw-jdk.java flixw-setup.java flixw-inspect.java \
               flixw-help.java "picocli-$pv.jar" THIRD_PARTY_NOTICES.md \
               > SHA256SUMS)
 echo "packed flixw $version into $out"

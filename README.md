@@ -417,19 +417,19 @@ The schema, the API docs for stage 0, and a short index of both live at
 ./flixw completion pwsh >> $PROFILE
 ```
 
-Write it once. The script holds no verbs — it reads them when you press TAB from a note the
-wrapper keeps in `.flixw/local/`, so completion follows the pin and you do not regenerate
-anything after `./flixw pin`. Different projects on the same machine complete their own
-verbs. Nothing starts a JVM at TAB time, so TAB stays instant.
+The script describes the compiler you have pinned, so **run it again after `./flixw pin`**.
+In exchange you get more than a verb list: each command carries the compiler's own
+description, and its options complete too.
 
-The generator behind `completion` is fetched from the flixw release you're
-running and cached machine-wide, the same way `wrapper --upgrade` fetches `flixw.java`
-itself — so the very first `--completion` call on a machine, for a given flixw release,
-needs network once; every call after that, from any project, is offline.
+bash and zsh come from picocli's generator, fish and PowerShell from flixw walking the same
+command tree, so all four agree with what `./flixw help` shows.
 
-In bash, if your compiler ships its own completer — a picocli-based fork does — flixw finds
-it and options complete too. Everywhere else, and with stock Flix anywhere, completion
-covers the verb and then hands over to ordinary filename completion.
+The generator is fetched from the flixw release you're running and cached machine-wide, the
+same way `wrapper --upgrade` fetches `flixw.java` itself — so the first `completion` call on
+a machine, for a given flixw release, needs network once; every call after that is offline.
+Generating a script does not need a project at all.
+
+Past the options flixw knows about, the shell's own filename completion takes over.
 
 `cmd.exe` is not supported and cannot be: it has no per-command completion mechanism.
 PowerShell works against the `flixw.cmd` that already ships; nothing needs to move to a
@@ -530,7 +530,7 @@ flixw/
 │   ├── flixw-setup.java       the bootstrap: fetches and verifies stage 0, writes a project
 │   ├── flixw-jdk.java         optional JDK provisioning, for `wrapper --install-jdk`
 │   ├── flixw-inspect.java     the cache inventory behind `info --verbose`
-│   ├── flixw-completion.java  TAB-completion generator
+│   ├── flixw-help.java  TAB-completion generator
 │   │                          — the four companion assets: published per release, fetched
 │   │                            on first use, digest-verified, never committed to a project
 │   ├── flixw                  POSIX shim — finds a Java, prefers the compiled stage 0

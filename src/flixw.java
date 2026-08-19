@@ -92,7 +92,7 @@ public final class flixw {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "info", "doctor", "validate", "help", "completion", "plugin", "task");
+        List.of("pin", "info", "doctor", "validate", "help", "plugin", "task");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -2529,35 +2529,6 @@ public final class flixw {
             // Npm's `scripts`, not a new verb per task: a project's own tasks.toml, never
             // fetched, never installed, no trust question -- it is a shell string in a
             // file the project already trusts, the same as any other checked-in script.
-            // Was `wrapper --completion <shell>`. It moved because the `wrapper --*` namespace
-            // is for operations on the wrapper *itself* -- its version, its upgrade, its
-            // cache -- and emitting a completion script is not one of those; it is an
-            // ordinary thing a user does to their shell, and it reads like one now. Being a
-            // bare verb also puts it under compiler-first dispatch, so it retires by itself
-            // the day Flix implements `completion`, like every other wrapper verb.
-            case "completion" -> {
-                List<String> shells = new ArrayList<>(rest);
-                boolean rich = shells.remove("--rich");
-                if (shells.size() != 1)
-                    throw w008(COMPLETION_USAGE);
-                String shell = shells.get(0);
-                if (!COMPLETION_SHELLS.contains(shell))
-                    throw w008("./flixw completion: unknown shell " + q(shell)
-                             + "\n       " + COMPLETION_USAGE);
-                // --rich is fish-only because it is the only shell whose completion format
-                // carries a description per candidate natively, which is the whole of what
-                // the extra work buys. Offering it for the others would promise a difference
-                // they cannot show.
-                if (rich && !shell.equals("fish"))
-                    throw w008("./flixw completion: --rich is fish-only"
-                             + "\n       " + COMPLETION_USAGE);
-                if (rich) {
-                    helpTopic(List.of("completion", "fish"), root, lock, jar, jvm,
-                              compilerVerbs, lock == null ? null : lock.sha256());
-                    return;
-                }
-                completionScript(rest);
-            }
             case "task" -> {
                 Map<String, String> tasks = readTasks(root);
                 if (rest.isEmpty()) {
@@ -3946,44 +3917,78 @@ public final class flixw {
     static final List<String> COMPLETION_SHELLS = List.of("bash", "zsh", "fish", "pwsh");
 
     /**
-     * The project-independent completer, on stdout.
+     * {@code completion}, answered before the project is resolved -- and enriched from the
+     * cache if there is one.
      *
-     * <p>Reached from two places on purpose: early in {@link #realMain}, so it answers with
-     * no project at all, and from the wrapper verb, so `./flixw completion fish` inside a
-     * project takes the same path and cannot produce different bytes.
+     * <p>It is intercepted this early because the script is what somebody generates while
+     * setting up a shell, routinely before any flixw project exists on the machine; requiring
+     * one would make the setup step depend on having finished the setup. But a project *is*
+     * the interesting case, so the lock and the verb record are read here directly -- both
+     * are file reads. Nothing is acquired, launched or downloaded: a completion is not worth
+     * a compiler download, and a project whose compiler is not cached yet still gets a
+     * working script built from the verbs flixw knows.
+     *
+     * <p>The verb set decides its own dispatch. If a pinned compiler has claimed
+     * {@code completion}, this stands aside and lets compiler-first routing take it, exactly
+     * as a bare wrapper verb would -- which is why the word is not in {@code WRAPPER_VERBS}:
+     * it is not answered from there, so listing it would advertise a route that does not run.
      */
-    static void completionScript(List<String> args) {
+    static boolean completionEarly(List<String> args) {
+        completionShell(args);                      // fail on a bad shell before any file work
+        Path root = null;
+        try { root = findRoot(wrapperAnchor()); } catch (Fail ignored) { }
+        Lock lock = null;
+        if (root != null) try { lock = readLock(lockPath(root)); } catch (Fail ignored) { }
+        List<String> cv = new ArrayList<>();
+        if (lock != null) {
+            Path vf = verbsFile(compilerPath(lock), lock.sha256());
+            if (Files.isRegularFile(vf)) {
+                try {
+                    cv.addAll(Files.readAllLines(vf, StandardCharsets.UTF_8));
+                    cv.removeIf(String::isBlank);
+                } catch (IOException ignored) { }
+            }
+        }
+        if (cv.contains("completion")) return false;   // the compiler owns it; fall through
+        completionScript(args, root, lock, null, null, cv, lock == null ? null : lock.sha256());
+        return true;
+    }
+
+    /**
+     * The one shell name in these arguments, validated.
+     *
+     * <p>Both entry points ask this rather than parsing for themselves. They validated
+     * separately at first, which is two chances to disagree about what a shell name is, on a
+     * command whose whole contract is that it produces the same bytes either way.
+     */
+    static String completionShell(List<String> args) {
         List<String> shells = new ArrayList<>(args);
-        shells.remove("--rich");
         if (shells.size() != 1)
             throw w008(COMPLETION_USAGE);
         String shell = shells.get(0);
         if (!COMPLETION_SHELLS.contains(shell))
             throw w008("./flixw completion: unknown shell " + q(shell)
                      + "\n       " + COMPLETION_USAGE);
-        Path asset = ensureAsset(COMPLETION_ASSET);
-        List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
-        for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
-        fallback.sort(null);
-        ProcessBuilder pb = new ProcessBuilder(
-            exeIn(System.getProperty("java.home")).toString(), asset.toString(),
-            shell, String.join(",", fallback)).inheritIO();
-        try {
-            System.exit(awaitWithReaper(pb.start()));
-        } catch (IOException e) {
-            throw w005("cannot run " + asset + ": " + why(e));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            System.exit(130);
-        }
+        return shell;
+    }
+
+    /**
+     * The project-independent completer, on stdout.
+     *
+     * <p>Reached from two places on purpose: early in {@link #realMain}, so it answers with
+     * no project at all, and from the wrapper verb, so `./flixw completion fish` inside a
+     * project takes the same path and cannot produce different bytes.
+     */
+    static void completionScript(List<String> args, Path root, Lock lock, Path jar, Jvm jvm,
+                                 List<String> compilerVerbs, String identity) {
+        String shell = completionShell(args);
+        helpTopic(List.of("completion", shell), root, lock, jar, jvm, compilerVerbs, identity, false);
     }
 
     static final String COMPLETION_USAGE =
-          "usage: ./flixw completion <" + String.join("|", COMPLETION_SHELLS) + "> [--rich]"
-        + "\n         --rich   fish only: bake in this compiler's verb descriptions and"
-        + "\n                  options, which needs regenerating after a re-pin";
-
-    static final String COMPLETION_ASSET = "flixw-completion.java";
+          "usage: ./flixw completion <" + String.join("|", COMPLETION_SHELLS) + ">"
+        + "\n       the script describes the compiler this project has pinned, so it needs"
+        + "\n       regenerating after a re-pin";
 
     /** The optional JDK provisioner; see {@link #runJdkAsset}. */
     static final String JDK_ASSET = "flixw-jdk.java";
@@ -4050,6 +4055,13 @@ public final class flixw {
          .append(identity == null || storedHelp(identity) == null ? "" : helpFile(identity))
          .append('\n');
         b.append("compilerVerbs=").append(String.join(" ", compilerVerbs)).append('\n');
+        // The static completer's baked-in list, for the case where no note exists yet. Sent
+        // even when a project is resolved: the completer is byte-identical across projects
+        // by contract, so it must not vary with what this one happens to have pinned.
+        List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
+        for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
+        fallback.sort(null);
+        b.append("fallbackVerbs=").append(String.join(",", fallback)).append('\n');
         List<String> wv = new ArrayList<>(WRAPPER_VERBS);
         wv.removeAll(compilerVerbs);
         b.append("wrapperVerbs=").append(String.join(" ", wv)).append('\n');
@@ -4090,6 +4102,18 @@ public final class flixw {
      */
     static void helpTopic(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
                           List<String> compilerVerbs, String identity) {
+        helpTopic(rest, root, lock, jar, jvm, compilerVerbs, identity, true);
+    }
+
+    /**
+     * @param degrade whether a renderer that cannot be fetched falls back to what stage 0 can
+     *     print by itself. True for {@code help}, where saying less beats saying nothing.
+     *     <b>False for {@code completion}</b>, and that difference is load-bearing: its output
+     *     is redirected into a shell startup file, so a fallback would write flixw's routing
+     *     table there and report success. The failure has to reach the exit status.
+     */
+    static void helpTopic(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
+                          List<String> compilerVerbs, String identity, boolean degrade) {
         Path ctx = null;
         Integer rc = null;
         try {
@@ -4101,9 +4125,11 @@ public final class flixw {
             List<String> cmd = new ArrayList<>(List.of(
                 exeIn(System.getProperty("java.home")).toString(),
                 "-cp", picocli.toString(), asset.toString(), ctx.toString()));
-            cmd.addAll(rest.subList(0, Math.min(2, rest.size())));
+            cmd.addAll(rest.subList(0, Math.min(3, rest.size())));
             rc = awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
         } catch (IOException | RuntimeException e) {
+            if (!degrade) throw e instanceof RuntimeException r ? r
+                                : w005("cannot run the completion generator: " + why((IOException) e));
             offlineHelp(identity, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -4320,99 +4346,6 @@ public final class flixw {
         return asset;
     }
 
-    /**
-     * The name of the note stage 0 leaves for a completer, holding the verbs this project
-     * would actually dispatch.  It lives beside {@code local/java} and is machine-specific
-     * for the same reason: it describes a resolved compiler, not the project.
-     */
-    static final String VERBS_NOTE = "verbs";
-
-    /** The note naming the pinned compiler's own completion script, when it ships one. */
-    static final String COMPL_NOTE = "completion";
-
-    /**
-     * Records the verbs this project dispatches, for a completer to read.
-     *
-     * The union, not the compiler's set alone: a wrapper verb the compiler has claimed is
-     * still a verb the user can type, and one it has not claimed is still handled here.
-     * Which side runs it is dispatch's business and no help to someone pressing TAB.
-     *
-     * Every failure is discarded, exactly as in {@link #recordJava}: a read-only checkout
-     * or a deleted directory is not worth a diagnostic for a note whose absence only costs
-     * a completer its per-project accuracy.
-     */
-    static void recordVerbs(Path root, List<String> compilerVerbs) {
-        List<String> all = new ArrayList<>(compilerVerbs);
-        for (String v : WRAPPER_VERBS) if (!all.contains(v)) all.add(v);
-        all.sort(null);
-        recordNote(root, VERBS_NOTE, String.join(System.lineSeparator(), all));
-    }
-
-    /** Same, for the path to the compiler's own completion script; absent means none. */
-    static void recordCompletion(Path root, Path script) {
-        recordNote(root, COMPL_NOTE, script.toAbsolutePath().normalize().toString());
-    }
-
-    static void recordNote(Path root, String name, String body) {
-        Path note = root.resolve(WRAPPER_DIR).resolve("local").resolve(name);
-        try {
-            String want = body + System.lineSeparator();
-            if (Files.isRegularFile(note)
-                && Files.readString(note, StandardCharsets.UTF_8).equals(want)) return;
-            Files.createDirectories(note.getParent());
-            writeAtomic(note, want);
-        } catch (IOException | RuntimeException ignored) { }
-    }
-
-    /**
-     * The pinned compiler's own completion script, cached, or null if it has none.
-     *
-     * Detection costs nothing and needs no version sniffing: picocli registers
-     * {@code generate-completion} as an ordinary subcommand, so it arrives in the verb set
-     * {@link #parseVerbs} already captured.  Stock Flix is scopt, never advertises it, and
-     * takes this path zero times -- which is the whole reason the check is a set membership
-     * rather than a probe.
-     *
-     * flixw does not read, rewrite or splice what comes back.  The generated script's
-     * internal shape is picocli's business and changes with picocli; the one line flixw
-     * looks at, at completion time and in shell, is the {@code complete -F} registration
-     * every bash completion script must end with.  Splicing was the alternative and it is
-     * worse than it looks: {@link #parseVerbs} guessing wrong falls back to a verb table,
-     * while a bad splice puts broken bash in someone's shell startup.
-     *
-     * Cached beside the verb record and keyed the same way, so a re-pin gets a new one and
-     * an override never writes next to a JAR flixw does not own.
-     */
-    static Path compilerCompletion(Path javaExe, Path jar, String identity, List<String> verbs) {
-        if (!verbs.contains("generate-completion")) return null;
-        Path cf = cacheHome().resolve("verbs").resolve(identity + ".compl");
-        if (Files.isRegularFile(cf)) return cf;
-        String out;
-        try {
-            out = runCapture(List.of(javaExe.toString(), "-jar", jar.toString(),
-                                     "generate-completion"), HELP_TIMEOUT, HELP_CAP);
-        } catch (IOException e) {
-            tr("cannot run `flix generate-completion`: " + e.getMessage());
-            return null;
-        }
-        // A completer that cannot register itself is not one.  Silence rather than a
-        // diagnostic: this is an optimisation on an optimisation, and the compiler owes
-        // flixw no such subcommand however it answered.
-        if (out == null || !out.contains("complete -F ")) {
-            tr("`flix generate-completion` produced no usable bash completer");
-            return null;
-        }
-        try {
-            Files.createDirectories(cf.getParent());
-            Path tmp = Files.createTempFile(cf.getParent(), ".compl-", ".part");
-            Files.writeString(tmp, out, StandardCharsets.UTF_8);
-            Files.move(tmp, cf, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            tr("cannot cache completer at " + cf + ": " + e.getMessage());
-            return null;
-        }
-        return cf;
-    }
 
     // ---- main -------------------------------------------------------------
 
@@ -4450,13 +4383,11 @@ public final class flixw {
         // plain script is a pure function of (shell, verb table) and is what somebody runs
         // once, from wherever they happen to be, while setting up a shell -- often before
         // any flixw project exists on the machine. Requiring a project to emit it would
-        // make the setup step depend on having already finished the setup. `--rich` is the
-        // exception and says so: it describes one pinned compiler, so it needs the project
-        // that pinned it, and it is dispatched with the other wrapper verbs below.
-        if ("completion".equals(first) && !argv.contains("--rich")) {
-            completionScript(argv.subList(1, argv.size()));
+        // make the setup step depend on having already finished the setup. With no project
+        // the tree is the wrapper's own verbs plus the built-in table; inside one it is what
+        // that compiler actually implements, and the same emitter produces both.
+        if ("completion".equals(first) && completionEarly(argv.subList(1, argv.size())))
             return;
-        }
 
         Path anchor = wrapperAnchor();
 
@@ -4572,9 +4503,6 @@ public final class flixw {
         // Notes for a completer, which cannot afford to start stage 0 itself.  Both are
         // writes to already-resolved values, and both swallow every failure: a completion
         // candidate is not worth a diagnostic, still less a failed build.
-        recordVerbs(root, compilerVerbs);
-        Path compl = compilerCompletion(jvm.exe(), jar, verbId, compilerVerbs);
-        if (compl != null) recordCompletion(root, compl);
         if (lock != null)
             reportVersionGap("the pinned compiler", lock.version(), lock.reportedVersion());
         selfCompile(selfSource());
@@ -4666,7 +4594,7 @@ public final class flixw {
               ./flixw <verb> [args]     the pinned stock compiler, or a wrapper verb
               ./flixw -- <args>         forced compiler pass-through
               ./flixw help [<topic>]    the full table: flix, wrapper, plugin, task
-              ./flixw completion <shell> [--rich]   a TAB-completion script, on stdout
+              ./flixw completion <shell>   a TAB-completion script, on stdout
               ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --purge [days] [--yes] | --schema]
 
               wrapper verbs   %s

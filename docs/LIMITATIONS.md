@@ -292,7 +292,7 @@ see [CONTRACT.md](CONTRACT.md#plugins-and-tasks).
 TAB-completion generation has since moved out of `src/flixw.java`, but not onto the plugin
 mechanism above: `completion` has to keep working with no project in scope, which
 `./flixw plugin <name>` cannot (that dispatch always needs a resolvable project root). It is
-instead a wrapper-owned companion asset (`src/flixw-completion.java`), fetched from the
+instead a wrapper-owned companion asset (`src/flixw-help.java`), fetched from the
 matching flixw release and verified against that release's own `SHA256SUMS` — the same
 trust footing `wrapper --upgrade` already gives `flixw.java` itself — then cached. The
 honest cost, stated plainly the way this file's other entries are: `completion`

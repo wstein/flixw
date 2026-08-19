@@ -86,14 +86,14 @@ else
 fi
 
 # --- 1. Java ---------------------------------------------------------------
-# auxiliaryclass is off for this one compile, not project-wide: src/flixw-completion.java
+# auxiliaryclass is off for this one compile, not project-wide: src/flixw-help.java
 # is deliberately a same-package companion file rather than a class merged into flixw.java
 # (its file name is the release asset name ensureCompletionAsset fetches, which cannot be
 # a valid Java identifier), and tests/UnitCheck.java deliberately calls its package-private
 # render() directly rather than through a subprocess -- exactly the pattern this warning
 # exists to flag by default, and exactly what this repository's own multi-file layout is.
 if javac -Xlint:all,-auxiliaryclass -Werror -cp "$picocli" -d "$work/classes" \
-        "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
+        "$root/src/flixw.java" "$root/src/flixw-jdk.java" \
         "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" \
         "$root/src/flixw-help.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
@@ -125,13 +125,13 @@ fi
 # code path as production, only the base URL differs; nothing here touches the network.
 fixture=$work/release
 mkdir -p "$fixture"
-cp "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
+cp "$root/src/flixw.java" "$root/src/flixw-jdk.java" \
    "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
    "$fixture/"
 [ -f "$picocli" ] && cp "$picocli" "$fixture/picocli-$pv.jar"
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 # shellcheck disable=SC2086  # $sum is a command name plus flags, deliberately split
-(cd "$fixture" && $sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
+(cd "$fixture" && $sum flixw.java flixw-jdk.java flixw-setup.java \
    flixw-inspect.java flixw-help.java "picocli-$pv.jar" > SHA256SUMS)
 export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
@@ -431,7 +431,6 @@ fi
 # *wrong*, not about there being fewer of them than a tool would like.
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
         -d "$work/javadoc" -cp "$picocli" "$root/src/flixw.java" \
-        "$root/src/flixw-completion.java" \
         "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
         "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
         >"$work/javadoc.log" 2>&1; then
@@ -532,9 +531,9 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3080          # `help` adds a new capability; target: 2900 -- see AGENTS.md
+MAX_CODE_LINES=3023          # `help` adds a new capability; target: 2900 -- see AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=272506             # `help` adds a new capability; target: 225000, derived from the two numbers above
+MAX_BYTES=269001             # `help` adds a new capability; target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
