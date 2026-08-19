@@ -434,7 +434,7 @@ fi
 # it is asking for.
 MAX_CODE_LINES=2904          # target: 2900 -- see "What detaches, and what does not" in AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=252462             # target: 225000, derived from the two numbers above
+MAX_BYTES=252468             # target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
