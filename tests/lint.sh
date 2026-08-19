@@ -262,9 +262,9 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3368          # target: 2650 -- verified launcher + narrow plugin broker
+MAX_CODE_LINES=3368          # target: 3050 -- see "What detaches, and what does not" in AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=277921             # target: 210000, derived from the two numbers above
+MAX_BYTES=277921             # target: 237000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
@@ -289,10 +289,10 @@ physical=$((code + comments + blanks))
 density=$((comments * 100 / physical))
 
 if [ "$code" -le "$MAX_CODE_LINES" ]; then
-  say "ok    stage 0 is $code code lines (ceiling $MAX_CODE_LINES, target 2650)"
+  say "ok    stage 0 is $code code lines (ceiling $MAX_CODE_LINES, target 3050)"
 else
   bad "stage 0 grew to $code code lines; the ceiling is $MAX_CODE_LINES"
-  say "      the target is a verified launcher at 2650; raising the ceiling needs a reason"
+  say "      the target is 3050; raising the ceiling needs a reason"
 fi
 
 if [ "$density" -ge "$MIN_COMMENT_PCT" ]; then
@@ -303,7 +303,7 @@ else
 fi
 
 if [ "$bytes" -le "$MAX_BYTES" ]; then
-  say "ok    src/flixw.java is $bytes bytes (ceiling $MAX_BYTES, target 210000)"
+  say "ok    src/flixw.java is $bytes bytes (ceiling $MAX_BYTES, target 237000)"
 else
   bad "src/flixw.java grew to $bytes bytes; the ceiling is $MAX_BYTES"
 fi

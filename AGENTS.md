@@ -196,7 +196,7 @@ subject to this retirement; only the two words `plugin` and `task` themselves ar
 
 **Bare wrapper verbs are staying.** Moving them under `wrapper --*` would delete verb
 capture, both help parsers, the `<cache>/verbs/*` records, `routingNotice` and the
-deprecation path — about 220 code lines, the difference between a 2400 and a 2650 target —
+deprecation path — about 220 code lines —
 and it was weighed and declined: `./flixw doctor` reading like `gradlew doctor` is the
 whole reason this CLI is nicer than the wrapper it is modelled on. The retirement
 machinery is the price of the spelling, and it is being paid deliberately.
@@ -362,34 +362,67 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3368 | 2650 |
+| code lines in `src/flixw.java` | 3368 | 3050 |
 | comment density | 28% | ≥25% floor |
-| bytes | 277921 | 210000 |
+| bytes | 277921 | 237000 |
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
-lines and 9.3 KB, about 18% of the distance to the target. It is also the honest shape of
-what "moving it out" costs — the asset is ~400 lines, because the 202 that moved brought
-~200 of infrastructure with them (HTTP, hashing, cache paths, `FLIXWnnn`) that stage 0
-keeps for its own use. *Total* lines went up; only stage 0 shrank, which is what the gate
-measures and what a file loaded on every invocation should be judged by.
+lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is
+~400 lines, because the 202 that moved brought ~200 of infrastructure with them (HTTP,
+hashing, cache paths, `FLIXWnnn`) that stage 0 keeps for its own use. *Total* lines went
+up; only stage 0 shrank, which is what the gate measures and what a file loaded on every
+invocation should be judged by.
+
+#### What detaches, and what does not
+
+Provisioning detached because it is **self-contained work**: given a cache path it needs
+nothing else stage 0 keeps. That is the test, and most of what is left fails it. Measured,
+after the JDK move:
+
+| candidate | leaves stage 0 | primitives it would have to duplicate | why |
+|---|---:|---:|---|
+| `listCache` (`info -v`) | 90 | 146 | `knownInstalls`, `probeVersion`, `installedJdk`, `probe` are all kept by `selectJava` |
+| `check`/`report` | 165 | the same 146, plus lock and digest state | a *view over* what the verified chain already computed |
+| gitattributes audit | 84 | — | `mergeGitattributes` is called by `install`; moving only the check splits one concern across two files |
+| `upgradeWrapper` | 60 | ~110 | leans on `digestFor`, `download`, `sha256`, `httpGet`, and `updateWrapper` needs `SHIM`/`CMD` |
+| lock-schema JSON renderer | 96 | none | the one clean seam left — but it makes `wrapper --schema` network-dependent and couples the lint gate to an asset fixture, for 96 lines |
+
+**Rich maintenance is not extractable the way provisioning was.** `info`, `doctor` and
+`validate` are views over state the verified chain computes anyway, so moving them
+relocates the presentation and duplicates the gathering. A companion asset earns its
+keep when it removes work, not when it removes a rendering of work that still happens.
+
+#### The target is not reachable by extraction alone
+
+The 2400/2650 figures came from a keep-set that assumed rich maintenance would move *and*
+that the lock reader would narrow. Neither holds. What each lever is actually worth,
+measured against today's 3368:
+
+| lever | lands at | status |
+|---|---:|---|
+| clean-seam extraction only | ~3350 | exhausted — nothing large is left |
+| + rich maintenance, duplicating 146 lines of discovery | ~3030 | available, and a poor trade |
+| + retiring bare wrapper verbs | ~2810 | **declined** (see "Dispatch is compiler-first") |
+| + a narrow lock-v2 reader | ~2600 | **declined** (lock-v1 is served indefinitely) |
+
+So **2650 silently assumed both declined decisions**. The target below is set to 3050 —
+reachable, if the project decides the rich-maintenance duplication is worth paying. It is
+not a promise that it will be paid; it is the honest bound given what has been decided.
+Lower it only by revisiting one of the two declined levers, and say which.
 
 The line gate counts **code** lines — blanks and comment-only lines excluded — and the
 density floor pulls the other way on purpose. A gate on *physical* lines is a gate on
-comments, and the comments are the security story: a 2650-*physical*-line gate sits below
-the zero-comment floor of the keep-set above (~2050 code lines), so such a gate can only
-be met by deleting the reasons. Text blocks count as code; the shims embed shell `case`
+comments, and the comments are the security story: a *physical*-line gate at any of the
+targets above sits below the zero-comment floor of the code it would have to keep, so such
+a gate can only be met by deleting the reasons. Text blocks count as code; the shims embed shell `case`
 arms starting with `*` and `/*`, so a leading-token classifier would let the density floor
 be met by shipping more embedded shell.
 
 The three numbers must stay arithmetically compatible, and the byte target is *derived*
 from the other two rather than chosen. At the measured 53 bytes per code line and 69 per
-comment line, 2650 code lines at a 25% density is 3797 physical lines and 206509 bytes —
-so **a 100 KB target is unreachable**, being below even the zero-comment cost of 2650 code
-lines (140 KB). When one number moves, re-derive the others rather than picking a round one.
-
-The target is 2650 rather than 2400 because bare wrapper verbs are staying (see "Dispatch
-is compiler-first" above), and
-verb capture is what makes them safe. Buying the last 250 lines means giving them up.
+comment line, 3050 code lines at a 25% density is 4357 physical lines and ~237 KB — so
+**a 100 KB target is unreachable**, being below even the zero-comment cost of 3050 code
+lines (162 KB). When one number moves, re-derive the others rather than picking a round one.
 
 Lowering a ceiling is a deliberate edit and belongs in the commit that earned it; lint
 prints a `note` when the slack passes 100 lines or 5 KB rather than failing, because the
