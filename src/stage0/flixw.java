@@ -2558,6 +2558,28 @@ public final class flixw {
 
     static Path pluginsDir() { return cacheHome().resolve("plugins"); }
 
+    /**
+     * Where a plugin may keep derived data between runs.
+     *
+     * <p>Added because a plugin that computes something expensive has nowhere to put it, and
+     * the obvious place is wrong: {@code plugins/<name>/} is enumerated by {@code plugin list}
+     * as the set of installed <em>versions</em>, so a cache directory there is reported as a
+     * version that cannot be run. Every plugin that needed this would otherwise invent its own
+     * corner of the cache, and none of them would be collected by {@code wrapper --purge}.
+     *
+     * <p>flixw promises the path and that {@code --purge} collects it. It promises nothing
+     * about the contents: this is the plugin's, to key and invalidate as it sees fit. The
+     * directory is <em>not</em> created here -- a plugin that never writes leaves no trace.
+     *
+     * <p>Not versioned, deliberately. A plugin upgrade that changes what it derives should say
+     * so in its own keys, which it can do and flixw cannot; keying the directory by version
+     * would instead orphan the old data silently on every upgrade.
+     */
+    static Path pluginCacheDir(String name) {
+        if (!validPluginName(name)) throw w009("invalid plugin name " + q(name));
+        return cacheHome().resolve("plugin-cache").resolve(name);
+    }
+
     static Path pluginDir(String name, String version, String sha256) {
         return pluginsDir().resolve(name).resolve(version + "-" + sha256);
     }
@@ -2672,6 +2694,11 @@ public final class flixw {
         Path dir = pluginsDir().resolve(name);
         if (!Files.isDirectory(dir)) throw w009("plugin " + q(name) + " is not installed");
         deleteTree(dir);
+        // Whatever the plugin derived goes with the plugin. Leaving it would make `remove`
+        // the one operation that creates the orphans `--purge` then has to offer, and a user
+        // who removed a plugin has said what they think of its bytes.
+        Path data = pluginCacheDir(name);
+        if (Files.isDirectory(data)) deleteTree(data);
         System.err.println("flixw: removed plugin " + name);
     }
 
@@ -4803,6 +4830,7 @@ public final class flixw {
         env.put("FLIXW_PLUGIN_NAME", pluginName);
         env.put("FLIXW_PLUGIN_VERSION", p.version());
         env.put("FLIXW_PLUGIN_SHA256", p.sha256());
+        env.put("FLIXW_PLUGIN_CACHE", pluginCacheDir(pluginName).toString());
         env.put("FLIXW_CONTEXT", writeContextFile(root, lock, jvm, compilerJar, pluginName, p, args).toString());
         return env;
     }
@@ -4845,7 +4873,9 @@ public final class flixw {
         b.append("  \"plugin\": {\n");
         b.append("    \"name\": ").append(jsonString(pluginName)).append(",\n");
         b.append("    \"version\": ").append(jsonString(p.version())).append(",\n");
-        b.append("    \"sha256\": ").append(jsonString(p.sha256())).append("\n");
+        b.append("    \"sha256\": ").append(jsonString(p.sha256())).append(",\n");
+        b.append("    \"cache\": ").append(jsonString(pluginCacheDir(pluginName).toString()))
+         .append("\n");
         b.append("  },\n");
         b.append("  \"args\": ").append(jsonArray(args)).append("\n");
         b.append("}\n");

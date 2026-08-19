@@ -148,7 +148,7 @@ are literal.
 The shim must know where the compiled stage 0 lives, so these paths are contract, not detail:
 
 ```
-<cache>/stage0/<sha256 of flixw.java>/flixw.class   # self-compiled stage 0 (~131ms vs ~532ms)
+<cache>/stage0/<sha256 of flixw.java>/flixw.class   # self-compiled stage 0 (~96ms vs ~739ms)
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 <cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
@@ -295,9 +295,35 @@ Discovery is *not* provisioning and stayed in stage 0: `installedJdk`, `findJava
 `knownInstalls` run on every invocation to *find* a JDK the asset installed earlier, and
 must not require fetching the asset to do it.
 
+**`FLIXW_PLUGIN_CACHE` is where a plugin may keep derived data**, at
+`<cache>/plugin-cache/<name>/`. It exists because a plugin that computes something expensive
+had nowhere to put it, and the obvious place is wrong: `plugins/<name>/` is enumerated by
+`plugin list` as the set of installed *versions*, so a cache directory there is reported as a
+version that cannot be run. Without a named place, every plugin that needs one invents its own
+corner of the cache and none of them are ever collected.
+
+flixw promises the path and promises `--purge` collects it. It promises nothing about the
+contents — keying and invalidation are the plugin's, which is the only place they can be
+correct. The directory is not created eagerly, so a plugin that never writes leaves no trace,
+and it is not keyed by plugin version: an upgrade that changes what a plugin derives should say
+so in its own keys, where version-keying the directory would instead orphan the old data
+silently on every upgrade.
+
+`plugin remove` deletes it with the plugin, so removal cannot be the thing that manufactures
+orphans. `--purge` offers orphans — data whose plugin is no longer installed — *without*
+consulting a usage marker, because the marker belonged to the plugin and went with it; routing
+them through the ordinary age rule would retain them for ever as "never seen used". Data
+belonging to an installed plugin is never touched: deleting it would be a silent cache
+invalidation the plugin has no way to learn about.
+
+Adding this did not move `FLIXW_ABI_VERSION`, which is the point of an additive-only ABI: a
+plugin that has never heard of the variable is unaffected, and one that wants it reads an
+environment variable.
+
 The ABI a plugin receives is deliberately small and additive-only (`FLIXW_ABI_VERSION=1`):
 a flat environment-variable tier for the common case (`FLIXW_PROJECT_ROOT`,
-`FLIXW_CACHE_HOME`, `FLIXW_COMPILER_*`, `FLIXW_JAVA_HOME`, `FLIXW_PLUGIN_*`), plus
+`FLIXW_CACHE_HOME`, `FLIXW_COMPILER_*`, `FLIXW_JAVA_HOME`, `FLIXW_PLUGIN_*` — including
+`FLIXW_PLUGIN_CACHE`, below), plus
 `FLIXW_CONTEXT` naming a per-invocation JSON file for anything structured — built once in
 `pluginEnv`/`writeContextFile` for every format alike. `.flix` plugins get the same context
 despite being unable to receive `args`: stock Flix has no `run <file>` mode, so the only way
@@ -434,7 +460,7 @@ commit:
 |---|---:|---:|
 | code lines in `src/stage0/flixw.java` | 3023 | 2900 |
 | comment density | 32% | ≥25% floor |
-| bytes | 269015 | 225000 |
+| bytes | 270867 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the

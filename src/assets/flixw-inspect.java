@@ -273,6 +273,27 @@ final class flixwinspect {
         int unmarked;
         long unmarkedBytes;
         Purge(LocalDate cutoff, boolean yes) { this.cutoff = cutoff; this.yes = yes; }
+        /**
+         * Offers an entry whose owner is already gone, with no marker consulted.
+         *
+         * <p>The age rule exists to answer "might something still want this?", and for an
+         * orphan the answer is settled: the plugin that wrote it is not installed. Routing
+         * these through {@link #remove} would count them as never-seen-used and retain them
+         * for ever, since the marker belonged to the plugin and went with it.
+         */
+        void removeOrphan(Path p, String kind) {
+            try {
+                if (Files.isSymbolicLink(p)) return;
+                long size = treeSize(p);
+                if (!confirm(kind, p, size)) return;
+                deleteTree(p);
+                if (Files.exists(p, LinkOption.NOFOLLOW_LINKS)) return;
+                bytes += size; count++;
+                System.out.println("  removed " + kind + "  " + p.getFileName()
+                                 + "  (" + humanSize(size) + ")");
+            } catch (IOException ignored) { }
+        }
+
         void remove(Ctx c, Path p, String kind, String key) {
             try {
                 if (Files.isSymbolicLink(p)) return;
@@ -337,6 +358,27 @@ final class flixwinspect {
         for (Path name : dirsIn(cache(c, "plugins")))
             for (Path version : dirsIn(name))
                 p.remove(c, version, "plugin", "plugin/" + name.getFileName() + "/" + version.getFileName());
+        purgePluginCaches(c, p);
+    }
+
+    /**
+     * Derived data a plugin kept, for plugins that are no longer installed.
+     *
+     * <p>{@code FLIXW_PLUGIN_CACHE} hands a plugin a directory and promises this collects it,
+     * so this is the half of that promise flixw owes. Only orphans are offered: an installed
+     * plugin's derived data is the plugin's business, and deleting it out from under a plugin
+     * that is still there would turn a purge into a silent cache-invalidation with no way for
+     * the plugin to know it happened.
+     *
+     * <p>An orphan has no usage marker of its own -- the marker belongs to the plugin that is
+     * already gone -- so this deliberately does not consult one. There is nothing left that
+     * could use these bytes.
+     */
+    static void purgePluginCaches(Ctx c, Purge p) {
+        for (Path data : dirsIn(cache(c, "plugin-cache"))) {
+            if (Files.isDirectory(cache(c, "plugins", data.getFileName().toString()))) continue;
+            p.removeOrphan(data, "orphaned plugin data");
+        }
     }
 
     static void purgeAssets(Ctx c, Purge p) {

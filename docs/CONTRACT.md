@@ -673,8 +673,25 @@ FLIXW_PROJECT_ROOT, FLIXW_CACHE_HOME
 FLIXW_COMPILER_VERSION, FLIXW_COMPILER_REPO, FLIXW_COMPILER_SHA256, FLIXW_COMPILER_JAR
 FLIXW_JAVA_HOME
 FLIXW_PLUGIN_NAME, FLIXW_PLUGIN_VERSION, FLIXW_PLUGIN_SHA256
+FLIXW_PLUGIN_CACHE   # <cache>/plugin-cache/<name>/ -- yours to write, collected by --purge
 FLIXW_CONTEXT   # path to a fresh JSON file carrying all of the above, plus "args"
 ```
+
+**`FLIXW_PLUGIN_CACHE` is the one place a plugin may keep derived data between runs.** It is
+not created eagerly, so a plugin that never writes leaves no trace, and it is not under
+`plugins/<name>/`, because `plugin list` reports the directories there as installed
+*versions* — derived data placed there is listed as a version that cannot be run.
+
+flixw guarantees the path and that `wrapper --purge` collects it. It guarantees nothing about
+what is inside: keying and invalidation belong to the plugin, which is the only thing that
+knows what its output depends on. The directory is not keyed by plugin version, so an upgrade
+does not silently orphan what the previous build derived; a plugin whose output shape changes
+should say so in its own keys.
+
+`plugin remove` deletes it along with the plugin. `--purge` offers *orphaned* data — whose
+plugin is no longer installed — without consulting a usage marker, since that marker belonged
+to the plugin and was removed with it. Data belonging to an installed plugin is never touched:
+that would be a cache invalidation the plugin could not know had happened.
 
 The compiler and Java fields are simply absent when the project has no lock yet — a `.jar`
 or `.java` plugin that does not need a compiler is not handed a context it has to guess is

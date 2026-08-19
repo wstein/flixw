@@ -271,7 +271,8 @@ public final class EchoPlugin {
         for (String k : new String[] {
                 "FLIXW_ABI_VERSION", "FLIXW_PROJECT_ROOT", "FLIXW_CACHE_HOME",
                 "FLIXW_COMPILER_VERSION", "FLIXW_COMPILER_JAR", "FLIXW_JAVA_HOME",
-                "FLIXW_PLUGIN_NAME", "FLIXW_PLUGIN_VERSION", "FLIXW_CONTEXT" }) {
+                "FLIXW_PLUGIN_NAME", "FLIXW_PLUGIN_VERSION", "FLIXW_PLUGIN_CACHE",
+                "FLIXW_CONTEXT" }) {
             String v = System.getenv(k);
             System.out.println(k + "=" + (v == null ? "" : v));
         }
@@ -1870,13 +1871,49 @@ t 0  "plugin invoke delivers the full ABI env tier"               sh -c '
   need "^FLIXW_JAVA_HOME=(/|[A-Za-z]:)"
   need "^FLIXW_PLUGIN_NAME=echoer$"
   need "^FLIXW_PLUGIN_VERSION=1[.]0[.]0$"
+  need "^FLIXW_PLUGIN_CACHE=.*plugin-cache.echoer$"
   need "^FLIXW_CONTEXT=.*[.]json$"
   need "CONTEXT_BODY=.*\"abiVersion\": 1"
   # By its last segment: the value is a native path, and JSON escapes every backslash in
   # it, so matching in full would assert the platform'"'"'s spelling rather than the contract.
   need "CONTEXT_BODY=.*\"projectRoot\": \".*pluginproj"
-  need "CONTEXT_BODY=.*\"name\": \"echoer\""' \
+  need "CONTEXT_BODY=.*\"name\": \"echoer\""
+  need "CONTEXT_BODY=.*\"cache\": \".*plugin-cache"' \
   sh "$pp" "$cache" "$ppcv"
+
+# Derived data: flixw promises a plugin a directory and promises to collect it. Both halves
+# are asserted, because a promise to collect that nothing collects is how a cache turns into
+# an unbounded directory nobody remembers writing.
+t 0  "the plugin data directory is not created until a plugin writes" sh -c '
+  cd "$1" || exit 1
+  d=$(./flixw plugin echoer 2>/dev/null | sed -n "s/^FLIXW_PLUGIN_CACHE=//p")
+  test -n "$d" && test ! -e "$d"' sh "$pp"
+
+# Not under plugins/<name>/: `plugin list` reports the directories there as installed
+# versions, so derived data living there would be listed as a version that cannot be run.
+t 0  "plugin data is not mistaken for an installed version"      sh -c '
+  cd "$1" || exit 1
+  d=$(./flixw plugin echoer 2>/dev/null | sed -n "s/^FLIXW_PLUGIN_CACHE=//p")
+  mkdir -p "$d" && printf x > "$d/derived"
+  ./flixw plugin list | grep -q "plugin-cache" && exit 1
+  ./flixw plugin list | grep -q "^echoer  1[.]0[.]0-"' sh "$pp"
+
+# Against a synthetic plugin, not echoer: the cases after this one still need echoer
+# installed, and a test that quietly removes a fixture the rest of the file depends on is a
+# failure waiting for whoever adds the next case.
+t 0  "removing a plugin removes what it derived"                 sh -c '
+  mkdir -p "$2/plugins/scratchling/1.0.0-aaa" "$2/plugin-cache/scratchling"
+  printf x > "$2/plugin-cache/scratchling/derived"
+  cd "$1" && ./flixw plugin remove scratchling >/dev/null 2>&1
+  test ! -e "$2/plugins/scratchling" && test ! -e "$2/plugin-cache/scratchling"' sh "$pp" "$cache"
+
+# An orphan has no usage marker of its own -- the marker went with the plugin -- so purge
+# must not treat it as never-seen-used and keep it for ever.
+t 0  "purge collects data whose plugin is gone"                 sh -c '
+  orphan="$2/plugin-cache/vanished"
+  mkdir -p "$orphan" && printf xxxx > "$orphan/derived"
+  cd "$1" && ./flixw wrapper --purge --yes >/dev/null 2>&1
+  test ! -e "$orphan"' sh "$pp" "$cache"
 
 # The context file is per-invocation and cleaned up by a shutdown hook -- not a `finally`,
 # because runArtifact ends in System.exit, which finally never survives.
