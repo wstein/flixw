@@ -3,7 +3,8 @@
 #
 #   flixw-<version>.tar.gz    the wrapper files and .envrc.example, over a project root
 #   flixw-<version>.zip       the same, for a machine without tar
-#   flixw.java                stage 0 on its own, for the `java flixw.java install .` route
+#   flixw.java                stage 0 on its own, for the `java flixw.java wrapper --install` route
+#   flixw-install.java        the installer, fetched on first use and cached
 #   flixw-completion.java     the TAB-completion generator, fetched on first use and cached
 #   flixw-jdk.java            the optional JDK provisioner, fetched on first use and cached
 #   SHA256SUMS                digests of all of the above
@@ -44,8 +45,19 @@ case $version in
 esac
 
 stage=$(mktemp -d)
-trap 'rm -rf "$stage"' EXIT INT TERM
-java "$root/src/flixw.java" install "$stage" >/dev/null
+work=$(mktemp -d)
+trap 'rm -rf "$stage" "$work"' EXIT INT TERM
+# The shim text lives in the installer asset now, so the staging install is pointed at the
+# release being built rather than at the network. This is also the only honest way to build
+# it: the asset a release ships must be the one that wrote that release's archives.
+fixture=$work/release
+mkdir -p "$fixture"
+cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+   "$root/src/flixw-jdk.java" "$root/src/flixw-install.java" "$fixture/"
+(cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-install.java \
+   > SHA256SUMS)
+FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
+  java "$root/src/flixw.java" wrapper --install "$stage" >/dev/null
 
 # .gitattributes is deliberately not packed. install *merges* its block into whatever the
 # project already has; an archive can only overwrite, and clobbering a project's own
@@ -95,8 +107,9 @@ cp "$root/src/flixw.java" "$out/flix.java"
 # `wrapper --install-jdk`, flixw-completion.java by `wrapper --completion <shell>`.
 cp "$root/src/flixw-completion.java" "$out/flixw-completion.java"
 cp "$root/src/flixw-jdk.java" "$out/flixw-jdk.java"
+cp "$root/src/flixw-install.java" "$out/flixw-install.java"
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java flix.java \
-              flixw-completion.java flixw-jdk.java > SHA256SUMS)
+              flixw-completion.java flixw-jdk.java flixw-install.java > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

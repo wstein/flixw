@@ -1,0 +1,657 @@
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+/**
+ * flixw's installer: the bytes a project actually receives.
+ *
+ * <p>Fetched once per machine per flixw release by {@code install} and by
+ * {@code doctor --fix}, verified against that release's own {@code SHA256SUMS}, cached,
+ * and run as {@code java flixw-install.java <verb> <target> <version> [<stage0-source>]}.
+ * {@code wrapper --upgrade} warms it along with every other companion asset, so the fetch
+ * happens at a moment the user asked for network rather than the next time they did not.
+ *
+ * <p>It is here because it is the largest thing stage 0 carried that stage 0 never uses.
+ * Two shims, a .gitignore, a direnv template and a rename bridge are ~540 lines of text
+ * and file-writing that run on first contact and on repair, and never once on the path
+ * every other invocation takes.
+ *
+ * <p><b>Stage 0 still owns whether they are correct.</b> It keeps the SHA-256 of both
+ * shims and compares them on {@code validate} and {@code doctor}, so drift is detected
+ * offline, with no fetch, exactly as before -- only *repair* reaches for this file. That
+ * split is deliberate: a wrapper that could not tell you your shim was wrong without a
+ * network is worse than one that cannot fix it.
+ *
+ * <p>Nothing here is on any hot path, so it favours clarity over economy.
+ */
+final class flixwinstall {
+    private flixwinstall() {}
+
+    /**
+     * The wrapper's directory name, which is also written into the shims below.
+     *
+     * <p>Stage 0 has its own {@code WRAPPER_DIR} and the two must agree; {@code
+     * tests/lint.sh} fails if they do not, the same way it checks the Java floor that is
+     * spelled out in three files. Passing it as an argument was the alternative and is
+     * worse: it appears inside the shim text as a literal, so a caller could only ever
+     * pass the value already baked in here.
+     */
+    static final String WRAPPER_DIR = ".flixw";
+
+    /** Set from argv so the messages name the release doing the writing, never a second copy. */
+    static String WRAPPER_VERSION = "";
+
+    static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+    }
+
+    static Path lockPath(Path root) { return root.resolve(WRAPPER_DIR).resolve("lock.toml"); }
+
+    /** Mirrors stage 0's codes and advisory exits, so the split is invisible to a caller. */
+    static final class Fail extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final int exit;
+        Fail(String code, int exit, String msg) { super(code + ": " + msg); this.exit = exit; }
+    }
+
+    static Fail w008(String m) { return new Fail("FLIXW008", 87, m); }
+    static Fail w009(String m) { return new Fail("FLIXW009", 88, m); }
+
+    static String why(Exception e) {
+        String s = e.getMessage();
+        return s == null || s.isBlank() ? e.getClass().getSimpleName() : s;
+    }
+
+    /** Same as stage 0's: a half-written shim is a project that cannot run at all. */
+    static void writeAtomic(Path file, String text) throws IOException {
+        Path dir = file.getParent();
+        Path tmp = Files.createTempFile(dir, "." + file.getFileName() + "-", ".part");
+        try {
+            Files.writeString(tmp, text, StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+            tmp = null;
+        } finally {
+            if (tmp != null) { try { Files.deleteIfExists(tmp); } catch (IOException ignored) { } }
+        }
+    }
+
+    public static void main(String[] args) {
+        if (args.length < 3) {
+            System.err.println("usage: java flixw-install.java <install|update> <dir> <version>"
+                             + " [<stage0-source>]");
+            System.exit(87);
+        }
+        String verb = args[0];
+        Path target = Paths.get(args[1]).toAbsolutePath().normalize();
+        WRAPPER_VERSION = args[2];
+        try {
+            switch (verb) {
+                case "install" -> {
+                    if (args.length != 4)
+                        throw w008("install needs the stage 0 source to copy");
+                    install(target, Paths.get(args[3]));
+                }
+                case "update" -> updateWrapper(target);
+                default -> throw w008("unknown verb " + verb);
+            }
+        } catch (Fail f) {
+            System.err.println(f.getMessage());
+            System.exit(f.exit);
+        }
+    }
+
+    static final String SHIM = """
+        #!/bin/sh
+        # flixw shim -- GENERATED; DO NOT EDIT.  `flixw install` writes this file,
+        # `flixw doctor --fix` restores it, and `flixw validate` compares it byte for byte,
+        # so an edit here is first reported and then overwritten.  It is byte-identical
+        # across every project on a given flixw release.  To change it, edit the SHIM text
+        # block in flixw.java -- src/flixw in that repository is only the checked-in copy,
+        # and tests/lint.sh fails if the two disagree.
+        # Finds an initial java, prefers the compiled stage 0, else launches the source.
+        set -e
+        self=$0
+        while [ -L "$self" ]; do
+          link=$(readlink "$self")
+          case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+        done
+        # CDPATH is cleared for this command only: a set CDPATH makes `cd` resolve
+        # elsewhere and echo the result. shellcheck reads that as a typo (SC1007).
+        # shellcheck disable=SC1007
+        root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
+        src=$root/.flixw/flixw.java
+
+        # The cache is resolved before the java search, because a JDK flixw installed
+        # earlier lives in it and is the last thing worth trying.
+        if [ -n "${FLIX_CACHE_HOME:-}" ]; then cache=$FLIX_CACHE_HOME
+        else
+          case $(uname -s) in
+            Darwin) cache=$HOME/Library/Caches/flixw ;;
+            *)      cache=${XDG_CACHE_HOME:-$HOME/.cache}/flixw ;;
+          esac
+        fi
+
+        # `chosen` marks an explicitly named JDK. Those are obeyed exactly as given, right
+        # down to failing: stage 0's contract is that an explicit setting fails loudly
+        # rather than being quietly replaced by a JVM the caller did not ask for.
+        chosen=yes
+        if [ -n "${FLIX_JAVA_HOME:-}" ]; then java0=$FLIX_JAVA_HOME/bin/java
+        elif [ -n "${JAVA_HOME:-}" ]; then java0=$JAVA_HOME/bin/java
+        else java0=$(command -v java 2>/dev/null || true); chosen=no; fi
+
+        # The JDK flixw installed, if there is one. Its path is read from a file rather than
+        # guessed, because every vendor nests differently -- and the marker names something
+        # this script will execute, so it may only name something inside the directory flixw
+        # unpacks into. A prefix test alone does not say that: `$cache/jdks/../../bin/java`
+        # passes one and is not inside anything. Containment is a guardrail rather than the
+        # security boundary, which is who can write the cache at all -- `doctor` checks that
+        # -- but a guardrail that a plain `..` walks through is not one.
+        cached_jdk() {
+          [ -r "$cache/jdks/default" ] || return 0
+          cj=$(cat "$cache/jdks/default" 2>/dev/null || true)
+          case $cj in
+            *"/../"* | */.. ) return 0 ;;
+            "$cache/jdks/"* ) ;;
+            * ) return 0 ;;
+          esac
+          [ -x "$cj" ] || return 0
+          printf '%s\\n' "$cj"
+        }
+
+        # The JDK stage 0 resolved for *this project* last time, which is the one that
+        # satisfies its java pin. Starting on it is the whole point: otherwise the shim
+        # starts whatever java is first on PATH and stage 0 has to spend a second process
+        # correcting it, on every command. Machine-specific, so it is not committed --
+        # .flixw/.gitignore keeps it out. It names something this script executes, and
+        # that is not a new trust boundary: anyone able to write .flixw/local/ can edit
+        # this file instead, which is easier and does more.
+        if [ "$chosen" = no ] && [ -r "$root/.flixw/local/java" ]; then
+          noted=$(cat "$root/.flixw/local/java" 2>/dev/null || true)
+          # Shape first: stage 0 writes a normalized absolute path ending in bin/java, so
+          # anything else is not a note this wrapper left. It is a cheap sanity check
+          # rather than a security boundary -- whoever can write here can edit this file
+          # -- but a note is not the place to discover you are running something else.
+          case $noted in
+            *"/../"* | */.. ) noted= ;;
+            /*/bin/java ) ;;
+            * ) noted= ;;
+          esac
+          if [ -n "$noted" ] && [ -x "$noted" ]; then java0=$noted; fi
+        fi
+
+        # Nothing on PATH: fall back to that JDK.
+        [ -n "$java0" ] || java0=$(cached_jdk)
+
+        if [ -z "$java0" ]; then
+          echo "FLIXW003: no java executable found. Flix needs Java 21+." >&2
+          echo "          Install a JDK -- Eclipse Temurin is the usual choice:" >&2
+          case $(uname -s) in
+            Darwin) echo "            brew install temurin@21" >&2 ;;
+            *)      echo "            apt install temurin-21-jdk    (or your package manager)" >&2 ;;
+          esac
+          echo "            https://adoptium.net/temurin/releases/?version=21" >&2
+          echo "          Then set JAVA_HOME, or put its bin directory on PATH." >&2
+          echo "          flixw cannot fetch this first one: it is a Java program itself," >&2
+          echo "          and there is no Java here to run it. Once any Java 16 or newer is" >&2
+          echo "          reachable, ./flixw wrapper --install-jdk fetches a verified" >&2
+          echo "          Temurin 21 into the flixw cache and leaves the system alone." >&2
+          exit 127
+        fi
+        if [ ! -x "$java0" ]; then
+          echo "FLIXW003: $java0 is not executable." >&2
+          exit 126
+        fi
+        if [ ! -f "$src" ]; then
+          echo "FLIXW009: missing $src" >&2
+          exit 88
+        fi
+
+        # Feature version of the selected java, read from the release file of the JDK it
+        # lives in -- the same source stage 0 prefers, and it costs one file read.  The
+        # shim does not decide anything with this beyond whether the compiled class is
+        # loadable; below-floor Java stays stage 0's diagnostic to give.  A java that does
+        # not resolve into a JDK layout leaves this unknown, and unknown changes nothing.
+        jhome=$java0
+        while [ -L "$jhome" ]; do
+          link=$(readlink "$jhome")
+          case $link in /*) jhome=$link ;; *) jhome=$(dirname "$jhome")/$link ;; esac
+        done
+        jhome=${jhome%/bin/java}
+        jfeature=
+        if [ -r "$jhome/release" ]; then
+          jfeature=$(sed -n 's/^JAVA_VERSION="\\([0-9][0-9]*\\).*/\\1/p' "$jhome/release" 2>/dev/null)
+        fi
+
+        # A java below the floor is worse than none: below 15 it cannot even compile stage
+        # 0, so nothing flixw knows -- its own installed JDK included -- is ever reached.
+        # When one is recorded, prefer it and let stage 0 speak.
+        # A version manager's `java` is a shim script with no JDK layout around it, so there
+        # is no release file and the feature version stays unknown. Ordinarily that is fine --
+        # stage 0 asks the JVM itself -- but below 15 the JVM cannot compile stage 0, so the
+        # question is never reached and the user gets a javac error instead of FLIXW003, and
+        # instead of the JDK flixw installed for precisely this case. Ask the JVM once, and
+        # only when there is something better to switch to, so the cost falls on the machines
+        # that need it rather than on every run.
+        if [ "$chosen" = no ] && [ -z "$jfeature" ] && [ -n "$(cached_jdk)" ]; then
+          jfeature=$("$java0" -version 2>&1 \\
+                     | sed -n 's/^[A-Za-z ]*version "\\([0-9][0-9]*\\).*/\\1/p' | head -1)
+        fi
+
+        if [ "$chosen" = no ] && [ -n "$jfeature" ] && [ "$jfeature" -lt 21 ]; then
+          mine=$(cached_jdk)
+          if [ -n "$mine" ]; then
+            java0=$mine
+            jhome=${mine%/bin/java}
+            jfeature=
+            if [ -r "$jhome/release" ]; then
+              jfeature=$(sed -n 's/^JAVA_VERSION="\\([0-9][0-9]*\\).*/\\1/p' "$jhome/release" 2>/dev/null)
+            fi
+          fi
+        fi
+
+        # Content-keyed compiled stage 0.  Versioned interface with stage 0; see README.
+        h=
+        if command -v shasum >/dev/null 2>&1; then h=$(shasum -a 256 "$src" 2>/dev/null | cut -d' ' -f1)
+        elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$src" 2>/dev/null | cut -d' ' -f1)
+        elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 -r "$src" 2>/dev/null | cut -d' ' -f1)
+        fi
+        # The class is built for the floor, and the version has to be *known* to be at or
+        # above it.  Unknown used to be treated as fine, which is wrong in the one case it
+        # matters: asdf, mise and jenv install `java` as a shim script rather than a
+        # symlink into a JDK, so there is no release file to read, and a shim pointing at
+        # Java 17 loaded the class and died on class file version.  The cost of being
+        # careful is that such setups always take the source path.
+        if [ -n "$h" ] && [ -f "$cache/stage0/$h/flixw.class" ] \\
+           && [ -n "$jfeature" ] && [ "$jfeature" -ge 21 ]; then
+          FLIXW_SOURCE=$src; export FLIXW_SOURCE
+          exec "$java0" -cp "$cache/stage0/$h" flixw "$@"
+        fi
+        exec "$java0" "$src" "$@"
+        """;
+
+    static final String CMD = """
+        @echo off
+        rem flixw cmd.exe trampoline -- GENERATED; DO NOT EDIT.  `flixw install` writes it,
+        rem `flixw doctor --fix` restores it, and `flixw validate` compares it byte for
+        rem byte.  To change it, edit the CMD text block in flixw.java; src/flixw.cmd in
+        rem that repository is only the checked-in copy, and tests/lint.sh fails if the two
+        rem disagree.  Finds an initial java, prefers the compiled stage 0 in the user
+        rem cache, else launches the source.
+        setlocal enabledelayedexpansion
+        set "ROOT=%~dp0"
+        set "SRC=%ROOT%.flixw\\flixw.java"
+
+        rem The cache is resolved first: a JDK flixw installed earlier lives in it, and is
+        rem the last thing worth trying when nothing else answers.
+        if defined FLIX_CACHE_HOME ( set "CACHE=%FLIX_CACHE_HOME%" ) else (
+          set "CACHE=%LOCALAPPDATA%\\flixw" )
+
+        rem CHOSEN marks an explicitly named JDK: those are obeyed as given, failing
+        rem included, rather than replaced by one the caller did not ask for.
+        set "CHOSEN=1"
+        if defined FLIX_JAVA_HOME ( set "JAVA0=%FLIX_JAVA_HOME%\\bin\\java.exe" ) else (
+        if defined JAVA_HOME ( set "JAVA0=%JAVA_HOME%\\bin\\java.exe" ) else (
+        set "CHOSEN="
+        for %%I in (java.exe) do set "JAVA0=%%~$PATH:I" ) )
+        rem Its path is read from a file rather than guessed: vendors nest differently.
+        rem It names something this script will execute, so it may only name something
+        rem inside the directory flixw unpacks into.
+        rem The marker is cache-controlled text naming something this script will execute,
+        rem so it is never echoed, called, or otherwise handed back to the parser: cmd
+        rem metacharacters in it would run before anything could validate the path. The
+        rem containment test uses delayed expansion alone -- strip the expected prefix,
+        rem then require the original to be exactly prefix plus remainder, which is a
+        rem starts-with test that never re-parses the value.
+        rem The JDK stage 0 resolved for this project last time -- the one that satisfies
+        rem its java pin. Starting on it avoids the relaunch stage 0 would otherwise need.
+        rem Machine-specific and git-ignored; writable only by someone who could edit this
+        rem file anyway, so it adds no trust boundary.
+        set "NOTED="
+        if not defined CHOSEN if exist "%ROOT%.flixw\\local\\java" (
+          for /f "usebackq delims=" %%J in ("%ROOT%.flixw\\local\\java") do (
+            if not defined NOTED set "NOTED=%%J" ) )
+        rem Shape first, and by substring arithmetic rather than by echoing the value:
+        rem stage 0 writes a normalized path ending in bin\\java.exe, so anything else is
+        rem not a note this wrapper left.
+        if defined NOTED (
+          set "TAIL=!NOTED:bin\\java.exe=!"
+          if "!TAIL!"=="!NOTED!" set "NOTED="
+        )
+        if defined NOTED if not "!NOTED!"=="!TAIL!bin\\java.exe" set "NOTED="
+        if defined NOTED if not "!NOTED!"=="!NOTED:..=!" set "NOTED="
+        if defined NOTED if not exist "!NOTED!" set "NOTED="
+        if defined NOTED set "JAVA0=!NOTED!"
+
+        set "MINE="
+        if exist "%CACHE%\\jdks\\default" (
+          for /f "usebackq delims=" %%J in ("%CACHE%\\jdks\\default") do (
+            if not defined MINE set "MINE=%%J" ) )
+        if defined MINE (
+          set "TAIL=!MINE:%CACHE%\\jdks\\=!"
+          if not "!MINE!"=="%CACHE%\\jdks\\!TAIL!" set "MINE="
+        )
+        rem A starts-with test does not say "inside": %CACHE%\\jdks\\..\\..\\evil.exe passes one.
+        rem Any .. at all is refused rather than resolved, since resolving it here would mean
+        rem handing cache-controlled text back to the parser.
+        if defined MINE if not "!MINE!"=="!MINE:..=!" set "MINE="
+        if defined MINE if not exist "!MINE!" set "MINE="
+        if not defined JAVA0 if defined MINE set "JAVA0=!MINE!"
+        if not defined JAVA0 (
+          echo FLIXW003: no java executable found. Flix needs Java 21+. 1>&2
+          echo           Install a JDK -- Eclipse Temurin is the usual choice: 1>&2
+          echo             winget install EclipseAdoptium.Temurin.21.JDK 1>&2
+          echo             https://adoptium.net/temurin/releases/?version=21 1>&2
+          echo           Then set JAVA_HOME, or put its bin directory on PATH. 1>&2
+          echo           flixw cannot fetch this first one: it is a Java program 1>&2
+          echo           itself, and there is no Java here to run it. Once any Java 16 1>&2
+          echo           or newer is reachable, flixw.cmd wrapper --install-jdk fetches 1>&2
+          echo           a verified Temurin 21 into the flixw cache. 1>&2
+          exit /b 127 )
+        if not exist "%JAVA0%" (
+          echo FLIXW003: %JAVA0% not found. 1>&2
+          exit /b 127 )
+        if not exist "%SRC%" (
+          echo FLIXW009: missing %SRC% 1>&2
+          exit /b 88 )
+
+        rem Feature version of the selected java, from the release file of its own JDK.
+        rem Only used to decide whether the compiled class is loadable: a JVM below the
+        rem floor cannot load it and exec leaves no way back.  Unknown changes nothing.
+        set "JHOME=%JAVA0:\\bin\\java.exe=%"
+        set "JFEATURE="
+        if exist "%JHOME%\\release" (
+          for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "%JHOME%\\release" 2^>nul') do (
+            for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) )
+        rem Unknown is not good enough: a java that is a shim script rather than a JDK
+        rem layout has no release file, and running the class blind fails on class file
+        rem version with no way back.  Default to the source path; earn the fast one.
+        rem A version manager's java.exe is a shim with no JDK layout around it, so there is
+        rem no release file and the version stays unknown. Below 15 that java cannot compile
+        rem stage 0 either, so the user would see a javac error rather than FLIXW003 or the
+        rem JDK flixw installed for this case. Ask the JVM once, and only when there is a
+        rem recorded JDK to switch to, so ordinary runs pay nothing.
+        if not defined CHOSEN if not defined JFEATURE if defined MINE (
+          for /f "tokens=3" %%v in ('cmd /c ""%JAVA0%" -version" 2^>^&1') do (
+            if not defined JFEATURE (
+              for /f "tokens=1 delims=.-_" %%w in ("%%~v") do set "JFEATURE=%%~w" ) ) )
+        rem A java below the floor is worse than none: it cannot load the compiled class
+        rem and, far enough below, cannot compile stage 0 either. Prefer a recorded JDK --
+        rem but never over an explicitly named one, which must fail loudly instead.
+        if not defined CHOSEN if defined JFEATURE if !JFEATURE! LSS 21 if defined MINE (
+          set "JAVA0=!MINE!"
+          set "JFEATURE="
+          for %%H in ("!MINE!") do set "JHOME=%%~dpH"
+          if exist "!JHOME!..\\release" (
+            for /f "tokens=2 delims==" %%v in ('findstr /b /c:"JAVA_VERSION=" "!JHOME!..\\release" 2^>nul') do (
+              for /f "tokens=1 delims=.-" %%w in ("%%~v") do set "JFEATURE=%%~w" ) ) )
+        set "SLOWPATH=1"
+        if defined JFEATURE if !JFEATURE! GEQ 21 set "SLOWPATH="
+
+        set "H="
+        for /f "skip=1 delims=" %%L in ('certutil -hashfile "%SRC%" SHA256 2^>nul') do (
+          if not defined H set "H=%%L" )
+        if defined H set "H=!H: =!"
+        rem Everything that needed delayed expansion is now in ordinary variables, so it
+        rem is switched off before the launch. With it on, `%*` is rescanned for !...!
+        rem *after* substitution, and an argument containing an exclamation mark loses
+        rem part of itself before java is even started: `flixw run "a!b"` arrives as `ab`.
+        rem The two commands are also kept out of parentheses, because a `)` inside a
+        rem quoted argument can close a block that a `%*` sits in.
+        set "CP=!CACHE!\\stage0\\!H!"
+        set "FAST="
+        if not defined SLOWPATH if defined H if exist "!CP!\\flixw.class" set "FAST=1"
+        if defined FAST set "FLIXW_SOURCE=%SRC%"
+        setlocal disabledelayedexpansion
+        if defined FAST goto :flixw_fast
+        "%JAVA0%" "%SRC%" %*
+        exit /b %ERRORLEVEL%
+        :flixw_fast
+        "%JAVA0%" -cp "%CP%" flixw %*
+        exit /b %ERRORLEVEL%
+        """;
+
+    static void install(Path target, Path source) {
+        try {
+            Path fw = target.resolve(WRAPPER_DIR);
+            Files.createDirectories(fw);
+            if (source == null || !Files.isRegularFile(source))
+                throw w009("install needs the wrapper source; run it as: java flixw.java install <dir>");
+            Files.copy(source, fw.resolve("flixw.java"), StandardCopyOption.REPLACE_EXISTING);
+            Path shim = target.resolve("flixw");
+            Files.writeString(shim, SHIM, StandardCharsets.UTF_8);
+            shim.toFile().setExecutable(true, false);
+            Files.writeString(target.resolve("flixw.cmd"), CMD.replace("\n", "\r\n"),
+                              StandardCharsets.UTF_8);
+            writeLocalIgnore(target);
+            writeEnvrcExample(target);
+            migrateFromFlixNames(target);
+            mergeGitattributes(target.resolve(".gitattributes"));
+            System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
+                             + "/flixw.java into " + target);
+            // `install` is reached two ways, and they need different sentences. First
+            // contact has nothing pinned and the next step is pinning; an upgrade arrives
+            // here through `wrapper --upgrade` with a lock already in place, and telling
+            // that reader to pin reads as though the upgrade lost their compiler.
+            if (Files.isRegularFile(lockPath(target))) {
+                System.out.println("the compiler pin is untouched; commit the wrapper files"
+                                 + " that changed:");
+                System.out.println("  git add flixw flixw.cmd " + WRAPPER_DIR);
+            } else {
+                System.out.println("next: ./flixw pin <version>   then commit all five files");
+            }
+        } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
+    }
+
+    /**
+     * Rewrites the invariant wrapper files from the running stage 0, leaving the project's
+     * compiler lock untouched. This repairs the failures that actually happen: a shim that
+     * lost its executable bit to an archive download, a hand-edited shim, a .gitattributes
+     * block clobbered by a merge.
+     *
+     * It deliberately does not fetch a newer flixw. Self-update needs a published release
+     * feed with its own digests, which does not exist; until it does, upgrading means
+     * running `install` from the newer release, and saying so is better than pretending.
+     */
+    static void updateWrapper(Path root) {
+        int changed = 0;
+        try {
+            Path shim = root.resolve("flixw");
+            if (!Files.isRegularFile(shim)
+                || !Files.readString(shim, StandardCharsets.UTF_8).equals(SHIM)) {
+                Files.writeString(shim, SHIM, StandardCharsets.UTF_8);
+                System.out.println("rewrote  ./flixw"); changed++;
+            }
+            if (!isWindows() && !Files.isExecutable(shim)) {
+                shim.toFile().setExecutable(true, false);
+                System.out.println("restored ./flixw executable bit"); changed++;
+            }
+            Path cmd = root.resolve("flixw.cmd");
+            String cmdBytes = CMD.replace("\n", "\r\n");
+            if (!Files.isRegularFile(cmd)
+                || !Files.readString(cmd, StandardCharsets.UTF_8).equals(cmdBytes)) {
+                Files.writeString(cmd, cmdBytes, StandardCharsets.UTF_8);
+                System.out.println("rewrote  ./flixw.cmd"); changed++;
+            }
+            Path ign = root.resolve(WRAPPER_DIR).resolve(".gitignore");
+            boolean hadIgnore = Files.isRegularFile(ign)
+                && Files.readString(ign, StandardCharsets.UTF_8).equals(LOCAL_IGNORE);
+            writeLocalIgnore(root);
+            if (!hadIgnore) { System.out.println("wrote    " + WRAPPER_DIR + "/.gitignore"); changed++; }
+            Path ga = root.resolve(".gitattributes");
+            String before = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
+            mergeGitattributes(ga);
+            if (!before.equals(Files.readString(ga, StandardCharsets.UTF_8))) {
+                System.out.println("merged   ./.gitattributes"); changed++;
+            }
+        } catch (IOException e) { throw w009("rewriting the wrapper files failed: " + why(e)); }
+        // One line, and only the one that is true. The two-line note that used to follow
+        // every run explained that this refreshes rather than upgrades -- a fact about
+        // what the command is, not about what just happened.
+        System.out.println(changed == 0
+            ? "wrapper files already match flixw " + WRAPPER_VERSION
+            : changed + (changed == 1 ? " file" : " files")
+              + " rewritten from flixw " + WRAPPER_VERSION);
+    }
+
+    static void writeLocalIgnore(Path target) throws IOException {
+        Path f = target.resolve(WRAPPER_DIR).resolve(".gitignore");
+        if (Files.isRegularFile(f)
+            && Files.readString(f, StandardCharsets.UTF_8).equals(LOCAL_IGNORE)) return;
+        Files.createDirectories(f.getParent());
+        writeAtomic(f, LOCAL_IGNORE);
+    }
+
+    /**
+     * `.flixw/local/` holds what only this machine knows -- currently the resolved JDK --
+     * and must not be committed. The ignore rule lives inside the directory flixw owns, so
+     * adopting the wrapper does not edit a file the project maintains.
+     */
+    static final String LOCAL_IGNORE =
+        "# Generated by flixw. Do not edit by hand; `flixw doctor --fix` rewrites it.\n"
+      + "# It keeps .flixw/local/ -- machine-specific notes -- out of git.\n"
+      + "local/\n";
+
+    /**
+     * Written once, then never touched again -- unlike every other file install writes.
+     *
+     * The others are flixw's: they are executed or parsed, drift in them breaks a run, and
+     * `doctor --fix` restoring them is a repair. This one sits at the project root among
+     * files the project owns, nothing reads it, and its whole purpose is to be copied and
+     * edited. Rewriting it on drift would be overwriting someone's notes to restore a file
+     * that does nothing. For the same reason it is absent from SHIPPED, from doctor's
+     * canonical comparison and tracked-file audit, and from the .gitattributes block:
+     * deleting it is a valid answer, and nothing should nag about that.
+     */
+    static void writeEnvrcExample(Path target) throws IOException {
+        Path f = target.resolve(".envrc.example");
+        if (Files.exists(f)) return;
+        writeAtomic(f, ENVRC_EXAMPLE);
+        System.out.println("wrote    ./.envrc.example  (direnv template for FLIX_JAR;"
+                         + " safe to delete)");
+    }
+
+    /**
+     * A template for the one supported way to run a compiler flixw did not download.
+     *
+     * `FLIX_JAR` has always worked, and was findable only by reading one table row in
+     * docs/CONTRACT.md -- so in practice the people who needed it did not know it existed.
+     * A file sitting in the project says so without being read.
+     *
+     * The name is `.envrc.example`, not `.envrc`, and that is the whole point of the file
+     * rather than a detail of it. direnv refuses an `.envrc` it has not been shown, and
+     * reprints `direnv: error ... is blocked` on every cd into the directory until someone
+     * runs `direnv allow` or deletes it. The refusal is keyed on the file's hash, so a
+     * fully commented-out `.envrc` is blocked exactly like a live one: shipping one would
+     * hand recurring noise to the only population it could help. `.example` is inert.
+     */
+    /**
+     * A template, not a manual.  It was the manual: 79 generated lines of which 8 were
+     * settings, every word of the other 71 already in docs/CONTRACT.md -- which the file
+     * itself pointed at.  Prose duplicated into the launcher is prose that goes stale in
+     * the copy nobody regenerates, and stage 0 is loaded on every invocation to pay for it.
+     * What a template owes the reader is the variable names, one honest value each, and
+     * where to read the rest.
+     */
+    static final String ENVRC_EXAMPLE =
+        "# .envrc.example -- copy to .envrc, then run: direnv allow\n"
+      + "#\n"
+      + "# Needs direnv (https://direnv.net) hooked into your shell, or this file is inert:\n"
+      + "#   bash ~/.bashrc / zsh ~/.zshrc:  eval \"$(direnv hook bash|zsh)\"\n"
+      + "#   fish ~/.config/fish/config.fish: direnv hook fish | source\n"
+      + "#\n"
+      + "# This file is bash whatever your shell is -- direnv evaluates it with bash, so\n"
+      + "# fish users still write `export FOO=bar` here.\n"
+      + "#\n"
+      + "# flixw never reads it; direnv exports these before ./flixw starts. All optional.\n"
+      + "# What each one does, and what it does not: docs/CONTRACT.md, \"Environment\".\n"
+      + "\n"
+      + "# export FLIX_JAVA_HOME=\"$HOME/.sdkman/candidates/java/21.0.5-tem\"\n"
+      + "# export FLIX_JAR=\"$PWD/../flix/build/libs/flix.jar\"   # unverified; not evidence\n"
+      + "# export FLIX_CACHE_HOME=\"$PWD/" + WRAPPER_DIR + "/local/cache\"\n"
+      + "# export FLIX_DIST_URL=\"https://artifacts.example.com/flix\"  # digest still checked\n"
+      + "# export HTTPS_PROXY=\"http://proxy.example.com:3128\"\n"
+      + "# export NO_PROXY=\"localhost,127.0.0.1,.example.com\"\n"
+      + "# export FLIX_JVM_OPTS=\"-Xmx4g\"                        # the compiler's JVM, not flixw's\n"
+      + "# export FLIXW_TRACE=1                                 # per-phase timings on stderr\n"
+      + "\n"
+      + "# Machine-specific values belong somewhere you will not commit:\n"
+      + "#   source_env_if_exists .envrc.local\n"
+      + "# flixw does not edit your .gitignore; add .envrc and .envrc.local yourself.\n";
+
+    /**
+     * Moves a project installed under the pre-0.20 names onto the current ones.
+     *
+     * Until 0.20 the wrapper shipped as `flix`, `flix.cmd` and `.flix-wrapper/flix.java`,
+     * which read as the compiler's own name on a tool that is not the compiler. Installing
+     * over such a project would otherwise leave both sets side by side, and the pin -- the
+     * one file here that is the project's rather than ours -- would still be in the old
+     * directory, where nothing reads it. So the lock moves first, and the old files are
+     * removed only when they are recognisably the ones flixw wrote: a shim someone edited,
+     * or a directory holding anything else, is left alone and reported.
+     */
+    static void migrateFromFlixNames(Path target) throws IOException {
+        Path old = target.resolve(".flix-wrapper");
+        Path oldLock = old.resolve("lock.toml");
+        Path newLock = lockPath(target);
+        if (Files.isRegularFile(oldLock) && !Files.isRegularFile(newLock)) {
+            Files.createDirectories(newLock.getParent());
+            Files.move(oldLock, newLock, StandardCopyOption.ATOMIC_MOVE);
+            System.out.println("moved    .flix-wrapper/lock.toml -> " + WRAPPER_DIR + "/lock.toml");
+        }
+        for (String name : List.of("flix", "flix.cmd")) {
+            Path f = target.resolve(name);
+            if (!Files.isRegularFile(f)) continue;
+            String body = Files.readString(f, StandardCharsets.UTF_8);
+            // Only a shim that still says what flixw writes is ours to delete.
+            if (!body.contains("flixw") || !body.contains("stage0")) {
+                System.out.println("kept     ./" + name + " (edited; remove it by hand)");
+                continue;
+            }
+            Files.delete(f);
+            System.out.println("removed  ./" + name);
+        }
+        Path oldSrc = old.resolve("flix.java");
+        if (Files.isRegularFile(oldSrc)) { Files.delete(oldSrc); }
+        if (Files.isDirectory(old)) {
+            try (var s = Files.list(old)) {
+                if (s.findAny().isEmpty()) {
+                    Files.delete(old);
+                    System.out.println("removed  .flix-wrapper/");
+                } else {
+                    System.out.println("kept     .flix-wrapper/ (not empty)");
+                }
+            }
+        }
+    }
+
+    static void mergeGitattributes(Path ga) throws IOException {
+        String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
+        String block = begin + "\n/flixw text eol=lf\n"
+                     + "/" + WRAPPER_DIR + "/flixw.java text eol=lf\n"
+                     + "/" + WRAPPER_DIR + "/lock.toml text eol=lf\n"
+                     // Compared byte for byte by `doctor --fix`, so a checkout that
+                     // translated its endings would make every run report a file to
+                     // repair and repair it back. Same reason as the four above.
+                     + "/" + WRAPPER_DIR + "/.gitignore text eol=lf\n"
+                     + "/flixw.cmd text eol=crlf\n" + end + "\n";
+        String cur = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
+        // Every existing block is removed and one is appended, rather than each being
+        // rewritten where it sits: two blocks rewritten in place stay two blocks, and the
+        // last one is the one git honours.
+        String stripped = cur.replaceAll("(?s)" + Pattern.quote(begin) + ".*?"
+                                       + Pattern.quote(end) + "\\R?", "");
+        String next = (stripped.isEmpty() || stripped.endsWith("\n") ? stripped : stripped + "\n")
+                    + block;
+        Files.writeString(ga, next, StandardCharsets.UTF_8);
+    }
+}

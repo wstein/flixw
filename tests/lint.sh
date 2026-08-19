@@ -39,6 +39,7 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 # exists to flag by default, and exactly what this repository's own multi-file layout is.
 if javac -Xlint:all,-auxiliaryclass -Werror -d "$work/classes" \
         "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
+        "$root/src/flixw-install.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
@@ -63,8 +64,20 @@ else
 fi
 
 # --- 3. shim byte-parity ---------------------------------------------------
+# The shim text lives in src/flixw-install.java now, fetched and digest-verified at run
+# time -- so this stands a release up in a directory and points the wrapper at it. Same
+# code path as production, only the base URL differs; nothing here touches the network.
+fixture=$work/release
+mkdir -p "$fixture"
+cp "$root/src/flixw.java" "$root/src/flixw-completion.java"    "$root/src/flixw-jdk.java" "$root/src/flixw-install.java" "$fixture/"
+if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
+# shellcheck disable=SC2086  # $sum is a command name plus flags, deliberately split
+(cd "$fixture" && $sum flixw.java flixw-completion.java flixw-jdk.java flixw-install.java    > SHA256SUMS)
+export FLIXW_ASSET_SOURCE="file://$fixture/"
+export FLIX_CACHE_HOME="$work/cache"
+
 # `install` refuses to run inside an installed project, so give it a clean target.
-if java "$root/src/flixw.java" install "$work/parity" >"$work/install.log" 2>&1; then
+if java "$root/src/flixw.java" wrapper --install "$work/parity" >"$work/install.log" 2>&1; then
   for f in flixw flixw.cmd; do
     if cmp -s "$work/parity/$f" "$root/src/$f"; then
       say "ok    $f matches the text block in src/flixw.java"
@@ -81,6 +94,45 @@ if java "$root/src/flixw.java" install "$work/parity" >"$work/install.log" 2>&1;
 else
   bad "install did not run"
   cat "$work/install.log"
+fi
+
+# --- 3b. what stage 0 kept about a file it no longer holds -----------------
+# The shim text moved to the installer asset; the shims' digests stayed, so validate and
+# doctor detect drift offline with no fetch. That only works while the digests are right,
+# and nothing else would notice them rotting behind a shim edit -- byte-parity above
+# compares the *installed* file with src/, not either with the constants.
+for pair in "flixw:SHIM_SHA256" "flixw.cmd:CMD_SHA256"; do
+  f=${pair%%:*}; k=${pair##*:}
+  declared=$(sed -n "/static final String $k =/,/;/p" "$root/src/flixw.java"              | grep -o '[0-9a-f]\{64\}')
+  if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$root/src/$f" | cut -d' ' -f1)
+  else actual=$(shasum -a 256 "$root/src/$f" | cut -d' ' -f1); fi
+  if [ "$declared" = "$actual" ]; then
+    say "ok    $k matches src/$f"
+  else
+    bad "$k is stale: src/$f hashes to $actual"
+    say "      update the constant in src/flixw.java, or the shim changed by accident"
+  fi
+done
+
+# WRAPPER_DIR is written into the shim text, so the installer needs its own copy -- and a
+# disagreement would have stage 0 reading a directory the installer never wrote.
+d0=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
+d1=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/flixw-install.java")
+if [ -n "$d0" ] && [ "$d0" = "$d1" ]; then
+  say "ok    WRAPPER_DIR is '$d0' in stage 0 and in the installer"
+else
+  bad "WRAPPER_DIR disagrees: stage 0 says '$d0', the installer says '$d1'"
+fi
+
+# The .gitattributes block markers are written by the installer and validated by stage 0.
+# One writes the block, the other decides whether a project has one -- so a rename on
+# either side means doctor --fix writes a block validate cannot find, forever.
+m0=$(grep -c '# >>> flixw >>>' "$root/src/flixw.java" || true)
+m1=$(grep -c '# >>> flixw >>>' "$root/src/flixw-install.java" || true)
+if [ "$m0" -ge 1 ] && [ "$m1" -ge 1 ]; then
+  say "ok    both sides know the .gitattributes block markers"
+else
+  bad "the .gitattributes markers are in stage 0 ($m0) and the installer ($m1); need both"
 fi
 
 # --- 4. the Java floor is stated in three files ----------------------------
@@ -119,6 +171,21 @@ elif grep -q "release version $floor not supported" "$work/floor.log"; then
 else
   bad "stage 0 no longer compiles at Java $floor, which its diagnostics promise"
   head -5 "$work/floor.log"
+fi
+
+# The installer has the same floor for a plainer reason than the provisioner: `install`
+# itself must work on the oldest JVM stage 0 runs on, and stage 0 launches the asset with
+# the JVM it is running on.
+if [ -n "$floor" ]; then
+  if javac --release "$floor" -d "$work/floor-install" "$root/src/flixw-install.java" \
+        >"$work/floor-install.log" 2>&1; then
+    say "ok    the installer compiles at Java $floor"
+  elif grep -q "release version $floor not supported" "$work/floor-install.log"; then
+    say "skip  installer floor check (this javac no longer targets $floor)"
+  else
+    bad "src/flixw-install.java no longer compiles at Java $floor"
+    head -5 "$work/floor-install.log"
+  fi
 fi
 
 # The JDK provisioner has the *same* floor, and for a sharper reason than stage 0's.
@@ -252,7 +319,9 @@ fi
 # this repository's conventions reject; the groups left on are about comments being
 # *wrong*, not about there being fewer of them than a tool would like.
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
-        -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
+        -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+        "$root/src/flixw-jdk.java" "$root/src/flixw-install.java" \
+        "$root/src/flixw-install.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
@@ -285,9 +354,9 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3343          # target: 3050 -- see "What detaches, and what does not" in AGENTS.md
+MAX_CODE_LINES=2923          # target: 2900 -- see "What detaches, and what does not" in AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=279258             # target: 237000, derived from the two numbers above
+MAX_BYTES=255285             # target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
@@ -317,10 +386,10 @@ physical=$((code + comments + blanks))
 density=$((comments * 100 / physical))
 
 if [ "$code" -le "$MAX_CODE_LINES" ]; then
-  say "ok    stage 0 is $code code lines (ceiling $MAX_CODE_LINES, target 3050)"
+  say "ok    stage 0 is $code code lines (ceiling $MAX_CODE_LINES, target 2900)"
 else
   bad "stage 0 grew to $code code lines; the ceiling is $MAX_CODE_LINES"
-  say "      the target is 3050; raising the ceiling needs a reason"
+  say "      the target is 2900; raising the ceiling needs a reason"
 fi
 
 if [ "$density" -ge "$MIN_COMMENT_PCT" ]; then
@@ -331,7 +400,7 @@ else
 fi
 
 if [ "$bytes" -le "$MAX_BYTES" ]; then
-  say "ok    src/flixw.java is $bytes bytes (ceiling $MAX_BYTES, target 237000)"
+  say "ok    src/flixw.java is $bytes bytes (ceiling $MAX_BYTES, target 225000)"
 else
   bad "src/flixw.java grew to $bytes bytes; the ceiling is $MAX_BYTES"
 fi
