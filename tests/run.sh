@@ -359,6 +359,10 @@ t 87 "wrapper --install-jdk takes no arguments"                 ./flixw wrapper 
 # Stage 0 has no install verb at all now -- the bootstrap is `java flixw-setup.java`,
 # which is what somebody downloads and verifies. An unknown operation, not a missing one.
 g 87 'unknown operation' "wrapper has no --install"             ./flixw wrapper --install .
+# An older instruction says `install`. It must fail loudly rather than quietly setting up a
+# directory of that name, which is what a fall-through-to-default verb did.
+t 87 "the setup asset rejects a stale verb rather than pathing it" \
+  java "$root/src/flixw-setup.java" install .
 # The bootstrap moved into flixw's namespace because `install` is a name Flix could claim
 # for a project's dependencies, and holding it meant `./flixw install` reached flixw rather
 # than the compiler in any project that had not pinned yet.
@@ -1547,7 +1551,7 @@ t 0 "the installer ignores a stale FLIXW_SOURCE"                sh -c '
   cp "$1/src/flixw-setup.java" "$2/elsewhere-setup.java"
   rm -rf "$2/upgraded" && mkdir -p "$2/upgraded"
   FLIXW_SOURCE="$PWD/.flixw/flixw.java" \
-    java "$2/elsewhere-setup.java" install "$2/upgraded" "$1/src/flixw.java" \
+    java "$2/elsewhere-setup.java" setup "$2/upgraded" "$1/src/flixw.java" \
       >/dev/null 2>&1 || exit 1
   test -x "$2/upgraded/flixw" && test -f "$2/upgraded/.flixw/flixw.java"' sh "$root" "$work"
 

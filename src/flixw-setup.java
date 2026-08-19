@@ -258,12 +258,16 @@ final class flixwsetup {
      * fetching a stage 0, because the project already has one.
      */
     public static void main(String[] args) {
-        String verb = args.length > 0 && (args[0].equals("setup") || args[0].equals("update"))
-            ? args[0] : "setup";
+        // No arguments is the documented bootstrap and means "set this directory up".
+        // With arguments the verb is required, which is stricter than it looks and is the
+        // point: treating an unrecognised first word as a directory turned
+        // `flixw-setup.java install .` -- the spelling a reader of any older instruction
+        // would try -- into an attempt to set up a directory named "install".
         List<String> rest = new java.util.ArrayList<>(List.of(args));
-        if (!rest.isEmpty() && rest.get(0).equals(verb)) rest.remove(0);
-        if (rest.size() > 2) {
-            System.err.println("usage: java flixw-setup.java [setup] [dir]"
+        String verb = rest.isEmpty() ? "setup" : rest.remove(0);
+        if ((!verb.equals("setup") && !verb.equals("update")) || rest.size() > 2) {
+            System.err.println("usage: java flixw-setup.java                 (set up ./)"
+                             + "\n       java flixw-setup.java setup [dir]"
                              + "\n       java flixw-setup.java update <dir>");
             System.exit(87);
         }
