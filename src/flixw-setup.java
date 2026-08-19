@@ -98,7 +98,12 @@ final class flixwsetup {
         String want = null;
         for (String line : sums.split("\r?\n")) {
             String[] f = line.trim().split("\\s+");
-            if (f.length == 2 && f[1].equals("flixw.java")) want = f[0];
+            // A `*` before the name marks binary mode in GNU coreutils, and is the
+            // default on Windows -- so a mirror whose digests were generated there lists
+            // *flixw.java, and an exact comparison finds nothing while the digest is
+            // plainly in the file.
+            if (f.length == 2 && (f[1].equals("flixw.java") || f[1].equals("*flixw.java")))
+                want = f[0];
         }
         if (want == null || !want.matches("[0-9a-f]{64}"))
             throw w005("the published SHA256SUMS for " + WRAPPER_VERSION

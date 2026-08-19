@@ -429,6 +429,13 @@ public final class UnitCheck {
         eq("assets: an unprefixed .java is not one", "false", String.valueOf(got.contains("flix.java")));
         eq("assets: archives are not assets", "false", String.valueOf(got.toString().contains(".zip")));
         eq("assets: an empty manifest yields none", "0", String.valueOf(flixw.publishedAssets("").size()));
+        // GNU coreutils marks binary mode with a * before the name, which is the default
+        // on Windows. A mirror whose digests were generated there must still be readable.
+        eq("assets: a binary-mode marker is not part of the name",
+           "[flixw-jdk.java]",
+           flixw.publishedAssets("77".repeat(32) + " *flixw-jdk.java\n").toString());
+        eq("assets: and its digest is still found", "88".repeat(32),
+           flixw.digestFor("88".repeat(32) + " *flixw-setup.java\n", "flixw-setup.java"));
         // A name repeated in the manifest is one asset, not two fetches of it.
         eq("assets: a repeated name appears once", "1",
            String.valueOf(flixw.publishedAssets("11".repeat(32) + "  flixw-jdk.java\n"
