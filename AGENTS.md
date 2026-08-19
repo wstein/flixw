@@ -468,9 +468,15 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 2951 | 2900 |
-| comment density | 29% | ≥25% floor |
-| bytes | 256877 | 225000 |
+| code lines in `src/flixw.java` | 3000 | 2900 |
+| comment density | 32% | ≥25% floor |
+| bytes | 260392 | 225000 |
+
+These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
+a ratchet the repository publishes and CI does not is worse than no ratchet, because the
+number a reader checks against is then the one nothing is holding. The code-line ceiling
+last moved for `help`, which needed to keep the compiler's own help text rather than throw
+it away after parsing verbs out of it.
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is

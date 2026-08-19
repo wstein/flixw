@@ -463,6 +463,54 @@ t 0  "purge removes an old unpinned compiler and its metadata" sh -c '
   printf "2020-01-01\n" > "$FLIX_CACHE_HOME/usage/compiler/$sha.used"
   ./flixw wrapper --purge --yes
   test ! -e "$stale" && test ! -e "$FLIX_CACHE_HOME/verbs/$sha.verbs"'
+
+# --- the compiler's own help, kept ------------------------------------------
+# `verbs()` runs `flix --help` and parses a verb list out of it. The verb list is lossy, so
+# the raw text is kept beside it: `help flix` then costs a file read rather than a second
+# compiler launch, and when flixw misreads a layout the unedited text is still there to show.
+t 0  "an ordinary run keeps the compiler's help beside the verb record" sh -c '
+  sha=$(sed -n "s/^sha256  *= *\"\(.*\)\"/\1/p" .flixw/lock.toml)
+  ./flixw check >/dev/null 2>&1
+  test -s "$FLIX_CACHE_HOME/verbs/$sha.help" \
+    && grep -q "^Usage: flix" "$FLIX_CACHE_HOME/verbs/$sha.help"'
+
+t 0  "the help record carries provenance, not a second copy of the lock" sh -c '
+  sha=$(sed -n "s/^sha256  *= *\"\(.*\)\"/\1/p" .flixw/lock.toml)
+  m="$FLIX_CACHE_HOME/verbs/$sha.helpmeta"
+  grep -q "^reported_version=" "$m" && grep -q "^content_sha256=[0-9a-f]\{64\}$" "$m" \
+    && grep -q "^captured_at=[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}$" "$m" \
+    && ! grep -q "^lock_version=" "$m"'
+
+# A cache populated by a flixw that did not keep the help text has a .verbs and no .help.
+# Nothing repairs that specially -- the next ordinary command re-captures both.
+# Provenance is not optional decoration: a .help with no .helpmeta cannot be checked against
+# anything, so the cache hit requires all three records and a missing one re-captures rather
+# than being trusted for the rest of the compiler's life in this cache.
+t 0  "a help record without provenance is re-captured, not trusted" sh -c '
+  sha=$(sed -n "s/^sha256  *= *\"\(.*\)\"/\1/p" .flixw/lock.toml)
+  rm -f "$FLIX_CACHE_HOME/verbs/$sha.helpmeta"
+  ./flixw check >/dev/null 2>&1
+  test -s "$FLIX_CACHE_HOME/verbs/$sha.helpmeta"'
+
+t 0  "a verb record without a help record re-captures on the next run" sh -c '
+  sha=$(sed -n "s/^sha256  *= *\"\(.*\)\"/\1/p" .flixw/lock.toml)
+  rm -f "$FLIX_CACHE_HOME/verbs/$sha.help" "$FLIX_CACHE_HOME/verbs/$sha.helpmeta"
+  ./flixw check >/dev/null 2>&1
+  test -s "$FLIX_CACHE_HOME/verbs/$sha.help" && test -s "$FLIX_CACHE_HOME/verbs/$sha.helpmeta"'
+
+# Purge deletes a compiler's sidecars with it; a suffix missing from that list leaves an
+# orphan keyed to bytes that are gone, which nothing else would ever collect.
+t 0  "purge takes the help sidecars with the compiler"          sh -c '
+  sha=$(printf "c%.0s" $(seq 1 64))
+  cp "$(ls "$FLIX_CACHE_HOME"/compilers/flix-*.jar | head -1)" \
+     "$FLIX_CACHE_HOME/compilers/flix-7.7.7-$sha.jar"
+  printf stale > "$FLIX_CACHE_HOME/verbs/$sha.help"
+  printf stale > "$FLIX_CACHE_HOME/verbs/$sha.helpmeta"
+  mkdir -p "$FLIX_CACHE_HOME/usage/compiler"
+  printf "2020-01-01\n" > "$FLIX_CACHE_HOME/usage/compiler/$sha.used"
+  ./flixw wrapper --purge --yes >/dev/null 2>&1
+  test ! -e "$FLIX_CACHE_HOME/verbs/$sha.help" \
+    && test ! -e "$FLIX_CACHE_HOME/verbs/$sha.helpmeta"'
 g 0 'cached compilers' "info --verbose lists the cache"         ./flixw info --verbose
 g 0 'cached JDKs' "info --verbose lists JDKs too"                ./flixw info --verbose
 g 0 '<= pinned' "info --verbose marks the pinned compiler"       ./flixw info --verbose
@@ -1393,6 +1441,14 @@ t 0  "a nested project runs once it has its own lock"           sh -c 'cd nested
 # --- degradation -----------------------------------------------------------
 echo "degradation"
 g 0 'FLIXW010' "unparseable --help falls back, does not brick"  env FLIX_JAR="$work/impostor/impostor.jar" ./flixw check
+# The raw text is kept even though the parse failed, which is the case it exists for: a
+# layout flixw cannot read is exactly when a reader needs the compiler's own words. Writing
+# the record only on a successful parse would discard them precisely when they matter.
+t 0  "help kept even when the verb parse fails"                 sh -c '
+  rm -f "$FLIX_CACHE_HOME"/verbs/override-*.help
+  FLIX_JAR="$1/impostor/impostor.jar" ./flixw check >/dev/null 2>&1
+  for f in "$FLIX_CACHE_HOME"/verbs/override-*.help; do test -s "$f" && exit 0; done
+  exit 1' sh "$work"
 t 87 "FLIX_JAR pointing at nothing is a usage error"            env FLIX_JAR=/nonexistent/x.jar ./flixw check
 # The lock is read and drift checked before the override is, so an override cannot stand in
 # for a pin -- not even one naming a jar that exists. It is the first thing someone testing

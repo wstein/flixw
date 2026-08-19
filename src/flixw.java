@@ -2055,6 +2055,54 @@ public final class flixw {
         return cacheHome().resolve("verbs").resolve(identity + ".verbs");
     }
 
+    /**
+     * The compiler's {@code --help}, verbatim, beside the verb record and keyed the same way.
+     *
+     * <p>Kept because {@link #verbs} already ran the subprocess and threw the text away: the
+     * verb list is a lossy parse of that text, so {@code help flix} would otherwise pay a
+     * second compiler launch for bytes stage 0 held in a local variable one line earlier.
+     * Keyed by identity rather than by version, so two forks that both call themselves
+     * 0.75.3 cannot collide and a {@code FLIX_JAR} override gets its own record instead of
+     * overwriting a pinned one.
+     */
+    static Path helpFile(String identity) {
+        return cacheHome().resolve("verbs").resolve(identity + ".help");
+    }
+
+    /**
+     * Provenance for {@link #helpFile}: what the compiler called itself, what was stored,
+     * and when it was asked.
+     *
+     * <p>It deliberately does not record the lock's version. This record is keyed by the
+     * compiler's digest and is therefore <em>shared between projects</em> -- the same bytes
+     * can be pinned as {@code 0.75.3} in one repository and as a fork's own tag in another,
+     * both correctly -- so there is no single lock version that belongs to it. The
+     * {@code .pin} record beside it has the same property and says so.
+     *
+     * <p>Nor does it record the help <em>format</em>. Detecting scopt from picocli is a
+     * shape test on a few kilobytes, so caching the answer saves nothing and costs the one
+     * thing worth avoiding: a second place that decides what a help screen is, free to
+     * disagree with the renderer that actually formats it.
+     */
+    static Path helpMetaFile(String identity) {
+        return cacheHome().resolve("verbs").resolve(identity + ".helpmeta");
+    }
+
+    /** Written on the one capture stage 0 already performs; a read-only cache stays silent. */
+    static void writeHelpRecord(String identity, String help) {
+        try {
+            Files.createDirectories(helpFile(identity).getParent());
+            writeAtomic(helpFile(identity), help);
+            String reported = parseReportedVersion(help);
+            writeAtomic(helpMetaFile(identity),
+                  "reported_version=" + (reported == null ? "unknown" : reported)
+                + "\ncontent_sha256=" + sha256(help.getBytes(StandardCharsets.UTF_8))
+                + "\ncaptured_at=" + LocalDate.now(java.time.ZoneOffset.UTC) + "\n");
+        } catch (IOException e) {
+            tr("cannot cache help at " + helpFile(identity) + ": " + e.getMessage());
+        }
+    }
+
     /** Pinned compilers are identified by their locked digest; overrides by path+size+mtime. */
     static String verbIdentity(Path jar, Lock lock, boolean override) {
         if (!override) return lock.sha256();
@@ -2069,7 +2117,12 @@ public final class flixw {
     static List<String> verbs(Path javaExe, Path jar, String identity) {
         Path vf = verbsFile(jar, identity);
         try {
-            if (Files.isRegularFile(vf)) {
+            // Both records or neither. A cache written by a flixw that did not keep the
+            // help text still has its .verbs file, and re-capturing once per compiler is
+            // what backfills the .help beside it -- cheaper to state here than to carry a
+            // separate repair path, and self-healing on the next ordinary command.
+            if (Files.isRegularFile(vf) && Files.isRegularFile(helpFile(identity))
+                && Files.isRegularFile(helpMetaFile(identity))) {
                 List<String> v = new ArrayList<>(Files.readAllLines(vf, StandardCharsets.UTF_8));
                 v.removeIf(String::isBlank);
                 if (!v.isEmpty()) return v;
@@ -2077,8 +2130,16 @@ public final class flixw {
         } catch (IOException ignored) { }
         List<String> v;
         String help;
-        try { help = captureHelp(javaExe, jar); v = captureVerbs(help, jar); }
-        catch (Fail f) {
+        try {
+            help = captureHelp(javaExe, jar);
+            // Kept *before* the parse, and that order is the whole point. The reason this
+            // text is worth storing at all is that the verb parse is lossy and can be
+            // wrong; a layout flixw cannot read is precisely when a reader needs the
+            // compiler's own words, so writing the record only after a successful parse
+            // would discard them in exactly the case they matter.
+            writeHelpRecord(identity, help);
+            v = captureVerbs(help, jar);
+        } catch (Fail f) {
             // Capture is an optimisation, never a precondition.  Its sole purpose is to
             // notice that a pinned compiler has claimed one of WRAPPER_VERBS.  Failing
             // here would make an unparseable help screen fatal for `check`, which does
