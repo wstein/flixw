@@ -1,0 +1,75 @@
+# src/
+
+Five files, three kinds. The kind matters more than the name: it says when the file is
+loaded, who verifies it, and what breaks if it is wrong.
+
+| file | kind | loaded |
+|---|---|---|
+| `flixw.java` | **stage 0** | every invocation |
+| `flixw` | shim (POSIX `sh`) | every invocation, before stage 0 |
+| `flixw.cmd` | shim (`cmd.exe`) | every invocation, before stage 0 |
+| `flixw-completion.java` | companion asset | only `wrapper --completion` |
+| `flixw-jdk.java` | companion asset | only `wrapper --install-jdk` |
+
+## stage 0
+
+`flixw.java` is the whole wrapper: project discovery, lock parsing, Java selection,
+compiler acquisition, digest verification, dispatch, launch. It is loaded on every
+invocation, which is why `tests/lint.sh` gates its size — see "Size is a ratchet" in
+`AGENTS.md`. Anything that does not have to be resident should not be.
+
+## shims
+
+`flixw` and `flixw.cmd` are **checked-in copies** of the `SHIM` and `CMD` text blocks
+inside `flixw.java`, which is what `install` actually writes out. They are committed so a
+reader can see what they will execute without running anything.
+
+**Edit both sides or they drift.** `tests/lint.sh` runs `install` into a scratch directory
+and compares byte for byte, so a one-sided edit fails the build rather than shipping a shim
+whose published hash does not match this tree. In the Java text block backslashes are
+escaped (`\\`); on disk they are literal.
+
+## companion assets
+
+`flixw-<name>.java` files are **not** installed into a project and **not** compiled into
+stage 0. They are published as release assets, fetched on first use per machine per flixw
+release, verified against that release's own `SHA256SUMS`, and cached under
+`<cache>/wrapper/assets/<version>/`. `wrapper --upgrade` warms all of them, so nothing
+needs the network on first use after an upgrade.
+
+They exist because they are *self-contained work* that stage 0 would otherwise carry on
+every invocation to serve a rare path. That test is what decides whether something belongs
+here — see "What detaches, and what does not" in `AGENTS.md` for what fails it and why.
+
+Each is a standalone program, launched as `java <asset> <args>`. Stage 0 never references
+their classes, which is what keeps them independently replaceable.
+
+`flixw-jdk.java` carries one extra constraint: it must compile at `SOURCE_FLOOR`, not
+`MIN_JAVA`, because stage 0 launches a companion asset with the JVM it is itself running
+on — and the provisioner exists precisely for the machine whose only JVM is too old.
+
+## why this is one flat directory, and what happens when it is not
+
+Five files, already namespaced by the `flixw-` prefix, and the published asset *name* is
+the release contract rather than its path — `pack.sh` flattens into `dist/`, so the layout
+here is free. Subdirectories for five files would be structure ahead of need.
+
+**The split is deferred, not declined, and its shape is already decided.** Leaving both
+open is how a layout question gets re-argued every time somebody adds a file, so:
+
+| | |
+|---|---|
+| **trigger** | a fourth companion asset lands (`src/flixw-*.java` reaching four files) |
+| **shape** | `src/stage0/` for `flixw.java` + both shims, `src/assets/` for the companions |
+| **not** | `wrapper/` and `builtins/` — see below |
+| **not** | a top-level split; `src/` stays the source root beside `docs/` and `tests/` |
+
+Do it once, when the final shape is known, rather than twice. The mechanical cost is
+around 130 path references across 17 files, including four CI workflows and three
+agent-instruction files; `tests/lint.sh` catches a missed one immediately, so the risk is
+tedium rather than breakage.
+
+`builtins/` is the one name ruled out rather than deferred. These files are precisely the
+things that **stopped** being builtin — that is the whole reason they exist — so the
+directory would contradict `AGENTS.md` and mislead every reader arriving at it first.
+`stage0` and `companion asset` are the words the rest of the repository already uses.
