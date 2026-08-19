@@ -37,7 +37,7 @@ you your first Java. Java 21+ is what the compiler needs — see
 
 ```console
 git init hello && cd hello
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.0-pre.2/flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.0/flixw-setup.java
 java flixw-setup.java
 rm flixw-setup.java
 ```
@@ -48,7 +48,7 @@ rm flixw-setup.java
 ```powershell
 git init hello; cd hello
 Invoke-WebRequest -OutFile flixw-setup.java `
-  https://github.com/wstein/flixw/releases/download/v0.25.0-pre.2/flixw-setup.java
+  https://github.com/wstein/flixw/releases/download/v0.25.0/flixw-setup.java
 java flixw-setup.java
 Remove-Item flixw-setup.java
 ```
@@ -96,8 +96,8 @@ $ ./flixw test
 Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 
 $ ./flixw validate
-ok    ./flixw matches flixw 0.25.0-pre.2
-ok    ./flixw.cmd matches flixw 0.25.0-pre.2
+ok    ./flixw matches flixw 0.25.0
+ok    ./flixw.cmd matches flixw 0.25.0
 ok    .flixw/flixw.java  sha256=c41d7b3eec8f91ce...
 ok    the lock satisfies flix.toml
 ok    the compiler reports the version the lock pins
@@ -202,11 +202,11 @@ The archive is the alternative, for when you would rather not run a downloaded p
 install a program:
 
 ```console
-base=https://github.com/wstein/flixw/releases/download/v0.25.0-pre.2
-curl -fsSLO $base/flixw-0.25.0-pre.2.tar.gz
-curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.0-pre.2.tar.gz | shasum -a 256 -c -
-tar -xzf flixw-0.25.0-pre.2.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
-rm flixw-0.25.0-pre.2.tar.gz
+base=https://github.com/wstein/flixw/releases/download/v0.25.0
+curl -fsSLO $base/flixw-0.25.0.tar.gz
+curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.0.tar.gz | shasum -a 256 -c -
+tar -xzf flixw-0.25.0.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
+rm flixw-0.25.0.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
                                     # 0.75.2 or v0.75.2 -- the release tag works too
 ./flixw doctor --fix                # merges the .gitattributes block
@@ -214,7 +214,7 @@ git add flixw flixw.cmd .flixw .gitattributes
 ```
 
 The digest line is a check you run, not a comparison you eyeball: it prints `OK` or fails.
-On Windows, `Get-FileHash flixw-0.25.0-pre.2.tar.gz` and `Expand-Archive` are the equivalents.
+On Windows, `Get-FileHash flixw-0.25.0.tar.gz` and `Expand-Archive` are the equivalents.
 
 Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
 own field and flixw reads it as a **minimum**, so the same version or anything newer is
@@ -255,7 +255,7 @@ Nothing about the build depends on the line. A lock written by an older flixw ha
 
 ```console
 $ ./flixw pin --refresh
-flixw: rewrote .flixw/lock.toml in the shape flixw 0.25.0-pre.2 writes; the pin is unchanged
+flixw: rewrote .flixw/lock.toml in the shape flixw 0.25.0 writes; the pin is unchanged
 ```
 
 That is offline and moves nothing — same repository, version, URL, digest and java pin —
