@@ -404,6 +404,41 @@ public final class UnitCheck {
         System.out.println("  ok   provisioning: metadata parsing and platform coordinates");
     }
 
+    // ---- 13: the asset set a release publishes ----------------------------
+
+    /**
+     * `wrapper --upgrade` warms every companion asset of the release it moves to, and
+     * reads which ones those are out of that release's own SHA256SUMS rather than a list
+     * compiled into this stage 0. An upgrade runs in the *old* wrapper, so a hard-coded
+     * list would stop warming the day a new asset shipped, silently.
+     */
+    static void releaseAssets() {
+        String sums = "aa".repeat(32) + "  flixw.java\n"
+                    + "bb".repeat(32) + "  flixw-completion.java\n"
+                    + "cc".repeat(32) + "  flixw-jdk.java\n"
+                    + "dd".repeat(32) + "  flixw-0.24.1.tar.gz\n"
+                    + "ee".repeat(32) + "  flixw-0.24.1.zip\n"
+                    + "ff".repeat(32) + "  flix.java\n";
+        java.util.List<String> got = flixw.publishedAssets(sums);
+        eq("assets: companions are found", "[flixw-completion.java, flixw-jdk.java]", got.toString());
+        // flixw.java is the wrapper, not a companion to it, and the upgrade installs it by
+        // a different route entirely -- warming it would download it a second time.
+        eq("assets: flixw.java is not a companion", "false", String.valueOf(got.contains("flixw.java")));
+        // flix.java is the pre-rename bridge name. It is not a .java companion asset and
+        // must not be fetched as one.
+        eq("assets: the legacy bridge name is not one", "false", String.valueOf(got.contains("flix.java")));
+        eq("assets: archives are not assets", "false", String.valueOf(got.toString().contains(".zip")));
+        eq("assets: an empty manifest yields none", "0", String.valueOf(flixw.publishedAssets("").size()));
+        // A name repeated in the manifest is one asset, not two fetches of it.
+        eq("assets: a repeated name appears once", "1",
+           String.valueOf(flixw.publishedAssets("11".repeat(32) + "  flixw-jdk.java\n"
+                                             + "22".repeat(32) + "  flixw-jdk.java\n").size()));
+        // Warming is best-effort by contract: an unreachable source must return a count,
+        // not throw, or an upgrade that already succeeded would report as a failure.
+        eq("assets: an unreachable source warms none, and does not throw", "0",
+           String.valueOf(flixw.warmAssets("99".repeat(32) + "  flixw-nosuch.java\n", "0.0.1")));
+    }
+
     // ---- 7: pin targets ---------------------------------------------------
 
     /**
@@ -960,6 +995,7 @@ public final class UnitCheck {
         bounded();
         completion();
         overrideContainment();
+        releaseAssets();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }

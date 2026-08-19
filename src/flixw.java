@@ -4088,6 +4088,59 @@ public final class flixw {
      * release. That is the same footing as the compiler pin, and docs/LIMITATIONS.md says
      * so; a self-update is simply where it matters most.
      */
+    /**
+     * Every companion asset a release publishes, read out of that release's own
+     * {@code SHA256SUMS} rather than from a list in here.
+     *
+     * <p>That is the difference between warming the assets this stage 0 knows about and
+     * warming the ones the release actually has. An upgrade runs in the *old* stage 0,
+     * which cannot know what the new release added -- so a hard-coded list would silently
+     * stop warming the day a fourth asset shipped, and nothing would report it. Reading
+     * the manifest means an older wrapper warms assets it has never heard of.
+     *
+     * <p>{@code flixw.java} itself is excluded: it is the wrapper, not a companion to it,
+     * and the upgrade installs it by a different route.
+     */
+    static List<String> publishedAssets(String sums) {
+        List<String> out = new ArrayList<>();
+        for (String line : sums.split("\r?\n")) {
+            String[] f = line.trim().split("\\s+");
+            if (f.length == 2 && f[1].matches("flixw-[a-z0-9-]+\\.java") && !out.contains(f[1]))
+                out.add(f[1]);
+        }
+        return out;
+    }
+
+    /**
+     * Fetches and verifies every companion asset of one release into the cache, so that
+     * the commands needing them work offline afterwards.
+     *
+     * <p>Best-effort per asset, and never fatal. Warming is an optimisation on a command
+     * that has already done its real work: an upgrade that installed a new stage 0 and
+     * then failed to pre-fetch a completion generator has still upgraded, and the asset
+     * will be fetched on demand the first time it is wanted. Failing the upgrade over it
+     * would turn a slow network into a broken wrapper.
+     *
+     * @return how many assets are now cached and verified for that version
+     */
+    static int warmAssets(String sums, String version) {
+        int warm = 0;
+        for (String name : publishedAssets(sums)) {
+            try {
+                ensureAsset(name, version);
+                warm++;
+            } catch (Fail f) {
+                System.err.println("flixw: note: could not pre-fetch " + name + "; it will be"
+                                 + " fetched when first needed");
+                tr("warm " + name + ": " + f.getMessage());
+            }
+        }
+        if (warm > 0)
+            System.err.println("flixw: " + warm + " companion asset" + (warm == 1 ? "" : "s")
+                             + " cached for " + canonical(version) + "; they need no network again");
+        return warm;
+    }
+
     static void upgradeWrapper(Path root) {
         String sums = httpGet(FLIXW_LATEST + "SHA256SUMS");
         String want = digestFor(sums, "flixw.java");
@@ -4101,6 +4154,10 @@ public final class flixw {
             // established -- a matching digest here, a version comparison there.
             System.out.println("flixw " + WRAPPER_VERSION
                              + " is the newest release. Nothing to do.");
+            // "Nothing to do" is about stage 0, not about the assets beside it. An upgrade
+            // is also the natural moment to notice one is missing -- deleted from the
+            // cache, or never fetched because nothing had needed it yet.
+            warmAssets(sums, WRAPPER_VERSION);
             return;
         }
         Path dir = null;
@@ -4123,6 +4180,12 @@ public final class flixw {
             if (published != null && olderOrSame(published, WRAPPER_VERSION)) {
                 System.out.println("flixw " + WRAPPER_VERSION + " is newer than the newest"
                                  + " release (" + published + "). Nothing to do.");
+                // Warmed only when this *is* the published release, which is the ordinary
+                // reading of "same or older". Ahead of it -- someone working on flixw --
+                // the assets for this version were never published, so asking for them
+                // would be a guaranteed 404 dressed up as a note about the network.
+                if (canonical(published).equals(canonical(WRAPPER_VERSION)))
+                    warmAssets(sums, WRAPPER_VERSION);
                 return;
             }
             System.err.println("flixw: " + WRAPPER_VERSION + " -> "
@@ -4139,6 +4202,10 @@ public final class flixw {
             Process p = pb.start();
             int rc = awaitWithReaper(p);
             if (rc != 0) throw w009("the downloaded flixw failed to install (exit " + rc + ")");
+            // The assets of the release just installed, not of the one being replaced --
+            // they are cached under a version-keyed path, so the new stage 0 would
+            // otherwise fetch every one of them again on first use.
+            warmAssets(sums, published == null ? WRAPPER_VERSION : published);
         } catch (IOException e) {
             throw w007("cannot upgrade the wrapper: " + why(e));
         } catch (InterruptedException e) {
@@ -4259,19 +4326,18 @@ public final class flixw {
      * the compiler's own distribution base: a self-hosted mirror, or (unset in production)
      * a local fixture for this project's own tests.
      */
-    static String assetSourceBase() {
+    static String assetSourceBase(String version) {
         String o = env("FLIXW_ASSET_SOURCE");
         if (o != null) return o.replaceAll("/+$", "") + "/";
-        return "https://github.com/wstein/flixw/releases/download/v"
-             + canonical(WRAPPER_VERSION) + "/";
+        return "https://github.com/wstein/flixw/releases/download/v" + canonical(version) + "/";
     }
 
     /**
      * Version-keyed, so a release's assets can be cached forever: the entry cannot go
      * stale except by a new release, which is exactly when this path moves.
      */
-    static Path assetDir() {
-        return cacheHome().resolve("wrapper").resolve("assets").resolve(canonical(WRAPPER_VERSION));
+    static Path assetDir(String version) {
+        return cacheHome().resolve("wrapper").resolve("assets").resolve(canonical(version));
     }
 
     /**
@@ -4288,8 +4354,15 @@ public final class flixw {
      * records what was verified, so every later call still cheaply self-checks the cached
      * bytes against it, offline, rather than trusting bare presence.
      */
-    static Path ensureAsset(String name) {
-        Path dir = assetDir();
+    static Path ensureAsset(String name) { return ensureAsset(name, WRAPPER_VERSION); }
+
+    /**
+     * The version is a parameter because {@code wrapper --upgrade} warms the assets of the
+     * release it is upgrading *to*, from the stage 0 it is upgrading *from*. Everything
+     * else asks for its own.
+     */
+    static Path ensureAsset(String name, String version) {
+        Path dir = assetDir(version);
         Path asset = dir.resolve(name), marker = dir.resolve(name + ".sha256");
         if (Files.isRegularFile(asset) && Files.isRegularFile(marker)) {
             try {
@@ -4299,7 +4372,7 @@ public final class flixw {
             // Falls through: a corrupt cache entry re-fetches, exactly like a corrupt
             // compiler jar does in acquire().
         }
-        String base = assetSourceBase();
+        String base = assetSourceBase(version);
         String sums;
         try {
             sums = base.startsWith("file://")
@@ -4310,7 +4383,7 @@ public final class flixw {
         }
         String want = digestFor(sums, name);
         if (want == null || !want.matches("[0-9a-f]{64}"))
-            throw w005("no published flixw " + WRAPPER_VERSION + " release names " + name
+            throw w005("no published flixw " + version + " release names " + name
                      + "\n       run: ./flixw wrapper --upgrade   (or wait for this version to be released)");
         try {
             Files.createDirectories(dir);

@@ -452,6 +452,21 @@ that release, checks it against the `SHA256SUMS` published beside it, declines t
 backwards, and then lets the *new* stage 0 install itself — it is the only thing that knows
 its own shim bytes. Repairing the files a project already has is `./flixw doctor --fix`.
 
+**It also warms every companion asset that release publishes**, so the commands needing
+one work offline afterwards. Which assets those are is read out of the release's own
+`SHA256SUMS` rather than from a list inside the wrapper: an upgrade runs in the *old* stage
+0, which cannot know what the new release added, so a compiled-in list would quietly stop
+warming the day a new asset shipped. Anything matching `flixw-<name>.java` is a companion;
+`flixw.java` is not one, being the wrapper itself.
+
+Warming is best-effort and never fatal. An upgrade that installed a new stage 0 and then
+could not pre-fetch a generator has still upgraded, and the asset is fetched on demand the
+first time it is wanted — failing the upgrade over it would turn a slow network into a
+broken wrapper. It also runs on the two no-op paths, where "nothing to do" is a statement
+about stage 0 and not about the assets beside it: an upgrade is the natural moment to
+notice one is missing from the cache. Ahead of the newest release — working on flixw
+itself — nothing is warmed, because assets for an unpublished version cannot exist.
+
 `./flixw wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
 not a stand-in for anything Flix might ship, so it is not routed to the compiler, does not
 retire, and is unaffected by `FLIX_BACKEND` — and it is reachable with a lock too broken

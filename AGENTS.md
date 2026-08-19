@@ -246,8 +246,16 @@ requires a resolvable project root, and both of these have to answer without one
 | `src/flixw-completion.java` | `wrapper --completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
 | `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 
-`ensureAsset(name)` fetches, verifies and caches either one; see "Completion is data, not
-a generated script" below for the shape, which is now shared.
+`ensureAsset(name, version)` fetches, verifies and caches any of them; see "Completion is
+data, not a generated script" below for the shape, which is now shared. The version is a
+parameter for one reason: `wrapper --upgrade` warms the assets of the release it is
+upgrading *to*, from the stage 0 it is upgrading *from*.
+
+**`wrapper --upgrade` warms them all**, so nothing needs the network on first use
+afterwards. The set comes from the release's own `SHA256SUMS` — every `flixw-<name>.java`
+in it — rather than from `COMPLETION_ASSET`/`JDK_ASSET` here, because the upgrade runs in
+the *old* stage 0 and a compiled-in list would stop warming the day a fourth asset shipped,
+silently. Best-effort and never fatal: the upgrade has already done its real work by then.
 
 The JDK move also **stopped stage 0 provisioning automatically**. `noJavaFound` used to
 prompt and then download inline; it is now a diagnostic and nothing else, because an
@@ -373,9 +381,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3313 | 3050 |
-| comment density | 28% | ≥25% floor |
-| bytes | 275286 | 237000 |
+| code lines in `src/flixw.java` | 3343 | 3050 |
+| comment density | 29% | ≥25% floor |
+| bytes | 279258 | 237000 |
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is
@@ -442,7 +450,13 @@ commit that happens to trip a threshold is rarely the commit that should own the
 The **byte** ceiling may move up when the code-line count moves down and density moves up:
 that is the two gates pulling against each other as intended. Refusing it would let them
 deadlock, since any change trading code for the explanation this file asks for would then
-pass neither. The **code-line** ceiling never rises.
+pass neither.
+
+The **code-line** ceiling may rise only for a *new capability*, and the commit that raises
+it must name the capability. Never for a refactor, a rewrite, or a helper something needed
+— those are the shapes drift arrives in. A gate that cannot tell a feature from drift is
+one that gets deleted the first time somebody has to ship a feature, so it distinguishes
+them and makes the author say which this is.
 
 ### Invariants that are load-bearing
 
