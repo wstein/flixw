@@ -149,6 +149,21 @@ else
   bad "the .gitattributes markers are in stage 0 ($m0) and the installer ($m1); need both"
 fi
 
+# --- 3c. the workflows call commands that still exist ----------------------
+# The bootstrap moved twice -- bare `install`, then `wrapper --install`, then the setup
+# asset -- and each time the tests and docs were swept while .github/workflows was not.
+# The Windows job went on running `java src\flixw.java install scratch` for three
+# releases' worth of commits and only failed once the suite ahead of it stopped failing
+# first. A workflow is the one caller no local run exercises.
+stale=$(grep -rn 'flixw\.java" *install\|flixw\.java install\|wrapper --install\b' \
+        "$root/.github/workflows" 2>/dev/null || true)
+if [ -z "$stale" ]; then
+  say "ok    no workflow calls a bootstrap spelling that was removed"
+else
+  bad "a workflow calls a removed bootstrap spelling:"
+  printf '%s\n' "$stale" | sed 's/^/      /'
+fi
+
 # --- 4. the Java floor is stated in three files ----------------------------
 # MIN_JAVA is the authority, but a shim cannot import a Java constant, so the floor is
 # written out in both of them -- in a message and in a numeric comparison. That is

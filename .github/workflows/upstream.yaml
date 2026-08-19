@@ -51,7 +51,8 @@ jobs:
       - name: install into a scratch project
         run: |
           mkdir -p /tmp/drift && cd /tmp/drift
-          java "$GITHUB_WORKSPACE/src/flixw.java" install .
+          java "$GITHUB_WORKSPACE/src/flixw-setup.java" setup . \
+               "$GITHUB_WORKSPACE/src/flixw.java"
           ./flixw pin "$FLIX_VERSION"
 
       # `init` is a compiler verb reached through rule 5, so this also proves that an
