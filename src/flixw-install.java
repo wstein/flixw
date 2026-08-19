@@ -434,7 +434,6 @@ final class flixwinstall {
                               StandardCharsets.UTF_8);
             writeLocalIgnore(target);
             writeEnvrcExample(target);
-            migrateFromFlixNames(target);
             mergeGitattributes(target.resolve(".gitattributes"));
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
                              + "/flixw.java into " + target);
@@ -587,52 +586,6 @@ final class flixwinstall {
       + "# Machine-specific values belong somewhere you will not commit:\n"
       + "#   source_env_if_exists .envrc.local\n"
       + "# flixw does not edit your .gitignore; add .envrc and .envrc.local yourself.\n";
-
-    /**
-     * Moves a project installed under the pre-0.20 names onto the current ones.
-     *
-     * Until 0.20 the wrapper shipped as `flix`, `flix.cmd` and `.flix-wrapper/flix.java`,
-     * which read as the compiler's own name on a tool that is not the compiler. Installing
-     * over such a project would otherwise leave both sets side by side, and the pin -- the
-     * one file here that is the project's rather than ours -- would still be in the old
-     * directory, where nothing reads it. So the lock moves first, and the old files are
-     * removed only when they are recognisably the ones flixw wrote: a shim someone edited,
-     * or a directory holding anything else, is left alone and reported.
-     */
-    static void migrateFromFlixNames(Path target) throws IOException {
-        Path old = target.resolve(".flix-wrapper");
-        Path oldLock = old.resolve("lock.toml");
-        Path newLock = lockPath(target);
-        if (Files.isRegularFile(oldLock) && !Files.isRegularFile(newLock)) {
-            Files.createDirectories(newLock.getParent());
-            Files.move(oldLock, newLock, StandardCopyOption.ATOMIC_MOVE);
-            System.out.println("moved    .flix-wrapper/lock.toml -> " + WRAPPER_DIR + "/lock.toml");
-        }
-        for (String name : List.of("flix", "flix.cmd")) {
-            Path f = target.resolve(name);
-            if (!Files.isRegularFile(f)) continue;
-            String body = Files.readString(f, StandardCharsets.UTF_8);
-            // Only a shim that still says what flixw writes is ours to delete.
-            if (!body.contains("flixw") || !body.contains("stage0")) {
-                System.out.println("kept     ./" + name + " (edited; remove it by hand)");
-                continue;
-            }
-            Files.delete(f);
-            System.out.println("removed  ./" + name);
-        }
-        Path oldSrc = old.resolve("flix.java");
-        if (Files.isRegularFile(oldSrc)) { Files.delete(oldSrc); }
-        if (Files.isDirectory(old)) {
-            try (var s = Files.list(old)) {
-                if (s.findAny().isEmpty()) {
-                    Files.delete(old);
-                    System.out.println("removed  .flix-wrapper/");
-                } else {
-                    System.out.println("kept     .flix-wrapper/ (not empty)");
-                }
-            }
-        }
-    }
 
     static void mergeGitattributes(Path ga) throws IOException {
         String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";

@@ -424,9 +424,9 @@ public final class UnitCheck {
         // flixw.java is the wrapper, not a companion to it, and the upgrade installs it by
         // a different route entirely -- warming it would download it a second time.
         eq("assets: flixw.java is not a companion", "false", String.valueOf(got.contains("flixw.java")));
-        // flix.java is the pre-rename bridge name. It is not a .java companion asset and
-        // must not be fetched as one.
-        eq("assets: the legacy bridge name is not one", "false", String.valueOf(got.contains("flix.java")));
+        // Only the flixw- prefix marks a companion asset. A release may publish other
+        // .java files beside stage 0 without them being something to fetch and run.
+        eq("assets: an unprefixed .java is not one", "false", String.valueOf(got.contains("flix.java")));
         eq("assets: archives are not assets", "false", String.valueOf(got.toString().contains(".zip")));
         eq("assets: an empty manifest yields none", "0", String.valueOf(flixw.publishedAssets("").size()));
         // A name repeated in the manifest is one asset, not two fetches of it.

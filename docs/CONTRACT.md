@@ -123,6 +123,33 @@ through the same table- and multi-line-string-aware scanner used everywhere else
 
 ### The lock schema
 
+### The stage 0 a project receives
+
+`.flixw/flixw.java` is the documented source with its comments removed. It is generated at
+release time, from that release's tag, and the header is the only comment left:
+
+```java
+// flixw 0.24.1 -- stage 0. GENERATED: this is the documented source with its
+// comments removed, which is why it reads as bare mechanism.
+//   https://wstein.github.io/flixw/          docs, and the lock schema
+//   https://github.com/wstein/flixw          the source this was made from
+```
+
+The commentary is written for whoever audits flixw, and that reader is at one of those two
+URLs. The vendored copy is there to be executed and digest-checked — in your repository,
+in your diffs — so it ships as mechanism: 3288 lines instead of 4678, 152 KB instead of 255.
+
+**The transformation is reproducible, and that is the point.** Running
+`java tests/strip.java src/flixw.java <version>` on the tagged source regenerates the
+published bytes exactly, so "read it before you trust it" survives the two artifacts being
+different files: read the documented source, regenerate, compare digests with what you
+have. A release whose published `flixw.java` did not match that would be detectable by
+anyone, not just by whoever built it.
+
+CI checks the strip is deterministic, that its output compiles at both the floor and the
+minimum, that it renders an identical lock schema, and — in a job of its own — that the
+stripped stage 0 passes the entire regression suite. Compiling is not equivalence.
+
 The lock's shape is published as a JSON Schema:
 
 ```

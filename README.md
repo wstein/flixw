@@ -189,6 +189,12 @@ A project that already has sources and a `flix.toml` takes the quickstart route 
 wrapper without touching anything else: it merges its block into an existing
 `.gitattributes` rather than replacing it, and it never writes `flix.toml`.
 
+The `.flixw/flixw.java` you commit is the documented source with its comments removed —
+3288 lines rather than 4678 — with a header pointing at
+[the docs](https://wstein.github.io/flixw/) and [the source](https://github.com/wstein/flixw)
+for the reasoning behind every check. The strip is reproducible from the tagged source, so
+the file you can read and the file you run can be compared rather than taken on trust.
+
 The bootstrap sits in flixw's own namespace rather than being a bare `install` verb,
 because `install` is a name Flix could claim for a project's dependencies — so
 `./flixw install` reaches the compiler, like every other word flixw does not own.

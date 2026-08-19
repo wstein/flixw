@@ -4115,8 +4115,9 @@ public final class flixw {
         // `install <root>`, and that wrapper is already published and cannot be changed.
         // Removing it before every supported release spawns `wrapper --install` would
         // break upgrading *into* this release, which is the one path with no way back.
-        // Drop it once no supported wrapper spawns the bare word -- same rule as the
-        // flix.java name bridge in tests/pack.sh.
+        // Drop it once no supported wrapper spawns the bare word -- and that is a real
+        // condition, not an indefinite one: the `flix.java` bridge was dropped the moment
+        // it was established that nothing had ever used the name it served.
         //
         // An explicit target is required, which is what makes this a bridge rather than a
         // squat on the name: the handover always passes one, and a person typing
