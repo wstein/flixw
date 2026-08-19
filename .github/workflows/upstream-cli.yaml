@@ -1,0 +1,77 @@
+name: upstream cli
+
+# Watches Flix's own CLI definition, because flixw's dispatch is built on it.
+#
+# This workflow is deliberately NOT a required check and never runs on push. flixw's build
+# must not go red because somebody merged something in another repository -- a red build
+# nobody in this repository can fix is a red build people learn to ignore, and then the one
+# that matters is ignored too. It opens an issue instead, and updates that issue rather than
+# opening a second one, so a long-running drift stays one conversation.
+#
+# What it is protecting: `parseVerbs` reads the *layout* of `flix --help` to learn which
+# verbs a pinned compiler implements. When that layout or the command set changes, flixw
+# does not fail -- it falls back to BUILTIN_VERBS and keeps working, quietly not routing
+# whatever was added. Silence is the failure mode, so something has to go looking.
+
+on:
+  schedule:
+    # Weekly. The thing being watched changes on upstream's release cadence, not daily, and
+    # a check that fires more often than the thing it watches only trains people to skim it.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fingerprint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare Flix's CLI surface with the committed fingerprint
+        id: check
+        run: |
+          set +e
+          out=$(sh tests/upstream-cli.sh 2>&1)
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          {
+            echo "rc=$rc"
+            echo 'report<<REPORT_EOF'
+            printf '%s\n' "$out"
+            echo 'REPORT_EOF'
+          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$out" >> "$GITHUB_STEP_SUMMARY"
+
+      # rc=2 is "could not tell" -- a fetch failure, a moved path, a rate limit. That is not
+      # drift and must not open an issue claiming it is; it fails the run so the schedule's
+      # own failure notice is what shows up.
+      - name: Could not determine upstream state
+        if: steps.check.outputs.rc == '2'
+        run: |
+          echo "upstream-cli could not read Flix's CLI definition; not reporting drift." >&2
+          exit 1
+
+      - name: Open or update the drift issue
+        if: steps.check.outputs.rc == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ steps.check.outputs.report }}
+        run: |
+          title="Flix's CLI surface has changed upstream"
+          body=$(printf '%s\n\n```\n%s\n```\n\n%s\n' \
+            "flixw parses \`flix --help\` to decide which verbs reach the compiler. Upstream's parser definition no longer matches the fingerprint committed at \`tests/upstream/flix-cli.fingerprint\`." \
+            "$REPORT" \
+            "This is a notice, not a build failure: flixw still works, because an unparseable or unfamiliar help screen falls back to \`BUILTIN_VERBS\`. What it loses is any verb the fallback does not name. Run \`sh tests/upstream-cli.sh\` locally for the same output.")
+          existing=$(gh issue list --state open --label upstream-cli \
+                     --search "$title in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+            echo "commented on #$existing"
+          else
+            gh label create upstream-cli --description "Flix CLI drift" --color ededed 2>/dev/null || true
+            gh issue create --title "$title" --label upstream-cli --body "$body"
+          fi
