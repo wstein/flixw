@@ -135,24 +135,32 @@ cp "$shipped" "$out/flixw.java"
 # stops a silently re-uploaded artifact from being republished under a flixw tag, and keeps
 # `pack.sh` reproducible for anyone rebuilding a release from the same source.
 pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
-PICOCLI_SHA256=ed441183f309b93f104ca9e071e314a4062a893184e18a3c7ad72ec9cba12ba0
+PICOCLI_SHA256=f86e30fffd10d2b13b8caa8d4b237a7ee61f2ffccf5b1941de718b765d235bf8
 curl -fsSL -o "$out/picocli-$pv.jar" \
   "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" || {
   echo "pack: cannot fetch picocli $pv" >&2; exit 1; }
-got=$($sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
+got=$(sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
 [ "$got" = "$PICOCLI_SHA256" ] || {
   echo "pack: picocli $pv digest mismatch: pinned $PICOCLI_SHA256, served $got" >&2; exit 1; }
 
 for a in completion jdk inspect setup help; do
   java "$root/tests/strip.java" "$root/src/flixw-$a.java" "$version" "flixw-$a.java" \
     > "$out/flixw-$a.java"
-  javac -d "$work/asset-classes" "$out/flixw-$a.java" || {
+  # flixw-help.java is the one asset with a compile-time dependency, and it is the jar this
+  # same release publishes -- so compiling against it here also proves the two agree.
+  javac -cp "$out/picocli-$pv.jar" -d "$work/asset-classes" "$out/flixw-$a.java" || {
     echo "pack: the stripped flixw-$a.java does not compile" >&2; exit 1; }
 done
 
+# Published, because the file itself claims the release publishes it -- and because a
+# licence and provenance claim that only exists in the source tree is not much of a claim to
+# someone holding the jar. Not packed into the archives: picocli reaches a machine cache,
+# never an adopting project, so a project has no third party to give notice of.
+cp "$root/THIRD_PARTY_NOTICES.md" "$out/THIRD_PARTY_NOTICES.md"
+
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
               flixw-completion.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
-              flixw-help.java "picocli-$pv.jar" \
+              flixw-help.java "picocli-$pv.jar" THIRD_PARTY_NOTICES.md \
               > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

@@ -483,8 +483,12 @@ its own shim bytes. Repairing the files a project already has is `./flixw doctor
 one work offline afterwards. Which assets those are is read out of the release's own
 `SHA256SUMS` rather than from a list inside the wrapper: an upgrade runs in the *old* stage
 0, which cannot know what the new release added, so a compiled-in list would quietly stop
-warming the day a new asset shipped. Anything matching `flixw-<name>.java` is a companion;
-`flixw.java` is not one, being the wrapper itself.
+warming the day a new asset shipped. Anything matching `flixw-<name>.java` is a companion,
+as is the one third-party jar a release names — currently `picocli-<version>.jar`, which
+`./flixw help` renders through. `flixw.java` is not one, being the wrapper itself, and
+neither is anything else a release happens to publish: the jar is accepted by name rather
+than by extension, so a future artifact published for a reader is not downloaded by every
+upgrade because it happened to end in `.jar`.
 
 Warming is best-effort and never fatal. An upgrade that installed a new stage 0 and then
 could not pre-fetch a generator has still upgraded, and the asset is fetched on demand the

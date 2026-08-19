@@ -398,6 +398,15 @@ The boundary is what makes it acceptable, so it is stated as a rule rather than 
   it. That is a release-time claim: `pack.sh` refuses to publish a picocli whose bytes have
   changed, and `tests/lint.sh` checks the pin against what Maven Central actually serves. A
   constant in stage 0 would be dead weight on every invocation for a check made once.
+- **`wrapper --upgrade` warms it.** `publishedAssets` accepts a `flixw-<name>.java` **or the
+  one jar this release names** (`PICOCLI_ASSET`). The prefix rule alone silently stopped
+  warming the day the first non-`.java` companion shipped; "anything in the manifest" and
+  "any `.jar`" both over-corrected into downloading artifacts nobody decided should be
+  fetched. Naming it costs an edit when a second dependency ships, and that edit is the
+  point — taking on a runtime dependency should be something a person typed.
+- **`THIRD_PARTY_NOTICES.md` is checked, not just written.** `tests/lint.sh` fails if it
+  does not name the pinned version, carry the pinned digest and state the licence — a
+  provenance claim the release publishes is worse than useless once it drifts.
 - **`help` degrades rather than depending on it.** If the asset or picocli cannot be fetched,
   stage 0 prints its own routing table *and* the compiler's captured help, offline and with
   no compiler launch — which is more than `help` could do before the renderer existed.
@@ -520,7 +529,7 @@ commit:
 |---|---:|---:|
 | code lines in `src/flixw.java` | 3050 | 2900 |
 | comment density | 32% | ≥25% floor |
-| bytes | 268567 | 225000 |
+| bytes | 269226 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the

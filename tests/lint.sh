@@ -43,20 +43,46 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
 pd=$(sed -n 's/^PICOCLI_SHA256=\([0-9a-f]\{64\}\)$/\1/p' "$root/tests/pack.sh")
+# Cached across runs in the gitignored work dir, so only the first lint on a machine needs
+# the network. A *failed* fetch is fatal here rather than skipped: continuing would compile
+# src/flixw-help.java against a classpath entry that does not exist, which javac reports as
+# a warning about a missing path and then a pile of unrelated symbol errors -- a diagnostic
+# that sends the reader looking at the wrong file entirely.
 picocli="$work/picocli-$pv.jar"
 if [ ! -f "$picocli" ]; then
   curl -fsSL -o "$picocli" \
-    "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" 2>/dev/null || true
+    "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" || {
+    rm -f "$picocli"
+    bad "cannot fetch picocli $pv; src/flixw-help.java cannot be checked without it"
+    say "      it caches in $work, so this is a one-time download per machine"
+    exit 1
+  }
 fi
-if [ -f "$picocli" ]; then
-  got=$($sum "$picocli" | cut -d' ' -f1)
-  if [ "$got" = "$pd" ]; then
-    say "ok    picocli $pv matches the digest tests/pack.sh pins"
-  else
-    bad "picocli $pv digest mismatch: tests/pack.sh pins $pd, Maven Central served $got"
-  fi
+got=$($sum "$picocli" | cut -d' ' -f1)
+if [ "$got" = "$pd" ]; then
+  say "ok    picocli $pv matches the digest tests/pack.sh pins"
 else
-  bad "cannot fetch picocli $pv; src/flixw-help.java cannot be checked"
+  rm -f "$picocli"
+  bad "picocli $pv digest mismatch: tests/pack.sh pins $pd, Maven Central served $got"
+  exit 1
+fi
+
+# One dependency, declared in four places that must agree: the version stage 0 names, the
+# digest pack.sh will publish, and both of those as written down for a reader in
+# THIRD_PARTY_NOTICES.md. A notices file that drifts is worse than none -- it is a licence
+# and provenance claim, and the release publishes it. Checked here because a release is a
+# bad moment to discover the SBOM describes a version that is no longer shipped.
+notices=$root/THIRD_PARTY_NOTICES.md
+if [ ! -f "$notices" ]; then
+  bad "THIRD_PARTY_NOTICES.md is missing; picocli ships in every release"
+elif ! grep -Fq "$pv" "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md does not name picocli $pv (stage 0 pins that version)"
+elif ! grep -Fq "$pd" "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md does not carry the digest tests/pack.sh pins"
+elif ! grep -Fq "Apache License 2.0" "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md does not state picocli's licence"
+else
+  say "ok    THIRD_PARTY_NOTICES.md agrees with the pinned picocli version and digest"
 fi
 
 # --- 1. Java ---------------------------------------------------------------
@@ -508,7 +534,7 @@ fi
 # it is asking for.
 MAX_CODE_LINES=3050          # `help` adds a new capability; target: 2900 -- see AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=268567             # `help` adds a new capability; target: 225000, derived from the two numbers above
+MAX_BYTES=269226             # `help` adds a new capability; target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

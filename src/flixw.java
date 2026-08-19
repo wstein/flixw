@@ -3697,7 +3697,17 @@ public final class flixw {
         for (String line : sums.split("\r?\n")) {
             String[] f = line.trim().split("\\s+");
             String name = f.length == 2 ? sumsName(f[1]) : "";
-            if (name.matches("flixw-[a-z0-9-]+\\.java") && !out.contains(name))
+            // A `flixw-` prefixed source, or the one jar this release is known to own. Both
+            // looser rules were wrong. "Everything in the manifest" would warm any file a
+            // release ever publishes beside stage 0, including notices and anything added
+            // later for a reader rather than a runtime. "Any .jar" is the same bet one step
+            // smaller, and it is a bet: it downloads a future artifact nobody has decided
+            // should be fetched yet. Naming the dependency costs an edit when a second one
+            // ships, and that edit is the point -- adding a runtime dependency should be a
+            // thing somebody typed.
+            boolean companion = name.matches("flixw-[a-z0-9-]+\\.java")
+                             || name.equals(PICOCLI_ASSET);
+            if (companion && !out.contains(name))
                 out.add(name);
         }
         return out;
@@ -3960,7 +3970,7 @@ public final class flixw {
      * stage 0 itself, and costs no new code to do it. picocli is Apache-2.0, so
      * redistribution is a licensing non-event.
      */
-    static final String PICOCLI_VERSION = "4.7.6";
+    static final String PICOCLI_VERSION = "4.7.7";
     static final String PICOCLI_ASSET = "picocli-" + PICOCLI_VERSION + ".jar";
 
     /**

@@ -428,6 +428,18 @@ public final class UnitCheck {
         // .java files beside stage 0 without them being something to fetch and run.
         eq("assets: an unprefixed .java is not one", "false", String.valueOf(got.contains("flix.java")));
         eq("assets: archives are not assets", "false", String.valueOf(got.toString().contains(".zip")));
+        // The renderer's picocli ships in the same manifest and must be warmed with the rest,
+        // or the first `./flixw help` after an upgrade needs a network the upgrade was meant
+        // to make unnecessary. A jar in a flixw release is by construction a dependency this
+        // release owns; nothing else gets in there.
+        eq("assets: the pinned picocli is a companion", "true", String.valueOf(
+            flixw.publishedAssets("ff".repeat(32) + "  " + flixw.PICOCLI_ASSET + "\n")
+                 .contains(flixw.PICOCLI_ASSET)));
+        // Not "any jar". A release that later publishes an artifact for a reader rather than
+        // a runtime must not be downloaded by every upgrade because it happened to be a jar.
+        eq("assets: an unnamed jar is not a companion", "false", String.valueOf(
+            flixw.publishedAssets("ff".repeat(32) + "  something-else-1.0.jar\n")
+                 .contains("something-else-1.0.jar")));
         eq("assets: an empty manifest yields none", "0", String.valueOf(flixw.publishedAssets("").size()));
         // GNU coreutils marks binary mode with a * before the name, which is the default
         // on Windows. A mirror whose digests were generated there must still be readable.
