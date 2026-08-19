@@ -68,16 +68,17 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF, size
-sh tests/run.sh     # 212-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 288-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 36 adversarial
-manifests, JDK selection and provisioning, pin targets, verb capture against both help
+manifests, JDK selection and discovery in stage 0 plus the provisioner asset's own
+metadata parsing and platform coordinates, pin targets, verb capture against both help
 renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
 the bounds on `runCapture`, and the four completion scripts with the note they read —
-374 assertions in total. Refresh the corpus with
+396 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,

@@ -31,6 +31,20 @@ cache=$work/cache
 proj=$work/proj
 export FLIX_CACHE_HOME="$cache"
 
+# The suite asserts what flixw does with a *clean* environment, and every variable below
+# changes that. A developer working on a Flix fork legitimately has FLIX_JAR exported, and
+# with it set this suite reports five failures -- two of them "truncated cache entry is
+# refused: rc=0 want=85" and "wrong digest in the lock is refused: rc=0 want=85", because
+# an override is by design not digest-verified and the case sails straight through it.
+# That is the most alarming thing this suite can say and it would be saying it about the
+# developer's shell, not about the code. Individual cases still set these deliberately;
+# what is refused here is inheriting one by accident.
+#
+# JAVA_HOME and FLIX_JAVA_HOME are deliberately *not* cleared: which JDK a developer runs
+# is legitimate input, and Java selection is one of the things under test.
+unset FLIX_JAR FLIX_DIST_URL FLIX_BACKEND FLIX_JVM_OPTS
+unset FLIXW_STRICT_JAVA FLIXW_TRACE FLIXW_UNSAFE_JVM_OPTS FLIXW_RELAUNCHED FLIXW_ASSET_SOURCE
+
 pass=0
 fail=0
 skipped=0
@@ -321,8 +335,9 @@ t 0  "rule 2  wrapper --help"                                   ./flixw wrapper 
 g 0 'FLIX_JAR' "the routing table names the local-build route"   ./flixw wrapper --help
 t 87 "an operation with trailing arguments"                     ./flixw wrapper --help check
 t 87 "an unknown wrapper operation"                                  ./flixw wrapper --frobnicate
-# The install itself is a 200MB download and is verified by hand; what the suite can
-# assert offline is that the flag exists and refuses arguments.
+# The install itself is a ~200MB download from Adoptium and is verified by hand. Argument
+# handling is asserted here; the fetch/verify/launch path around it has its own section
+# further down, exercised offline against a stand-in provisioner.
 t 87 "wrapper --install-jdk takes no arguments"                 ./flixw wrapper --install-jdk temurin
 t 0  "rule 3  compiler verb"                                    ./flixw check
 t 0  "rule 4  wrapper verb"                                     ./flixw doctor
@@ -1003,6 +1018,67 @@ g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific pro
 # in whatever failure state the last negative case above left it in would be a trap for
 # the next person adding a case here, not a property this suite promises to anyone else.
 ./flixw wrapper --completion bash >/dev/null 2>&1
+
+# ---- the JDK provisioner asset ------------------------------------------------------
+# Stage 0 no longer provisions: `wrapper --install-jdk` fetches src/flixw-jdk.java on the
+# same footing as the completion generator and runs it. Everything below stops at or
+# before that fetch, because the step after it is a ~200MB download from Adoptium -- so
+# what is asserted here is the trust boundary, not the install, which is verified by hand.
+g 85 'digest mismatch' "a tampered provisioner is refused before it is cached"  sh -c '
+  rm -rf "$1/wrapper"
+  bad=$2/badjdkfixture; rm -rf "$bad"; mkdir -p "$bad"
+  cp "$3/flixw-completion.java" "$3/flixw-jdk.java" "$bad/"
+  if command -v sha256sum >/dev/null 2>&1
+  then (cd "$bad" && sha256sum flixw-completion.java flixw-jdk.java > SHA256SUMS)
+  else (cd "$bad" && shasum -a 256 flixw-completion.java flixw-jdk.java > SHA256SUMS); fi
+  printf "\n// tampered\n" >> "$bad/flixw-jdk.java"
+  FLIXW_ASSET_SOURCE="file://$bad/" ./flixw wrapper --install-jdk' \
+  sh "$cache" "$work" "$complfixture"
+t 0  "...and the provisioner was not cached"                    sh -c '
+  ! find "$1/wrapper/assets" -name flixw-jdk.java 2>/dev/null | grep -q .' sh "$cache"
+g 84 'cannot reach' "no network on a cold cache names the source, not Adoptium"  sh -c '
+  rm -rf "$1/wrapper"
+  FLIXW_ASSET_SOURCE=https://dist.invalid ./flixw wrapper --install-jdk' sh "$cache"
+# Both assets share one SHA256SUMS, so the "not published" branch has to name the one
+# actually asked for rather than whichever is checked first.
+g 84 'flixw-jdk.java' "SHA256SUMS silent on the provisioner names it specifically" sh -c '
+  rm -rf "$1/wrapper"
+  FLIXW_ASSET_SOURCE="file://$2/" ./flixw wrapper --install-jdk' sh "$cache" "$empty"
+
+# The asset stands alone -- it is a program, launched by a JVM that may predate this one --
+# so its own argument handling is asserted directly, with no stage 0 and no network.
+t 87 "the provisioner rejects a wrong argument count"           java "$root/src/flixw-jdk.java"
+t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/flixw-jdk.java" x "$work"
+
+# The whole of runJdkAsset -- fetch, verify, cache, launch, read the one line it prints,
+# probe it -- with a stand-in provisioner that names the JVM already running. The real one
+# would download ~200MB from Adoptium at this point; the digest is the fixture's own, so
+# the trust path is exercised exactly as it is in production, only the payload differs.
+stub=$work/jdkstub
+rm -rf "$stub" && mkdir -p "$stub"
+cp "$root/src/flixw-completion.java" "$stub/"
+cat > "$stub/flixw-jdk.java" <<'STUB'
+final class flixwjdk {
+    public static void main(String[] a) {
+        System.err.println("stub: feature=" + a[0]);
+        System.out.println(System.getProperty("java.home") + "/bin/java");
+    }
+}
+STUB
+if command -v sha256sum >/dev/null 2>&1
+then (cd "$stub" && sha256sum flixw-completion.java flixw-jdk.java > SHA256SUMS)
+else (cd "$stub" && shasum -a 256 flixw-completion.java flixw-jdk.java > SHA256SUMS); fi
+g 0 'is installed' "the provisioner is fetched, verified, launched and believed"  sh -c '
+  rm -rf "$1/wrapper"
+  FLIXW_ASSET_SOURCE="file://$2/" ./flixw wrapper --install-jdk' sh "$cache" "$stub"
+t 0  "...and it was cached under the shared asset tree"         sh -c '
+  find "$1/wrapper/assets" -name "flixw-jdk.java.sha256" | grep -q .' sh "$cache"
+
+# Stage 0 itself must no longer carry any of it: a grep is the only check that stays true
+# after someone "helpfully" restores one of these for a quick fix.
+t 1  "stage 0 names no JDK vendor endpoint"                     grep -q "api.adoptium.net" "$root/src/flixw.java"
+t 1  "stage 0 has no archive unpacker"                          grep -q "ZipInputStream" "$root/src/flixw.java"
+t 1  "stage 0 never prompts for a download"                     grep -q "FLIXW_INSTALL_JDK" "$root/src/flixw.java"
 
 # --- a FLIX_JAR that names flixw's own cache -------------------------------
 # The failure this closes: cache names are content-addressed, so a re-pin changes them.
