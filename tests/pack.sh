@@ -53,8 +53,10 @@ trap 'rm -rf "$stage" "$work"' EXIT INT TERM
 fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
-   "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" "$fixture/"
+   "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
+   "$root/src/flixw-inspect.java" "$fixture/"
 (cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
+   flixw-inspect.java \
    > SHA256SUMS)
 FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
   java "$root/src/flixw-setup.java" setup "$stage" "$root/src/flixw.java" >/dev/null
@@ -119,9 +121,11 @@ cp "$shipped" "$out/flixw.java"
 # `wrapper --install-jdk`, flixw-completion.java by `wrapper --completion <shell>`.
 cp "$root/src/flixw-completion.java" "$out/flixw-completion.java"
 cp "$root/src/flixw-jdk.java" "$out/flixw-jdk.java"
+cp "$root/src/flixw-inspect.java" "$out/flixw-inspect.java"
 cp "$root/src/flixw-setup.java" "$out/flixw-setup.java"
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
-              flixw-completion.java flixw-jdk.java flixw-setup.java > SHA256SUMS)
+              flixw-completion.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
+              > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

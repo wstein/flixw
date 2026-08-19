@@ -2767,134 +2767,90 @@ public final class flixw {
     }
 
     /**
-     * Everything already sitting on this machine -- compilers and JDKs flixw itself
-     * cached, plus the JDKs {@link #knownInstalls()} can already see without a network
-     * call, each one labelled with the repo and exact tag {@link #writePinRecord} recorded
-     * the last time some project pinned that digest. Not what could be pinned or
-     * provisioned: that would mean asking a remote API on a verb the paper promises stays
-     * offline. `info` reports state; a catalogue of upstream releases is a different
-     * feature with a different cost, and does not belong behind the same flag.
+     * The cache inventory {@code info --verbose} prints, rendered by a companion asset.
+     *
+     * <p>Stage 0 resolves the JDKs and hands them over; the asset walks the cache and
+     * formats. That split is the point: enumerating JDKs runs {@code java -version} over a
+     * search path and decides what counts, which is selection policy -- a second copy of it
+     * could disagree with the one that actually picks the JVM, and the table a person reads
+     * would be the one that never runs. Walking documented cache paths decides nothing, so
+     * it goes where the formatting is.
+     *
+     * <p>Never fatal. Concise {@code info} has already printed by the time this is reached,
+     * and a wrapper that could not describe its own state without a network would be worse
+     * than one that describes less of it.
      */
     static void listCache(Lock lock, Jvm jvm) {
-        Path compilers = cacheHome().resolve("compilers");
-        List<Path> jars = List.of();
-        try (var s = Files.isDirectory(compilers) ? Files.list(compilers) : null) {
-            if (s != null) jars = s.filter(p -> p.getFileName().toString().endsWith(".jar")).sorted().toList();
-        } catch (IOException ignored) { }
-        List<String[]> compilerRows = new ArrayList<>();
-        for (Path jar : jars) {
-            Matcher m = Pattern.compile("^flix-(.+)-([0-9a-f]{64})\\.jar$").matcher(jar.getFileName().toString());
-            String canonicalVersion = m.matches() ? m.group(1) : jar.getFileName().toString();
-            String sha = m.matches() ? m.group(2) : null;
-            long size;
-            try { size = Files.size(jar); } catch (IOException e) { size = -1; }
-            boolean pinned = sha != null && lock != null && sha.equals(lock.sha256());
-            // The cache directory names only the canonical x.x.x -- build metadata, which
-            // is what actually tells two builds of one release apart, comes from the pin
-            // record `pin`/`acquire` write: it is what a lock actually pinned this exact
-            // digest as, repo included, and it survives long after the project that wrote
-            // it moved on to another pin. Failing that, the canonical name the directory
-            // entry itself carries.
-            //
-            // The lock's reported_version is deliberately not consulted: it describes one
-            // project's pinned compiler and this listing is machine-wide, so most entries
-            // belong to no lock this command can see.
-            PinRecord pin = sha == null ? null : cachedPinRecord(sha);
-            String version = pin != null ? pin.version() : canonicalVersion;
-            String repo = pin != null ? pin.repo() : null;
-            // A version string disambiguates only when it says more than the canonical
-            // name the cache directory already gives every entry; whenever it does not --
-            // no record, or a compiler that reports its release but not its build -- the
-            // digest is the only thing left that tells two same-named entries apart.
-            boolean disambiguated = !version.equals(canonicalVersion);
-            compilerRows.add(new String[] { version, humanSize(size),
-                             (repo != null && !repo.equals(UPSTREAM_REPO) ? "  (" + repo + ")" : "")
-                           + (!disambiguated && sha != null ? "  (sha " + sha.substring(0, 12) + "...)" : "")
-                           + (pinned ? "  <= pinned" : "") });
+        Path ctx = null;
+        try {
+            ctx = Files.createTempFile("flixw-inspect-", ".txt");
+            Files.writeString(ctx, inspectContext(lock, jvm), StandardCharsets.UTF_8);
+            Path asset = ensureAsset(INSPECT_ASSET);
+            ProcessBuilder pb = new ProcessBuilder(exeIn(System.getProperty("java.home")).toString(),
+                                                   asset.toString(), ctx.toString()).inheritIO();
+            awaitWithReaper(pb.start());
+        } catch (IOException | RuntimeException e) {
+            System.out.println();
+            System.out.println("the cache inventory needs " + INSPECT_ASSET + ", which could not"
+                             + " be fetched:");
+            System.out.println("  " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+            System.out.println("  everything above came from this wrapper and is unaffected.");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
         }
-        System.out.println("cached compilers");
-        printAligned(compilerRows);
+    }
 
-        Path jdks = cacheHome().resolve("jdks");
+    /**
+     * What the inspector is told, as opposed to what it looks up.
+     *
+     * <p>Line-based rather than JSON: both ends ship in one release, neither has a parser,
+     * and a reader for six fields and three tables would cost more than the format
+     * documents. Tabs separate columns, so no value here may contain one -- versions,
+     * digests and paths do not.
+     */
+    static String inspectContext(Lock lock, Jvm jvm) {
+        StringBuilder b = new StringBuilder();
+        b.append("cacheRoot=").append(cacheHome()).append('\n');
+        b.append("wrapperVersion=").append(canonical(WRAPPER_VERSION)).append('\n');
+        b.append("upstreamRepo=").append(UPSTREAM_REPO).append('\n');
+        b.append("lockSha256=").append(lock == null ? "" : lock.sha256()).append('\n');
+        b.append('\n').append("lockPlugins:").append('\n');
+        if (lock != null)
+            for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
+                b.append(e.getKey()).append('\t')
+                 .append(e.getValue().version()).append('-').append(e.getValue().sha256()).append('\n');
+        // JDKs flixw installed, and the one the shims will reach for.
+        b.append('\n').append("cachedJdks:").append('\n');
         Path installed = installedJdk();
-        List<Path> dirs = List.of();
-        try (var s = Files.isDirectory(jdks) ? Files.list(jdks) : null) {
-            if (s != null) dirs = s.filter(Files::isDirectory).sorted().toList();
-        } catch (IOException ignored) { }
-        List<String[]> jdkRows = new ArrayList<>();
-        for (Path dir : dirs) {
+        for (Path dir : cachedJdkDirs()) {
             Path exe = findJavaUnder(dir);
             if (exe == null) continue;                    // a partial or foreign directory
-            String version = probeVersion(exe);
-            jdkRows.add(new String[] { version == null ? "(unknown)" : version, dir.getFileName().toString(),
-                             exe.equals(installed) ? "  <= default" : "" });
+            String v = probeVersion(exe);
+            b.append(v == null ? "(unknown)" : v).append('\t')
+             .append(dir.getFileName()).append('\t')
+             .append(exe.equals(installed) ? "default" : "").append('\n');
         }
-        System.out.println("cached JDKs");
-        printAligned(jdkRows);
+        // Not flixw's to manage, only to find: the same search selectJava uses, reported
+        // once so the listing cannot disagree with the selection.
+        b.append('\n').append("systemJdks:").append('\n');
+        for (Path exe : knownInstalls()) {
+            String v = probeVersion(exe);
+            int f = probe(exe);
+            b.append(v == null ? "(unknown)" : v).append('\t').append(exe).append('\t')
+             .append(jvm != null && exe.equals(jvm.exe()) ? "  <= selected"
+                   : f >= 0 && f < MIN_JAVA ? "  (below Java " + MIN_JAVA + ")" : "").append('\n');
+        }
+        return b.toString();
+    }
 
-        // Distinct from the section above: these are not flixw's to manage, only to find --
-        // Homebrew, scoop, sdkman, asdf, mise, jenv and the OS-native install directories
-        // knownInstalls() already searches to select a Java when nothing else applies.
-        List<Path> known = knownInstalls();
-        List<String[]> systemRows = new ArrayList<>();
-        for (Path exe : known) {
-            String version = probeVersion(exe);
-            int feature = probe(exe);
-            systemRows.add(new String[] { version == null ? "(unknown)" : version, exe.toString(),
-                             jvm != null && exe.equals(jvm.exe()) ? "  <= selected"
-                           : feature >= 0 && feature < MIN_JAVA ? "  (below Java " + MIN_JAVA + ")" : "" });
-        }
-        System.out.println("system JDKs");
-        printAligned(systemRows);
-
-        // Every plugin ever installed on this machine, not only what this project
-        // declares -- the same "machine-wide, not project-scoped" listing the sections
-        // above already give compilers and JDKs. A directory read, nothing here reaches
-        // the plugin's own source.
-        List<Path> pluginNames = List.of();
-        try (var s = Files.isDirectory(pluginsDir()) ? Files.list(pluginsDir()) : null) {
-            if (s != null) pluginNames = s.filter(Files::isDirectory).sorted().toList();
-        } catch (IOException ignored) { }
-        List<String[]> pluginRows = new ArrayList<>();
-        for (Path nameDir : pluginNames) {
-            String name = nameDir.getFileName().toString();
-            List<Path> versions;
-            try (var s = Files.list(nameDir)) { versions = s.filter(Files::isDirectory).sorted().toList(); }
-            catch (IOException e) { continue; }
-            PluginDep want = lock == null ? null : lock.plugins().get(name);
-            for (Path v : versions) {
-                boolean wanted = want != null && v.getFileName().toString()
-                                 .equals(want.version() + "-" + want.sha256());
-                pluginRows.add(new String[] { name, v.getFileName().toString(),
-                                              wanted ? "  <= expected by lock.toml" : "" });
-            }
-        }
-        System.out.println("installed plugins");
-        printAligned(pluginRows);
-
-        // Wrapper-owned companion assets, not plugins: fetched once per machine per flixw
-        // release the same way --upgrade fetches flixw.java itself, cached under their own
-        // subtree so this trust tier stays visually distinct from user-installed plugins
-        // and project-pinned compilers. Listed by walking the directory rather than from
-        // the two constants, so an asset left behind by a release this one has since
-        // replaced is still visible to whoever is deciding what to delete.
-        Path assetsDir = cacheHome().resolve("wrapper").resolve("assets");
-        List<Path> assetVersions = List.of();
-        try (var s = Files.isDirectory(assetsDir) ? Files.list(assetsDir) : null) {
-            if (s != null) assetVersions = s.filter(Files::isDirectory).sorted().toList();
-        } catch (IOException ignored) { }
-        List<String[]> assetRows = new ArrayList<>();
-        for (Path v : assetVersions) {
-            String ver = v.getFileName().toString();
-            String mark = ver.equals(canonical(WRAPPER_VERSION)) ? "  <= this release" : "";
-            try (var s = Files.list(v)) {
-                for (Path f : s.filter(x -> x.getFileName().toString().endsWith(".java"))
-                               .sorted().toList())
-                    assetRows.add(new String[] { ver, f.getFileName().toString(), mark });
-            } catch (IOException ignored) { }
-        }
-        System.out.println("cached companion assets");
-        printAligned(assetRows);
+    /** {@code <cache>/jdks/*}: the trees the provisioner unpacked. */
+    static List<Path> cachedJdkDirs() {
+        try (var s = Files.isDirectory(cacheHome().resolve("jdks"))
+                     ? Files.list(cacheHome().resolve("jdks")) : null) {
+            return s == null ? List.of() : s.filter(Files::isDirectory).sorted().toList();
+        } catch (IOException e) { return List.of(); }
     }
 
     /**
@@ -3559,9 +3515,24 @@ public final class flixw {
         String want = null;
         for (String line : sums.split("\r?\n")) {
             String[] f = line.trim().split("\\s+");
-            if (f.length == 2 && f[1].equals(assetName)) want = f[0];
+            if (f.length == 2 && sumsName(f[1]).equals(assetName)) want = f[0];
         }
         return want;
+    }
+
+    /**
+     * The file name in one {@code SHA256SUMS} line.
+     *
+     * <p>GNU coreutils marks a file it read in binary mode with a {@code *} before the
+     * name, and on Windows that is the default -- so a mirror whose digests were generated
+     * there lists {@code *flixw.java}, and an exact comparison finds nothing. The failure
+     * is then "no digest for flixw.java" while the digest is plainly in the file.
+     *
+     * <p>flixw's own releases are built on Linux and never carry the marker; this is for
+     * everyone else's.
+     */
+    static String sumsName(String field) {
+        return field.startsWith("*") ? field.substring(1) : field;
     }
 
     /**
@@ -3598,8 +3569,9 @@ public final class flixw {
         List<String> out = new ArrayList<>();
         for (String line : sums.split("\r?\n")) {
             String[] f = line.trim().split("\\s+");
-            if (f.length == 2 && f[1].matches("flixw-[a-z0-9-]+\\.java") && !out.contains(f[1]))
-                out.add(f[1]);
+            String name = f.length == 2 ? sumsName(f[1]) : "";
+            if (name.matches("flixw-[a-z0-9-]+\\.java") && !out.contains(name))
+                out.add(name);
         }
         return out;
     }
@@ -3823,6 +3795,9 @@ public final class flixw {
 
     /** The installer; see {@link #runSetupAsset}. */
     static final String SETUP_ASSET = "flixw-setup.java";
+
+    /** The cache inventory behind {@code info --verbose}; see {@link #listCache}. */
+    static final String INSPECT_ASSET = "flixw-inspect.java";
 
     /**
      * The SHA-256 of the two shims this release installs, as they are written to disk --

@@ -39,7 +39,7 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 # exists to flag by default, and exactly what this repository's own multi-file layout is.
 if javac -Xlint:all,-auxiliaryclass -Werror -d "$work/classes" \
         "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
-        "$root/src/flixw-setup.java" \
+        "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
@@ -69,10 +69,12 @@ fi
 # code path as production, only the base URL differs; nothing here touches the network.
 fixture=$work/release
 mkdir -p "$fixture"
-cp "$root/src/flixw.java" "$root/src/flixw-completion.java"    "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" "$fixture/"
+cp "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
+   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$fixture/"
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 # shellcheck disable=SC2086  # $sum is a command name plus flags, deliberately split
-(cd "$fixture" && $sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java    > SHA256SUMS)
+(cd "$fixture" && $sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
+   flixw-inspect.java > SHA256SUMS)
 export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
 
@@ -333,7 +335,7 @@ fi
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
         -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
         "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
-        "$root/src/flixw-setup.java" \
+        "$root/src/flixw-inspect.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
@@ -432,9 +434,9 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=2920          # target: 2900 -- see "What detaches, and what does not" in AGENTS.md
+MAX_CODE_LINES=2893          # target: 2900 -- see "What detaches, and what does not" in AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=254790             # target: 225000, derived from the two numbers above
+MAX_BYTES=252363             # target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

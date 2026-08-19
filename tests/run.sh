@@ -60,14 +60,14 @@ fileurl() {
 
 relfixture=$work/release
 mkdir -p "$relfixture"
-cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
-   "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" "$relfixture/"
+cp "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
+   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$relfixture/"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$relfixture" && sha256sum flixw.java flixw-completion.java flixw-jdk.java \
-     flixw-setup.java > SHA256SUMS)
+     flixw-setup.java flixw-inspect.java > SHA256SUMS)
 else
   (cd "$relfixture" && shasum -a 256 flixw.java flixw-completion.java flixw-jdk.java \
-     flixw-setup.java > SHA256SUMS)
+     flixw-setup.java flixw-inspect.java > SHA256SUMS)
 fi
 relfixture_url=$(fileurl "$relfixture")
 export FLIXW_ASSET_SOURCE="$relfixture_url/"
