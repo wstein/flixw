@@ -411,6 +411,23 @@ every run; the marker naming it is required to resolve, through symlinks, inside
 Verifying the class in the shim would need a hash of the compiled output in a file the
 shim also has to trust, which moves the problem rather than solving it.
 
+## `file://` urls need a drive letter on Windows
+
+A `file://` url is accepted by `plugin install`, `FLIXW_ASSET_SOURCE` and
+`FLIXW_RELEASE_SOURCE`. On Windows it must carry the drive letter —
+`file:///C:/mirror/` — because that is what a JVM can resolve.
+
+Git Bash reports paths as `/d/a/proj`, so `file://$PWD/x.jar` there produces
+`file:///d/a/proj/x.jar`, which resolves to `\d\a\proj\x.jar` on the *current* drive
+and finds nothing. The shell has rewritten the path and the diagnostic then names a form
+the user never typed, so flixw says so explicitly when it sees that shape rather than
+leaving them to work it out.
+
+This went unnoticed because Windows had never run a `file://` case: the ones covering
+plugins and companion assets postdate the last Windows build, and the suite was green on
+both platforms while every such url was unusable on one of them. The suite now converts
+its fixture paths with `cygpath -m`, which is what makes those cases run there at all.
+
 ## No field evidence
 
 This wrapper has been exercised by a 121-case regression suite — one of those cases being

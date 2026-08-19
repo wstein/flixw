@@ -3925,8 +3925,30 @@ public final class flixw {
                 ? Files.readString(Paths.get(URI.create(base + "SHA256SUMS")), StandardCharsets.UTF_8)
                 : httpGet(base + "SHA256SUMS");
         } catch (IOException e) {
-            throw w005("cannot read " + redact(base) + "SHA256SUMS: " + why(e));
+            throw w005("cannot read " + redact(base) + "SHA256SUMS: " + why(e) + fileUrlHint(base));
         }
+    }
+
+    /**
+     * Says what is wrong with a {@code file://} URL that a shell wrote and a JVM cannot read.
+     *
+     * <p>Git Bash reports paths as {@code /d/a/proj}, which is meaningful to it and to
+     * nothing else: {@code file:///d/a/proj} resolves to {@code \d\a\proj} on the
+     * current drive, and nothing is there. The failure is then a diagnostic naming a path
+     * the user never typed, in a form they do not recognise, with no clue that the shell
+     * rewrote it.
+     *
+     * <p>Only offered when it applies -- a Windows path with no drive letter -- so it does
+     * not become noise on every unreadable file.
+     */
+    static String fileUrlHint(String base) {
+        if (!isWindows() || !base.startsWith("file://")) return "";
+        String p = base.substring("file://".length());
+        return p.matches("/[A-Za-z]/.*")
+            ? "\n       on Windows a file:// url needs the drive letter: file:///"
+              + Character.toUpperCase(p.charAt(1)) + ":" + p.substring(2)
+              + "\n       (a Git Bash path like " + p.substring(0, 3) + "... is not one)"
+            : "";
     }
 
     static Path ensureAsset(String name) { return ensureAsset(name, WRAPPER_VERSION); }
