@@ -798,6 +798,8 @@ printed, never fatal.
 | `FLIXW_STRICT_JAVA` | makes the tested ceiling fatal |
 | `FLIXW_UNSAFE_JVM_OPTS` | permits the denied JVM options |
 | `FLIXW_TRACE` | per-phase timings on stderr |
+| `FLIXW_RELEASE_SOURCE` | where `wrapper --upgrade` looks for the newest release |
+| `FLIXW_ASSET_SOURCE` | where companion assets are fetched from |
 | `HTTPS_PROXY`, `https_proxy`, `NO_PROXY` | honoured for downloads |
 
 `JAVA_TOOL_OPTIONS` and `_JAVA_OPTIONS` are reported by `doctor` because they alter the

@@ -3532,9 +3532,27 @@ public final class flixw {
         return m.find() ? Integer.parseInt(m.group(1)) : 0;
     }
 
-    /** flixw's own releases. `latest/download` resolves without asking an API anything. */
-    static final String FLIXW_LATEST =
-        "https://github.com/wstein/flixw/releases/latest/download/";
+    /**
+     * Where {@code wrapper --upgrade} looks for the newest release.
+     *
+     * <p>{@code latest/download} resolves without asking an API anything. Overridable the
+     * same shape {@code FLIXW_ASSET_SOURCE} gives the companion assets, and for the same
+     * reason: without it this path cannot be tested at all. The suite could assert that
+     * upgrade declines to walk backwards and nothing else, so the half that actually moves
+     * a project -- fetch, verify, refuse a downgrade, hand the verified bytes to the setup
+     * asset -- ran for the first time only in somebody's project.
+     *
+     * <p>That is the worst place for a first run: upgrading is the one command whose
+     * failure leaves a user with no way forward, because the way forward *is* upgrading.
+     *
+     * <p>Note that GitHub's {@code latest} skips pre-releases, so a 0.x pre-release is
+     * deliberately not offered here -- an adopter asks for one by tag.
+     */
+    static String latestBase() {
+        String o = env("FLIXW_RELEASE_SOURCE");
+        if (o != null && !o.isBlank()) return o.replaceAll("/+$", "") + "/";
+        return "https://github.com/wstein/flixw/releases/latest/download/";
+    }
 
     /** The digest a {@code SHA256SUMS} file names for one file, or null if it does not. */
     static String digestFor(String sums, String assetName) {
@@ -3617,7 +3635,8 @@ public final class flixw {
     }
 
     static void upgradeWrapper(Path root) {
-        String sums = httpGet(FLIXW_LATEST + "SHA256SUMS");
+        String base = latestBase();
+        String sums = readSums(base);
         String want = digestFor(sums, "flixw.java");
         if (want == null || !want.matches("[0-9a-f]{64}"))
             throw w005("the published SHA256SUMS names no digest for flixw.java");
@@ -3640,7 +3659,10 @@ public final class flixw {
             dir = Files.createTempDirectory("flixw-upgrade-");
             Path fresh = dir.resolve("flixw.java");
             System.err.println("flixw: downloading the latest flixw");
-            download(FLIXW_LATEST + "flixw.java", fresh);
+            if (base.startsWith("file://"))
+                Files.copy(Paths.get(URI.create(base + "flixw.java")), fresh,
+                           StandardCopyOption.REPLACE_EXISTING);
+            else download(base + "flixw.java", fresh);
             String got = sha256(fresh);
             if (!got.equals(want))
                 throw w006("digest mismatch for the downloaded flixw.java"
