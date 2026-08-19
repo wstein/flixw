@@ -52,17 +52,17 @@ strings, digests and paths will differ on your machine.
 
 ### 1. Download the setup program, and check it
 
-The expected SHA-256 for v0.25.1 is
+The expected SHA-256 for v0.25.2 is
 
 ```
-1f73d7fd875945dbab6e817cf1eb2a650ca2fa8bbd73197dfaff54682645f851  flixw-setup.java
+a956a320b48f173a1c00bf3423b49e6bb0239f388dfe84566cfe6201d61045b1  flixw-setup.java
 ```
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.1/flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.2/flixw-setup.java
 
 # paste the digest above; this prints "OK" and exits non-zero if it does not match
-echo "1f73d7fd875945dbab6e817cf1eb2a650ca2fa8bbd73197dfaff54682645f851  flixw-setup.java" \
+echo "a956a320b48f173a1c00bf3423b49e6bb0239f388dfe84566cfe6201d61045b1  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -83,7 +83,7 @@ on every machine, which is why both are given.
 Windows 10 and later:
 
 ```bat
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.1/flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.2/flixw-setup.java
 certutil -hashfile flixw-setup.java SHA256
 java .\flixw-setup.java
 del flixw-setup.java
@@ -102,7 +102,7 @@ so the POSIX `flixw` is there too and is what Git Bash and WSL use.
 
 ```powershell
 Invoke-WebRequest -OutFile flixw-setup.java `
-  https://github.com/wstein/flixw/releases/download/v0.25.1/flixw-setup.java
+  https://github.com/wstein/flixw/releases/download/v0.25.2/flixw-setup.java
 (Get-FileHash -Algorithm SHA256 flixw-setup.java).Hash.ToLower()
 # compare with the digest printed above before running the next line
 java .\flixw-setup.java
@@ -249,8 +249,8 @@ $ ./flixw test
 Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 
 $ ./flixw validate
-ok    ./flixw matches flixw 0.25.1
-ok    ./flixw.cmd matches flixw 0.25.1
+ok    ./flixw matches flixw 0.25.2
+ok    ./flixw.cmd matches flixw 0.25.2
 ok    .flixw/flixw.java  sha256=c41d7b3eec8f91ce...
 ok    the lock satisfies flix.toml
 ok    the compiler reports the version the lock pins
@@ -340,11 +340,11 @@ published here, on a different path, and can be compared against something the r
 not serve:
 
 ```console
-base=https://github.com/wstein/flixw/releases/download/v0.25.1
-curl -fsSLO $base/flixw-0.25.1.tar.gz
-curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.1.tar.gz | sha256sum -c -
-tar -xzf flixw-0.25.1.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
-rm flixw-0.25.1.tar.gz
+base=https://github.com/wstein/flixw/releases/download/v0.25.2
+curl -fsSLO $base/flixw-0.25.2.tar.gz
+curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.2.tar.gz | sha256sum -c -
+tar -xzf flixw-0.25.2.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
+rm flixw-0.25.2.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
                                     # 0.75.2 or v0.75.2 -- the release tag works too
 ./flixw doctor --fix                # merges the .gitattributes block
@@ -352,8 +352,8 @@ git add flixw flixw.cmd .flixw .gitattributes
 ```
 
 The digest line is a check you run, not a comparison you eyeball: it prints `OK` or fails.
-On Windows the equivalents are `Get-FileHash flixw-0.25.1.tar.gz` and `Expand-Archive` in
-PowerShell, or `certutil -hashfile flixw-0.25.1.tar.gz SHA256` and `tar -xf` in cmd.exe —
+On Windows the equivalents are `Get-FileHash flixw-0.25.2.tar.gz` and `Expand-Archive` in
+PowerShell, or `certutil -hashfile flixw-0.25.2.tar.gz SHA256` and `tar -xf` in cmd.exe —
 `tar` ships with Windows 10 and later.
 
 Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
@@ -395,7 +395,7 @@ Nothing about the build depends on the line. A lock written by an older flixw ha
 
 ```console
 $ ./flixw pin --refresh
-flixw: rewrote .flixw/lock.toml in the shape flixw 0.25.1 writes; the pin is unchanged
+flixw: rewrote .flixw/lock.toml in the shape flixw 0.25.2 writes; the pin is unchanged
 ```
 
 That is offline and moves nothing — same repository, version, URL, digest and java pin —
