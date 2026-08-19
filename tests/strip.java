@@ -31,12 +31,14 @@ final class strip {
     private strip() {}
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 2) {
-            System.err.println("usage: java tests/strip.java <source.java> <version>");
+        if (args.length < 2) {
+            System.err.println("usage: java tests/strip.java <source.java> <version> [<what>]");
             System.exit(2);
         }
         String src = Files.readString(Paths.get(args[0]), StandardCharsets.UTF_8);
-        System.out.print(header(args[1]) + strip(src));
+        String what = args.length > 2 ? args[2]
+                    : Paths.get(args[0]).getFileName().toString();
+        System.out.print(header(args[1], what) + strip(src));
     }
 
     /**
@@ -47,9 +49,9 @@ final class strip {
      * authored. Naming the release rather than "latest" matters -- the reader is auditing
      * the bytes in front of them, not whatever the project has since become.
      */
-    static String header(String version) {
+    static String header(String version, String what) {
         return """
-            // flixw %s -- stage 0. GENERATED: this is the documented source with its
+            // flixw %s -- %s. GENERATED: this is the documented source with its
             // comments removed, which is why it reads as bare mechanism.
             //
             // The commentary is the security story -- why each check exists, and which
@@ -59,10 +61,16 @@ final class strip {
             //   https://wstein.github.io/flixw/          docs, and the lock schema
             //   https://github.com/wstein/flixw          the source this was made from
             //
-            // Reproducible on purpose: `java tests/strip.java src/flixw.java %s` at tag
-            // v%s regenerates this file byte for byte, so the readable source and the
-            // running one can be checked against each other rather than taken on trust.
-            """.formatted(version, version, version);
+            // Reproducible on purpose: `java tests/strip.java %s` at tag v%s regenerates
+            // this file byte for byte, so the readable source and the running one can be
+            // checked against each other rather than taken on trust.
+            """.formatted(version, what, version, args(what), version);
+    }
+
+    /** The command that regenerates this artifact, for the header to quote. */
+    static String args(String what) {
+        String file = what.equals("stage 0") ? "flixw.java" : what;
+        return "src/" + file + " <version>" + (what.equals("stage 0") ? "" : " " + what);
     }
 
     /** Comment-free source: literals verbatim, comment-only lines gone, blank runs collapsed. */

@@ -55,6 +55,8 @@ mkdir -p "$fixture"
 cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
    "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
    "$root/src/flixw-inspect.java" "$fixture/"
+# Unstripped here on purpose: this fixture exists only so the staging install can run
+# offline, and the stage 0 it writes is replaced by $shipped a few lines below.
 (cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
    flixw-inspect.java \
    > SHA256SUMS)
@@ -71,7 +73,7 @@ FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
 # anyone can regenerate the second from the first: `java tests/strip.java src/flixw.java
 # <version>` at the tag reproduces these bytes exactly, which tests/lint.sh checks.
 shipped=$work/flixw.java
-java "$root/tests/strip.java" "$root/src/flixw.java" "$version" > "$shipped"
+java "$root/tests/strip.java" "$root/src/flixw.java" "$version" "stage 0" > "$shipped"
 # It has to be the same program, and the cheapest proof that it still compiles is to
 # compile it. A release that shipped a stripped file javac rejects would be unrunnable in
 # every project that received it.
@@ -119,10 +121,16 @@ cp "$shipped" "$out/flixw.java"
 # on first use and cached machine-wide -- ensureAsset in src/flixw.java expects them as
 # bare release assets beside flixw.java, not inside a tarball. flixw-jdk.java is reached by
 # `wrapper --install-jdk`, flixw-completion.java by `wrapper --completion <shell>`.
-cp "$root/src/flixw-completion.java" "$out/flixw-completion.java"
-cp "$root/src/flixw-jdk.java" "$out/flixw-jdk.java"
-cp "$root/src/flixw-inspect.java" "$out/flixw-inspect.java"
-cp "$root/src/flixw-setup.java" "$out/flixw-setup.java"
+# Stripped too, for the same reason stage 0 is: the commentary is written for whoever
+# audits flixw, and that reader is in the repository or on the site -- both named in the
+# header the stripper leaves behind. Compiled after stripping, because a release shipping
+# one javac rejects would break whichever command needs it, and only at that point.
+for a in completion jdk inspect setup; do
+  java "$root/tests/strip.java" "$root/src/flixw-$a.java" "$version" "flixw-$a.java" \
+    > "$out/flixw-$a.java"
+  javac -d "$work/asset-classes" "$out/flixw-$a.java" || {
+    echo "pack: the stripped flixw-$a.java does not compile" >&2; exit 1; }
+done
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
               flixw-completion.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
