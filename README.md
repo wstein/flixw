@@ -26,24 +26,24 @@ compiles with the same bytes you did.
 | an existing Flix project | [the five steps below](#quickstart) — the default |
 | an empty directory | [the five steps below](#quickstart), then `./flixw init` |
 | Windows | the same steps — PowerShell and cmd.exe are collapsed inside [step 1](#1-download-the-setup-program-and-check-it) |
-| a preference for not running downloaded programs | [the release archive](#the-archive-route) |
+| a preference for not running downloaded programs | [manual installation](#manual-installation-without-running-a-downloaded-program) |
 
 **Java.** flixw is itself a Java program, so it cannot be the thing that gets you your
 first JDK.
 
-| | needs |
-|---|---|
-| flixw itself, including `setup` and JDK provisioning | Java **16+** |
-| the Flix compiler it runs | Java **21+** |
+| `java -version` says | what works | do this |
+|---|---|---|
+| nothing — no `java` | neither | install any JDK; flixw cannot bootstrap itself |
+| Java 16–20 | flixw yes, Flix no | start below; then `./flixw wrapper --install-jdk` |
+| Java 21+ | both | start below |
 
-With anything from 16 up you can start here — flixw runs, tells you if the compiler cannot,
-and can fetch a newer JDK for you. See [what if my Java is older](#what-if-my-java-is-older).
+See [what if my Java is older](#what-if-my-java-is-older) for why the two floors differ.
 
 ## Quickstart
 
 Install the committed wrapper, pin one Flix compiler version, commit the lock, then use
-`./flixw` where you would have used `flix`. Every command and every line of output below is
-from an actual run.
+`./flixw` where you would have used `flix`. The output below is from real runs; version
+strings, digests and paths will differ on your machine.
 
 > **wrapper** what flixw writes into your repo — two shims, stage 0, and a `.gitignore` ·
 > **pin** the act of choosing one exact compiler release · **lock** `.flixw/lock.toml`,
@@ -60,10 +60,14 @@ The expected SHA-256 for v0.25.1 is
 
 ```console
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.1/flixw-setup.java
-sha256sum flixw-setup.java        # macOS: shasum -a 256 flixw-setup.java
+
+# paste the digest above; this prints "OK" and exits non-zero if it does not match
+echo "1f73d7fd875945dbab6e817cf1eb2a650ca2fa8bbd73197dfaff54682645f851  flixw-setup.java" \
+  | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
-**Compare the two before running anything.** The digest is printed here rather than piped
+That is a check, not a comparison you make by eye — but the digest still comes from this
+page, not from the download. The digest is printed here rather than piped
 from the release's own `SHA256SUMS`, because taking it from the same place as the file
 proves only that the download arrived intact. This page is a different artifact, on a
 different path, with its own history — a second opinion rather than an echo, and
@@ -88,9 +92,9 @@ del flixw-setup.java
 `certutil` prints the digest on a line of its own between two lines of chatter. Older
 Windows builds space the bytes in pairs; compare it without the spaces.
 
-Then read `.\flixw.cmd` wherever this page writes `./flixw`: `.\flixw.cmd pin 0.75.2`,
-`.\flixw.cmd check`, `.\flixw.cmd run`. `setup` writes both shims on every platform, so
-the POSIX `flixw` is there too and is what Git Bash and WSL use.
+Then read `.\flixw.cmd` wherever the five steps write `./flixw`: `.\flixw.cmd pin 0.75.2`,
+`.\flixw.cmd check`, `.\flixw.cmd validate`. `setup` writes both shims on every platform,
+so the POSIX `flixw` is there too and is what Git Bash and WSL use.
 </details>
 
 <details>
@@ -105,10 +109,15 @@ java .\flixw-setup.java
 Remove-Item flixw-setup.java
 ```
 
-Then read `.\flixw.cmd` wherever this page writes `./flixw`: `.\flixw.cmd pin 0.75.2`,
-`.\flixw.cmd init`, `.\flixw.cmd run`. Git Bash and WSL run the POSIX shim, so there the
-commands work as written.
+Then read `.\flixw.cmd` wherever the five steps write `./flixw`: `.\flixw.cmd pin 0.75.2`,
+`.\flixw.cmd check`, `.\flixw.cmd validate`. Git Bash and WSL run the POSIX shim, so
+there the commands work as written.
 </details>
+
+**Network happens in three places, and nowhere else.** `setup` downloads the wrapper code
+and verifies it; `pin` downloads the compiler and verifies it; the JDK and completion
+helpers download only when you ask for them by name. An ordinary `./flixw check` on a
+pinned project touches the network not at all.
 
 ### 2. Run it, in the project root
 
@@ -120,7 +129,7 @@ rm flixw-setup.java
 In your project it writes the wrapper files and nothing else — it merges its block into an
 existing `.gitattributes` rather than replacing it, and never touches `flix.toml` or
 `.flixw/lock.toml`. It does reach the network once, to fetch and digest-verify this
-release's stage 0 into the cache.
+release's wrapper code into a cache outside your project.
 
 **Its last line tells you which of two situations you are in.**
 
@@ -317,7 +326,7 @@ per Flix release — so the cost of pinning is a number rather than an argument.
 project; [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) says exactly what is and is not
 established.
 
-### The archive route
+## Manual installation, without running a downloaded program
 
 For when you would rather not run a downloaded program to install a program. Its digests come from the release's own `SHA256SUMS`, which proves the
 download arrived intact and nothing more — unlike the setup asset's digest above, which is
