@@ -3857,7 +3857,8 @@ public final class flixw {
              + "\n         --upgrade      move this project to the newest published flixw"
              + "\n                        (to repair the files it has: ./flixw doctor --fix)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
-             + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for 14 days"
+             + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for"
+             + "\n                        that many days, 14 by default"
              + "\n         --schema       the JSON Schema for " + WRAPPER_DIR + "/lock.toml, on stdout"
              + "\n         --completion <shell>   a TAB-completion script, on stdout,"
              + "\n                        for one of " + String.join(", ", COMPLETION_SHELLS);

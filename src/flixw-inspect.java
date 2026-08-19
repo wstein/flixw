@@ -256,6 +256,10 @@ final class flixwinspect {
         purgeAssets(c, p);
         System.out.println("freed " + humanSize(p.bytes) + " from " + p.count + " entr"
                          + (p.count == 1 ? "y" : "ies"));
+        if (p.unmarked > 0)
+            System.out.println("kept " + p.unmarked + " entr" + (p.unmarked == 1 ? "y" : "ies")
+                             + " (" + humanSize(p.unmarkedBytes) + ") flixw has never recorded"
+                             + " a use of; they become purgeable once used");
         System.out.println("stage0 is retained; it is only a few megabytes and speeds every run.");
     }
 
@@ -265,11 +269,26 @@ final class flixwinspect {
         final BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         long bytes;
         int count;
+        /** Entries flixw has never seen used, which are retained and are not a failure. */
+        int unmarked;
+        long unmarkedBytes;
         Purge(LocalDate cutoff, boolean yes) { this.cutoff = cutoff; this.yes = yes; }
         void remove(Ctx c, Path p, String kind, String key) {
             try {
+                if (Files.isSymbolicLink(p)) return;
                 LocalDate used = used(c, key);
-                if (Files.isSymbolicLink(p) || used == null || used.isAfter(cutoff)) return;
+                // No marker is "never seen used", not "unused". Markers accrue from the
+                // release that introduced them, so a cache filled before it -- or by a
+                // project not run since -- is full of entries purge must leave alone. That
+                // is counted rather than passed over silently: a first purge on an old
+                // cache otherwise reports freeing nothing against gigabytes, and reads as
+                // a broken feature rather than an honest one.
+                if (used == null) {
+                    unmarked++;
+                    try { unmarkedBytes += treeSize(p); } catch (IOException ignored) { }
+                    return;
+                }
+                if (used.isAfter(cutoff)) return;
                 long size = treeSize(p);
                 if (!confirm(kind, p, size)) return;
                 deleteTree(p);
@@ -291,7 +310,11 @@ final class flixwinspect {
     static void purgeCompilers(Ctx c, Purge p) {
         for (Path jar : filesIn(cache(c, "compilers"))) {
             Matcher m = JAR.matcher(jar.getFileName().toString());
-            if (!m.matches() || m.group(2).equals(c.lockSha256)) continue;
+            // No exemption for the digest a lock names. Purge is handed no project on
+            // purpose -- sparing the one you happen to stand in, while deleting another
+            // project's equally old entry, is a distinction the cache cannot justify. The
+            // usage marker is the protection, and it applies to every project alike.
+            if (!m.matches()) continue;
             String sha = m.group(2);
             long before = p.bytes;
             p.remove(c, jar, "compiler", "compiler/" + sha);

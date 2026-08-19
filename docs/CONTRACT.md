@@ -758,7 +758,9 @@ does not rewrite the marker more than once a day; filesystem access timestamps a
 It retains the default JDK, this wrapper release's assets, the small stage-0 compilation
 cache, and entries with no usable flixw usage marker. Purge is best-effort space recovery,
 not a correctness or security mechanism; use it only when cached bytes may be re-acquired if
-a project needs them.
+a project needs them. The cache inventory is a verified companion asset, so the first purge
+on a machine for a wrapper release needs network if that asset is not already cached; offline
+purge then reports the missing asset rather than deleting anything blindly.
 
 Each cached compiler is labelled with the exact repo and tag it was pinned as, not the
 canonical `x.x.x` its cache filename carries: `acquire` writes that pair beside the digest

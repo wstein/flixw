@@ -443,6 +443,16 @@ t 0  "doctor --fix repairs what it reports"                     sh -c '
   cp "$1/flixw.keep" flixw; chmod +x flixw; exit $rc' sh "$work"
 t 87 "doctor rejects an unknown option"                         ./flixw doctor --frobnicate
 t 87 "info rejects an unknown option"                           ./flixw info --frobnicate
+# An entry with no marker at all is not "unused" -- it is unseen. It is kept, and said so,
+# because a first purge on a cache older than the markers otherwise reports freeing nothing
+# against gigabytes and reads as broken.
+g 0 'never recorded a use of' "purge says what it kept for lack of a record"  sh -c '
+  sha=$(printf "e%.0s" $(seq 1 64))
+  cp "$(ls "$FLIX_CACHE_HOME"/compilers/flix-*.jar | head -1)" \
+     "$FLIX_CACHE_HOME/compilers/flix-8.8.8-$sha.jar"
+  rm -f "$FLIX_CACHE_HOME/usage/compiler/$sha.used"
+  ./flixw wrapper --purge --yes 2>&1'
+
 t 0  "purge removes an old unpinned compiler and its metadata" sh -c '
   sha=$(printf "d%.0s" $(seq 1 64))
   jar=$(ls "$FLIX_CACHE_HOME"/compilers/flix-*.jar | head -1)
