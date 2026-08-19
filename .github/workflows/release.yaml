@@ -64,15 +64,33 @@ jobs:
             printf './flixw pin <flix-version>     # writes the lock and fetches the compiler\n'
             printf './flixw doctor --fix           # merges the .gitattributes block\n```\n\n'
             printf 'A `.zip` with the same contents is attached for machines without `tar`, and '
-            printf '`flixw.java` on its own for the `java flixw.java install .` route.\n\n'
+            printf '`flixw.java` on its own for the `java flixw.java wrapper --install .` route.\n\n'
+            printf 'The three `flixw-*.java` assets are companion programs, fetched on first '
+            printf 'use per machine and verified against the digests below. They are not '
+            printf 'installed into a project; `wrapper --upgrade` warms all of them.\n\n'
             printf 'Verify before you run it -- these digests are the ones this workflow built:\n\n'
             printf '```\n'
             cat dist/SHA256SUMS
             printf '```\n'
           } > "$notes"
+          # Every 0.x is a pre-release. The paper calls this an experiment and the README
+          # says so on its first line; publishing them as finished releases would say
+          # otherwise in the one place people look. Drop the flag at 1.0.
+          #
+          # It has a functional consequence worth knowing: GitHub's `latest` pointer skips
+          # pre-releases, and FLIXW_LATEST is releases/latest/download/ -- so
+          # `wrapper --upgrade` does not offer a pre-release, and an adopter has to ask for
+          # it by URL. That is the right default for an experiment, and it is why the
+          # install instructions in the notes name the tag rather than `latest`.
+          case $version in
+            0.*) pre=--prerelease ;;
+            *)   pre= ;;
+          esac
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
-            gh release edit "$TAG" --notes-file "$notes"
+            # shellcheck disable=SC2086  # $pre is one optional flag, deliberately unquoted
+            gh release edit "$TAG" --notes-file "$notes" $pre
           else
-            gh release create "$TAG" dist/* --title "flixw $version" --notes-file "$notes"
+            # shellcheck disable=SC2086
+            gh release create "$TAG" dist/* --title "flixw $version" --notes-file "$notes" $pre
           fi

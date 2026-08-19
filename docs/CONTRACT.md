@@ -129,7 +129,7 @@ through the same table- and multi-line-string-aware scanner used everywhere else
 release time, from that release's tag, and the header is the only comment left:
 
 ```java
-// flixw 0.24.1 -- stage 0. GENERATED: this is the documented source with its
+// flixw 0.25.0 -- stage 0. GENERATED: this is the documented source with its
 // comments removed, which is why it reads as bare mechanism.
 //   https://wstein.github.io/flixw/          docs, and the lock schema
 //   https://github.com/wstein/flixw          the source this was made from
