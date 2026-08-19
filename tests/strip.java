@@ -7,7 +7,7 @@ import java.nio.file.Paths;
 /**
  * Produces the stage 0 that ships: the same program with its commentary removed.
  *
- * <p>{@code java tests/strip.java src/flixw.java <version> > flixw.java}
+ * <p>{@code java tests/strip.java src/stage0/flixw.java <version> > flixw.java}
  *
  * <p>Every adopting project commits {@code .flixw/flixw.java} into its own repository, and
  * a third of that file is prose written for whoever audits flixw itself. That audience

@@ -277,7 +277,7 @@ have to be a second, older-syntax file — so it is stated instead.
 
 ## The trust-gate verbs live in stage 0 permanently, and there is no second artifact for them
 
-`pin`, `info`, `doctor`, `validate` and `help` are implemented inside `src/flixw.java` and
+`pin`, `info`, `doctor`, `validate` and `help` are implemented inside `src/stage0/flixw.java` and
 always will be. This is a decided boundary, not a temporary gap: they are what a fresh
 clone or CI needs before anything else — including a plugin — can be trusted, so moving
 any of them out from under stage 0 recreates the exact chicken-and-egg problem a plugin
@@ -289,10 +289,10 @@ installed `.jar`/`.java`/`.flix` code) and `.flixw/tasks.toml` (a project's own 
 aliases, never fetched) are how the wrapper extends without adding more stage-0 commands —
 see [CONTRACT.md](CONTRACT.md#plugins-and-tasks).
 
-TAB-completion generation has since moved out of `src/flixw.java`, but not onto the plugin
+TAB-completion generation has since moved out of `src/stage0/flixw.java`, but not onto the plugin
 mechanism above: `completion` has to keep working with no project in scope, which
 `./flixw plugin <name>` cannot (that dispatch always needs a resolvable project root). It is
-instead a wrapper-owned companion asset (`src/flixw-help.java`), fetched from the
+instead a wrapper-owned companion asset (`src/assets/flixw-help.java`), fetched from the
 matching flixw release and verified against that release's own `SHA256SUMS` — the same
 trust footing `wrapper --upgrade` already gives `flixw.java` itself — then cached. The
 honest cost, stated plainly the way this file's other entries are: `completion`

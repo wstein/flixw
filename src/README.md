@@ -64,28 +64,30 @@ because stage 0 launches a companion asset with the JVM it is itself running on.
 provisioner that JVM is by definition too old; for the installer, `install` itself has to
 work on the oldest JVM stage 0 supports. `tests/lint.sh` compiles both at the floor.
 
-## why this is one flat directory, and what happens when it is not
+## the layout
 
-Seven files, already namespaced by the `flixw-` prefix, and the published asset *name* is
-the release contract rather than its path — `pack.sh` flattens into `dist/`, so the layout
-here is free. That was written when six files made subdirectories structure ahead of need; at seven the trigger below has fired and the split is owed.
+```
+src/
+├── stage0/     flixw.java and both shims — loaded on every invocation
+├── assets/     flixw-*.java — fetched on first use, never installed into a project
+└── README.md
+```
 
-**The split is deferred, not declined, and its shape is already decided.** Leaving both
-open is how a layout question gets re-argued every time somebody adds a file, so:
+The split is by **when the file is loaded and who verifies it**, which is the distinction
+that actually matters here: `stage0/` is what a project commits and every run executes, and
+`assets/` is what reaches a machine cache once, digest-verified, and is never committed
+anywhere. A reader who understands only that one line can predict which directory anything
+belongs in.
 
-| | |
-|---|---|
-| **trigger** | **fired** — `flixw-help.java` is the fifth `src/flixw-*.java`; the split is now due |
-| **shape** | `src/stage0/` for `flixw.java` + both shims, `src/assets/` for the companions |
-| **not** | `wrapper/` and `builtins/` — see below |
-| **not** | a top-level split; `src/` stays the source root beside `docs/` and `tests/` |
+It was deferred until there were enough files to justify it — the trigger was a fourth
+companion asset, and it fired at five. Doing it once, when the shape was known, cost about
+230 path references across 26 files; doing it twice would have cost that twice.
 
-Do it once, when the final shape is known, rather than twice. The mechanical cost is
-around 130 path references across 17 files, including four CI workflows and three
-agent-instruction files; `tests/lint.sh` catches a missed one immediately, so the risk is
-tedium rather than breakage.
-
-`builtins/` is the one name ruled out rather than deferred. These files are precisely the
+`builtins/` was the one name ruled out rather than deferred. These files are precisely the
 things that **stopped** being builtin — that is the whole reason they exist — so the
 directory would contradict `AGENTS.md` and mislead every reader arriving at it first.
 `stage0` and `companion asset` are the words the rest of the repository already uses.
+
+The published asset *name* is the release contract, not its path: `pack.sh` flattens
+everything into `dist/`, so this layout is free to change again without touching what
+`ensureAsset` fetches.

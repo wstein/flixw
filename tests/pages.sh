@@ -10,22 +10,22 @@
 # flixw does not write, which is the whole failure this arrangement exists to prevent.
 set -eu
 
-# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flixw
+# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 out=${1:?usage: sh tests/pages.sh <dir>}
 mkdir -p "$out"
-# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flixw
+# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 out=$(CDPATH= cd -- "$out" && pwd -P)
 
-version=$(java "$root/src/flixw.java" wrapper --version | head -1 | cut -d' ' -f2)
-schema_version=$(sed -n 's/.*LOCK_SCHEMA_VERSION = "\([a-z0-9]*\)".*/\1/p' "$root/src/flixw.java")
+version=$(java "$root/src/stage0/flixw.java" wrapper --version | head -1 | cut -d' ' -f2)
+schema_version=$(sed -n 's/.*LOCK_SCHEMA_VERSION = "\([a-z0-9]*\)".*/\1/p' "$root/src/stage0/flixw.java")
 committed=$root/docs/schema/lock-$schema_version.schema.json
 
 # The committed schema is what is published, and what tests/lint.sh diffs against stage 0.
 # Checking it again here is not redundant: this is the last point before the file becomes
 # the URL that every generated lock already points at, and a stale one published under a
 # name that means "current" is worse than a broken link.
-java "$root/src/flixw.java" wrapper --schema > "$out/.schema.check"
+java "$root/src/stage0/flixw.java" wrapper --schema > "$out/.schema.check"
 if ! cmp -s "$out/.schema.check" "$committed"; then
   echo "docs/schema/lock-$schema_version.schema.json is stale; run sh tests/lint.sh" >&2
   rm -f "$out/.schema.check"
@@ -59,7 +59,7 @@ cp "$committed" "$out/schema/lock.schema.json"
 javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
         -windowtitle "flixw $version" \
         -doctitle "flixw $version &mdash; stage 0" \
-        -d "$out/javadoc" "$root/src/flixw.java"
+        -d "$out/javadoc" "$root/src/stage0/flixw.java"
 
 sed "s/@VERSION@/$version/g" "$root/docs/pages/index.html" > "$out/index.html"
 

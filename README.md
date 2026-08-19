@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![bootstraps on Java 16+](https://img.shields.io/badge/bootstrap-java%2016%2B-orange.svg)](https://openjdk.org/projects/jdk/16/)
 [![Flix needs Java 21+](https://img.shields.io/badge/flix-java%2021%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
-[![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/flixw.java)
+[![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/stage0/flixw.java)
 [![platforms: linux | macOS | windows](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](.github/workflows/ci.yaml)
 [![docs](https://img.shields.io/badge/docs-wstein.github.io%2Fflixw-blue.svg)](https://wstein.github.io/flixw/)
 
@@ -55,14 +55,14 @@ strings, digests and paths will differ on your machine.
 The expected SHA-256 for v0.25.2 is
 
 ```
-30c39391d5fa115a8ad5b98afba0e726d36993e554f2d4bcb40873302f7e7acd  flixw-setup.java
+ac7983cb9f1189e0cfcd7fdfe11d628b2d151bdc3df3c5a15391d63fe7a66caa  flixw-setup.java
 ```
 
 ```console
 curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.2/flixw-setup.java
 
 # paste the digest above; this prints "OK" and exits non-zero if it does not match
-echo "30c39391d5fa115a8ad5b98afba0e726d36993e554f2d4bcb40873302f7e7acd  flixw-setup.java" \
+echo "ac7983cb9f1189e0cfcd7fdfe11d628b2d151bdc3df3c5a15391d63fe7a66caa  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 

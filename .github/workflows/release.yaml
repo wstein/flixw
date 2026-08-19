@@ -1,7 +1,7 @@
 name: release
 
 # Tag-driven, because the version a release publishes is the one compiled into
-# src/flixw.java: the tag says which commit, and the commit says which version. The job
+# src/stage0/flixw.java: the tag says which commit, and the commit says which version. The job
 # refuses to publish if the two disagree, which is the mistake this automation makes
 # possible in the first place.
 on:
@@ -39,7 +39,7 @@ jobs:
       - name: the tag must match WRAPPER_VERSION
         run: |
           tag="${{ inputs.tag || github.ref_name }}"
-          version=$(java src/flixw.java wrapper --version | head -1 | cut -d' ' -f2)
+          version=$(java src/stage0/flixw.java wrapper --version | head -1 | cut -d' ' -f2)
           if [ "$tag" != "v$version" ]; then
             echo "tag $tag does not match WRAPPER_VERSION $version" >&2
             exit 1

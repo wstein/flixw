@@ -132,12 +132,12 @@ jobs:
           java-version: "21"
       - name: strip stage 0 in place
         run: |
-          version=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' src/flixw.java | head -1)
-          java tests/strip.java src/flixw.java "$version" > "$RUNNER_TEMP/flixw.java"
-          # In place: the suite reads src/flixw.java throughout, and pointing it elsewhere
+          version=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' src/stage0/flixw.java | head -1)
+          java tests/strip.java src/stage0/flixw.java "$version" > "$RUNNER_TEMP/flixw.java"
+          # In place: the suite reads src/stage0/flixw.java throughout, and pointing it elsewhere
           # would test a path no user takes. The checkout is disposable.
-          mv "$RUNNER_TEMP/flixw.java" src/flixw.java
-          printf 'shipped stage 0 is %s lines\n' "$(wc -l < src/flixw.java)"
+          mv "$RUNNER_TEMP/flixw.java" src/stage0/flixw.java
+          printf 'shipped stage 0 is %s lines\n' "$(wc -l < src/stage0/flixw.java)"
       - uses: actions/cache@v4
         with:
           path: tests/.work/run/cache/compilers

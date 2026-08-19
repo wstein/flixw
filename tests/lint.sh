@@ -5,8 +5,8 @@
 #
 # 1. javac -Xlint:all -Werror   stage 0 must compile clean on the Java it targets
 # 2. shellcheck                 the POSIX shim is executed on machines we cannot test
-# 3. shim byte-parity           src/flixw and src/flixw.cmd are the checked-in copies of
-#                               the SHIM and CMD text blocks inside src/flixw.java, and
+# 3. shim byte-parity           src/stage0/flixw and src/stage0/flixw.cmd are the checked-in copies of
+#                               the SHIM and CMD text blocks inside src/stage0/flixw.java, and
 #                               `install` writes the latter. Drift means a project gets
 #                               a shim whose published hash does not match this tree.
 # 4. the Java floor             MIN_JAVA is written out again in both shims
@@ -14,13 +14,13 @@
 # 6. the wrapper namespace      every `./flixw wrapper --x` spelling is one the usage offers
 # 7. schema parity              docs/schema/ is what `wrapper --schema` emits, nothing else
 # 8. javadoc                    the published API docs build with no malformed doc comment
-# 9. CRLF                       src/flixw.cmd must keep its cmd.exe line endings
+# 9. CRLF                       src/stage0/flixw.cmd must keep its cmd.exe line endings
 # 10. the size ratchet         stage 0 is shrinking to a verified launcher; the code-line
 #                              ceiling and the comment-density floor hold that, pulling
 #                              against each other so neither is met at the other's cost
 set -eu
 
-# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flixw
+# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 work=$root/tests/.work/lint
 rm -rf "$work"
@@ -31,7 +31,7 @@ say() { printf '%s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 
 # --- 0b. picocli -------------------------------------------------------------
-# src/flixw-help.java is the one file here that compiles against something outside this
+# src/assets/flixw-help.java is the one file here that compiles against something outside this
 # repository, so the jar has to be present to check it at all. Fetched into the gitignored
 # work dir rather than committed -- nothing binary is committed here, and tests/run.sh
 # already downloads a 32MB compiler on a cold cache, so one 400KB jar is the existing
@@ -41,11 +41,11 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 # if PICOCLI_SHA256 is ever edited to something Maven Central does not serve, this fails
 # here rather than on a user's first `./flixw help`.
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
-pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
+pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java")
 pd=$(sed -n 's/^PICOCLI_SHA256=\([0-9a-f]\{64\}\)$/\1/p' "$root/tests/pack.sh")
 # Cached across runs in the gitignored work dir, so only the first lint on a machine needs
 # the network. A *failed* fetch is fatal here rather than skipped: continuing would compile
-# src/flixw-help.java against a classpath entry that does not exist, which javac reports as
+# src/assets/flixw-help.java against a classpath entry that does not exist, which javac reports as
 # a warning about a missing path and then a pile of unrelated symbol errors -- a diagnostic
 # that sends the reader looking at the wrong file entirely.
 picocli="$work/picocli-$pv.jar"
@@ -53,7 +53,7 @@ if [ ! -f "$picocli" ]; then
   curl -fsSL -o "$picocli" \
     "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" || {
     rm -f "$picocli"
-    bad "cannot fetch picocli $pv; src/flixw-help.java cannot be checked without it"
+    bad "cannot fetch picocli $pv; src/assets/flixw-help.java cannot be checked without it"
     say "      it caches in $work, so this is a one-time download per machine"
     exit 1
   }
@@ -86,16 +86,16 @@ else
 fi
 
 # --- 1. Java ---------------------------------------------------------------
-# auxiliaryclass is off for this one compile, not project-wide: src/flixw-help.java
+# auxiliaryclass is off for this one compile, not project-wide: src/assets/flixw-help.java
 # is deliberately a same-package companion file rather than a class merged into flixw.java
 # (its file name is the release asset name ensureCompletionAsset fetches, which cannot be
 # a valid Java identifier), and tests/UnitCheck.java deliberately calls its package-private
 # render() directly rather than through a subprocess -- exactly the pattern this warning
 # exists to flag by default, and exactly what this repository's own multi-file layout is.
 if javac -Xlint:all,-auxiliaryclass -Werror -cp "$picocli" -d "$work/classes" \
-        "$root/src/flixw.java" "$root/src/flixw-jdk.java" \
-        "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" \
-        "$root/src/flixw-help.java" \
+        "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
+        "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" \
+        "$root/src/assets/flixw-help.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
@@ -106,7 +106,7 @@ fi
 # --- 2. shell --------------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
   # The shim reads FLIX_* from the environment by design; SC2154 would flag every one.
-  scripts="$root/src/flixw"
+  scripts="$root/src/stage0/flixw"
   for s in "$root"/tests/*.sh; do [ -f "$s" ] && scripts="$scripts $s"; done
   # shellcheck disable=SC2086
   if shellcheck -s sh -e SC2154 $scripts >"$work/shellcheck.log" 2>&1; then
@@ -120,13 +120,13 @@ else
 fi
 
 # --- 3. shim byte-parity ---------------------------------------------------
-# The shim text lives in src/flixw-setup.java now, fetched and digest-verified at run
+# The shim text lives in src/assets/flixw-setup.java now, fetched and digest-verified at run
 # time -- so this stands a release up in a directory and points the wrapper at it. Same
 # code path as production, only the base URL differs; nothing here touches the network.
 fixture=$work/release
 mkdir -p "$fixture"
-cp "$root/src/flixw.java" "$root/src/flixw-jdk.java" \
-   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
+cp "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
+   "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
    "$fixture/"
 [ -f "$picocli" ] && cp "$picocli" "$fixture/picocli-$pv.jar"
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
@@ -137,14 +137,14 @@ export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
 
 # `install` refuses to run inside an installed project, so give it a clean target.
-if java "$root/src/flixw-setup.java" setup "$work/parity" "$root/src/flixw.java" \
+if java "$root/src/assets/flixw-setup.java" setup "$work/parity" "$root/src/stage0/flixw.java" \
       >"$work/install.log" 2>&1; then
   for f in flixw flixw.cmd; do
-    if cmp -s "$work/parity/$f" "$root/src/$f"; then
-      say "ok    $f matches the text block in src/flixw.java"
+    if cmp -s "$work/parity/$f" "$root/src/stage0/$f"; then
+      say "ok    $f matches the text block in src/stage0/flixw.java"
     else
       bad "$f differs from what install writes; edit both sides"
-      diff "$root/src/$f" "$work/parity/$f" || true
+      diff "$root/src/stage0/$f" "$work/parity/$f" || true
     fi
   done
   if [ -x "$work/parity/flixw" ]; then
@@ -164,22 +164,22 @@ fi
 # compares the *installed* file with src/, not either with the constants.
 for pair in "flixw:SHIM_SHA256" "flixw.cmd:CMD_SHA256"; do
   f=${pair%%:*}; k=${pair##*:}
-  declared=$(sed -n "/static final String $k =/,/;/p" "$root/src/flixw.java"              | grep -o '[0-9a-f]\{64\}')
-  if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$root/src/$f" | cut -d' ' -f1)
-  else actual=$(shasum -a 256 "$root/src/$f" | cut -d' ' -f1); fi
+  declared=$(sed -n "/static final String $k =/,/;/p" "$root/src/stage0/flixw.java"              | grep -o '[0-9a-f]\{64\}')
+  if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$root/src/stage0/$f" | cut -d' ' -f1)
+  else actual=$(shasum -a 256 "$root/src/stage0/$f" | cut -d' ' -f1); fi
   if [ "$declared" = "$actual" ]; then
-    say "ok    $k matches src/$f"
+    say "ok    $k matches src/stage0/$f"
   else
-    bad "$k is stale: src/$f hashes to $actual"
-    say "      update the constant in src/flixw.java, or the shim changed by accident"
+    bad "$k is stale: src/stage0/$f hashes to $actual"
+    say "      update the constant in src/stage0/flixw.java, or the shim changed by accident"
   fi
 done
 
 # The installer is the bootstrap now: it fetches the stage 0 of its own release, so it
 # carries WRAPPER_VERSION too. A disagreement would have somebody download 0.25.0's
 # installer and receive some other release's stage 0, with both digests checking out.
-v0=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java" | head -1)
-v1=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw-setup.java" | head -1)
+v0=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java" | head -1)
+v1=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/assets/flixw-setup.java" | head -1)
 if [ -n "$v0" ] && [ "$v0" = "$v1" ]; then
   say "ok    WRAPPER_VERSION is $v0 in stage 0 and in the installer"
 else
@@ -188,8 +188,8 @@ fi
 
 # WRAPPER_DIR is written into the shim text, so the installer needs its own copy -- and a
 # disagreement would have stage 0 reading a directory the installer never wrote.
-d0=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
-d1=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/flixw-setup.java")
+d0=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java")
+d1=$(sed -n 's/.*static final String WRAPPER_DIR = "\([^"]*\)".*/\1/p' "$root/src/assets/flixw-setup.java")
 if [ -n "$d0" ] && [ "$d0" = "$d1" ]; then
   say "ok    WRAPPER_DIR is '$d0' in stage 0 and in the installer"
 else
@@ -199,8 +199,8 @@ fi
 # The .gitattributes block markers are written by the installer and validated by stage 0.
 # One writes the block, the other decides whether a project has one -- so a rename on
 # either side means doctor --fix writes a block validate cannot find, forever.
-m0=$(grep -c '# >>> flixw >>>' "$root/src/flixw.java" || true)
-m1=$(grep -c '# >>> flixw >>>' "$root/src/flixw-setup.java" || true)
+m0=$(grep -c '# >>> flixw >>>' "$root/src/stage0/flixw.java" || true)
+m1=$(grep -c '# >>> flixw >>>' "$root/src/assets/flixw-setup.java" || true)
 if [ "$m0" -ge 1 ] && [ "$m1" -ge 1 ]; then
   say "ok    both sides know the .gitattributes block markers"
 else
@@ -231,8 +231,8 @@ readme_sha=$(grep -oE '^[0-9a-f]{64}  flixw-setup\.java$' "$root/README.md" \
              | cut -d' ' -f1 | head -1)
 # Against the *stripped* file, because that is what a release publishes -- comparing with
 # src/ would have gone quietly wrong the moment the assets started shipping stripped.
-setup_ver=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw-setup.java" | head -1)
-java "$root/tests/strip.java" "$root/src/flixw-setup.java" "$setup_ver" flixw-setup.java \
+setup_ver=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/assets/flixw-setup.java" | head -1)
+java "$root/tests/strip.java" "$root/src/assets/flixw-setup.java" "$setup_ver" flixw-setup.java \
   > "$work/setup-shipped.java"
 if command -v sha256sum >/dev/null 2>&1; then real_sha=$(sha256sum "$work/setup-shipped.java" | cut -d' ' -f1)
 else real_sha=$(shasum -a 256 "$work/setup-shipped.java" | cut -d' ' -f1); fi
@@ -252,13 +252,14 @@ fi
 # exactly the "written twice" hazard the shims are supposed to avoid, so it is checked
 # rather than trusted: a MIN_JAVA bump that misses a shim would silently hand the
 # compiled stage 0 to a JVM that cannot load it.
-min=$(sed -n 's/.*static final int MIN_JAVA = \([0-9][0-9]*\).*/\1/p' "$root/src/flixw.java")
+min=$(sed -n 's/.*static final int MIN_JAVA = \([0-9][0-9]*\).*/\1/p' "$root/src/stage0/flixw.java")
 if [ -z "$min" ]; then
-  bad "cannot read MIN_JAVA from src/flixw.java"
+  bad "cannot read MIN_JAVA from src/stage0/flixw.java"
 else
-  floors=$( { grep -o 'Java [0-9][0-9]*+' "$root/src/flixw" "$root/src/flixw.cmd"
-              grep -o -- '-ge [0-9][0-9]*'  "$root/src/flixw"
-              grep -o 'LSS [0-9][0-9]*'     "$root/src/flixw.cmd"; } | grep -o '[0-9][0-9]*' | sort -u)
+  # -h, or grep prefixes the filename and `stage0` contributes a stray 0 to the set.
+  floors=$( { grep -oh 'Java [0-9][0-9]*+' "$root/src/stage0/flixw" "$root/src/stage0/flixw.cmd"
+              grep -o -- '-ge [0-9][0-9]*'  "$root/src/stage0/flixw"
+              grep -o 'LSS [0-9][0-9]*'     "$root/src/stage0/flixw.cmd"; } | grep -o '[0-9][0-9]*' | sort -u)
   if [ "$floors" = "$min" ]; then
     say "ok    the Java floor is $min in MIN_JAVA and in both shims"
   else
@@ -271,10 +272,10 @@ fi
 # users*: below Java 21 flixw still runs and offers to fetch a JDK, and the no-java
 # diagnostic says how far down that offer reaches. One post-floor language feature would
 # make the promise false with nothing failing, so it is compiled at that release.
-floor=$(sed -n 's/.*static final int SOURCE_FLOOR = \([0-9][0-9]*\).*/\1/p' "$root/src/flixw.java")
+floor=$(sed -n 's/.*static final int SOURCE_FLOOR = \([0-9][0-9]*\).*/\1/p' "$root/src/stage0/flixw.java")
 if [ -z "$floor" ]; then
-  bad "cannot read SOURCE_FLOOR from src/flixw.java"
-elif javac --release "$floor" -d "$work/floor" "$root/src/flixw.java" >"$work/floor.log" 2>&1; then
+  bad "cannot read SOURCE_FLOOR from src/stage0/flixw.java"
+elif javac --release "$floor" -d "$work/floor" "$root/src/stage0/flixw.java" >"$work/floor.log" 2>&1; then
   say "ok    stage 0 compiles at its stated floor (Java $floor)"
 elif grep -q "release version $floor not supported" "$work/floor.log"; then
   # A javac new enough to have dropped that release cannot answer the question.
@@ -288,13 +289,13 @@ fi
 # itself must work on the oldest JVM stage 0 runs on, and stage 0 launches the asset with
 # the JVM it is running on.
 if [ -n "$floor" ]; then
-  if javac --release "$floor" -d "$work/floor-install" "$root/src/flixw-setup.java" \
+  if javac --release "$floor" -d "$work/floor-install" "$root/src/assets/flixw-setup.java" \
         >"$work/floor-install.log" 2>&1; then
     say "ok    the installer compiles at Java $floor"
   elif grep -q "release version $floor not supported" "$work/floor-install.log"; then
     say "skip  installer floor check (this javac no longer targets $floor)"
   else
-    bad "src/flixw-setup.java no longer compiles at Java $floor"
+    bad "src/assets/flixw-setup.java no longer compiles at Java $floor"
     head -5 "$work/floor-install.log"
   fi
 fi
@@ -306,13 +307,13 @@ fi
 # nothing failing until a user hit it. The completion asset carries no such constraint: it
 # is only ever reached from a JVM that already cleared the floor.
 if [ -n "$floor" ]; then
-  if javac --release "$floor" -d "$work/floor-jdk" "$root/src/flixw-jdk.java" \
+  if javac --release "$floor" -d "$work/floor-jdk" "$root/src/assets/flixw-jdk.java" \
         >"$work/floor-jdk.log" 2>&1; then
     say "ok    the JDK provisioner compiles at Java $floor, the JVM it may be launched by"
   elif grep -q "release version $floor not supported" "$work/floor-jdk.log"; then
     say "skip  provisioner floor check (this javac no longer targets $floor)"
   else
-    bad "src/flixw-jdk.java no longer compiles at Java $floor; it is launched by the"
+    bad "src/assets/flixw-jdk.java no longer compiles at Java $floor; it is launched by the"
     say "      too-old JVM it exists to replace, so it cannot use a newer language level"
     head -5 "$work/floor-jdk.log"
   fi
@@ -335,10 +336,10 @@ fi
 # what lets the join see across a newline at all.
 flat=$work/wrapper-lists.txt
 awk 'BEGIN{RS="\034"} { gsub(/\\n/," "); gsub(/"[ \t]*\n[ \t]*\+[ \t]*"/,""); print }' \
-  "$root/src/flixw.java" > "$flat"
+  "$root/src/stage0/flixw.java" > "$flat"
 usage=$(sed -n 's/.*usage: .\/flixw wrapper \[\([^]]*\)\].*/\1/p' "$flat" | tr -d ' |')
-stale=$(grep -o './flixw wrapper [a-z][a-z-]*' "$root/src/flixw.java" | sort -u || true)
-flags=$(grep -o -- './flixw wrapper --[a-z-][a-z-]*' "$root/src/flixw.java" \
+stale=$(grep -o './flixw wrapper [a-z][a-z-]*' "$root/src/stage0/flixw.java" | sort -u || true)
+flags=$(grep -o -- './flixw wrapper --[a-z-][a-z-]*' "$root/src/stage0/flixw.java" \
         | sed 's|.*wrapper ||' | sort -u)
 # shellcheck disable=SC2086  # deliberate: the flags are ours and contain no spaces
 set -- $flags
@@ -368,9 +369,9 @@ fi
 # --- 7. the published schema matches the lock this stage 0 writes ----------
 # The file name carries the lock format's major version, so a bump that renames the schema
 # must move the committed file with it rather than leaving the old name to be served.
-schema_version=$(sed -n 's/.*LOCK_SCHEMA_VERSION = "\([a-z0-9]*\)".*/\1/p' "$root/src/flixw.java")
+schema_version=$(sed -n 's/.*LOCK_SCHEMA_VERSION = "\([a-z0-9]*\)".*/\1/p' "$root/src/stage0/flixw.java")
 if [ -z "$schema_version" ]; then
-  bad "cannot read LOCK_SCHEMA_VERSION from src/flixw.java"
+  bad "cannot read LOCK_SCHEMA_VERSION from src/stage0/flixw.java"
   schema_version=none
 elif [ ! -f "$root/docs/schema/lock-$schema_version.schema.json" ]; then
   bad "LOCK_SCHEMA_VERSION is $schema_version but docs/schema/lock-$schema_version.schema.json does not exist"
@@ -406,12 +407,12 @@ fi
 # at with its `#:schema` line. A schema describing a lock flixw no longer writes is worse
 # than none, because an editor presents it as authority -- so it is generated, never
 # edited, and the committed copy is diffed against what stage 0 emits.
-if java "$root/src/flixw.java" wrapper --schema >"$work/schema.json" 2>"$work/schema.log"; then
+if java "$root/src/stage0/flixw.java" wrapper --schema >"$work/schema.json" 2>"$work/schema.log"; then
   if cmp -s "$work/schema.json" "$root/docs/schema/lock-$schema_version.schema.json"; then
     say "ok    docs/schema/lock-$schema_version.schema.json matches wrapper --schema"
   else
     bad "docs/schema/lock-$schema_version.schema.json is stale; regenerate it:"
-    say "      java src/flixw.java wrapper --schema > docs/schema/lock-$schema_version.schema.json"
+    say "      java src/stage0/flixw.java wrapper --schema > docs/schema/lock-$schema_version.schema.json"
     diff "$root/docs/schema/lock-$schema_version.schema.json" "$work/schema.json" || true
   fi
 else
@@ -430,9 +431,9 @@ fi
 # this repository's conventions reject; the groups left on are about comments being
 # *wrong*, not about there being fewer of them than a tool would like.
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
-        -d "$work/javadoc" -cp "$picocli" "$root/src/flixw.java" \
-        "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
-        "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
+        -d "$work/javadoc" -cp "$picocli" "$root/src/stage0/flixw.java" \
+        "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-setup.java" \
+        "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
@@ -446,14 +447,14 @@ fi
 # tests/strip.java. That makes the readable artifact and the running one different files,
 # which is only honest while anyone can regenerate the second from the first. These checks
 # are what "reproducible" means here in practice.
-version=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java" | head -1)
+version=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java" | head -1)
 # The file has to be named for the class it declares, or javac rejects it before reading a
 # line -- which would report a stripper bug that is not there.
 mkdir -p "$work/shipdir"
-if java "$root/tests/strip.java" "$root/src/flixw.java" "$version" >"$work/shipdir/flixw.java" \
+if java "$root/tests/strip.java" "$root/src/stage0/flixw.java" "$version" >"$work/shipdir/flixw.java" \
       2>"$work/strip.log"; then
   # Determinism first: everything below is worthless if two runs can differ.
-  java "$root/tests/strip.java" "$root/src/flixw.java" "$version" >"$work/shipped2.java" 2>&1
+  java "$root/tests/strip.java" "$root/src/stage0/flixw.java" "$version" >"$work/shipped2.java" 2>&1
   if cmp -s "$work/shipdir/flixw.java" "$work/shipped2.java"; then
     say "ok    the stripper is deterministic"
   else
@@ -508,10 +509,10 @@ fi
 
 # --- 9. cmd.exe line endings -----------------------------------------------
 # CRLF is load-bearing for cmd.exe: a LF-only .cmd breaks multi-line if/for blocks.
-if od -c "$root/src/flixw.cmd" | grep -q '\\r'; then
-  say "ok    src/flixw.cmd has CRLF line endings"
+if od -c "$root/src/stage0/flixw.cmd" | grep -q '\\r'; then
+  say "ok    src/stage0/flixw.cmd has CRLF line endings"
 else
-  bad "src/flixw.cmd must have CRLF line endings"
+  bad "src/stage0/flixw.cmd must have CRLF line endings"
 fi
 
 # --- 10. the size ratchet --------------------------------------------------
@@ -533,7 +534,7 @@ fi
 # it is asking for.
 MAX_CODE_LINES=3023          # `help` adds a new capability; target: 2900 -- see AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=269001             # `help` adds a new capability; target: 225000, derived from the two numbers above
+MAX_BYTES=269015             # `help` adds a new capability; target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
@@ -556,9 +557,9 @@ BEGIN { intb = 0 }
   kl++; kb += n
 }
 END { printf "%d %d %d %d\n", kl, cl, bl, kb+cb+bb }
-' "$root/src/flixw.java")
+' "$root/src/stage0/flixw.java")
 code=$1; comments=$2; blanks=$3
-bytes=$(wc -c < "$root/src/flixw.java" | tr -d ' ')
+bytes=$(wc -c < "$root/src/stage0/flixw.java" | tr -d ' ')
 physical=$((code + comments + blanks))
 density=$((comments * 100 / physical))
 
@@ -577,9 +578,9 @@ else
 fi
 
 if [ "$bytes" -le "$MAX_BYTES" ]; then
-  say "ok    src/flixw.java is $bytes bytes (ceiling $MAX_BYTES, target 225000)"
+  say "ok    src/stage0/flixw.java is $bytes bytes (ceiling $MAX_BYTES, target 225000)"
 else
-  bad "src/flixw.java grew to $bytes bytes; the ceiling is $MAX_BYTES"
+  bad "src/stage0/flixw.java grew to $bytes bytes; the ceiling is $MAX_BYTES"
 fi
 
 # A ratchet that is never tightened is a ceiling, and a ceiling well above the work is

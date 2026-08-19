@@ -85,8 +85,8 @@ sed -n '3,$p' "$work/diff"
 echo
 echo "What to check, in this order:"
 echo "  1. tests/UnitCheck.java -- does parseVerbs still find every command in the new set?"
-echo "  2. BUILTIN_VERBS in src/flixw.java -- it is the fallback when a parse fails,"
+echo "  2. BUILTIN_VERBS in src/stage0/flixw.java -- it is the fallback when a parse fails,"
 echo "     and a verb missing from it is a verb flixw silently will not route."
-echo "  3. src/flixw-help.java -- a new option *kind* changes what a completion must mark -r."
+echo "  3. src/assets/flixw-help.java -- a new option *kind* changes what a completion must mark -r."
 echo "  4. Adopt with: sh tests/upstream-cli.sh --update"
 exit 1

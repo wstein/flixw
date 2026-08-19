@@ -5,21 +5,21 @@ Read that file before proposing changes; it covers commands, architecture, and t
 below in full. This file is a pointer plus the constraints that are most expensive to violate.
 
 `flixw` is a repository-local bootstrap that downloads, digest-verifies, caches and runs an
-**unmodified stock Flix compiler JAR**. `src/flixw.java` (stage 0) holds all logic; `src/flixw`
-and `src/flixw.cmd` are shims that only locate a `java` and prefer the cached compiled stage 0.
+**unmodified stock Flix compiler JAR**. `src/stage0/flixw.java` (stage 0) holds all logic; `src/stage0/flixw`
+and `src/stage0/flixw.cmd` are shims that only locate a `java` and prefer the cached compiled stage 0.
 
-- `src/flixw.java` must stay **one file, dependency-free, Java 21** — no preview features, no
+- `src/stage0/flixw.java` must stay **one file, dependency-free, Java 21** — no preview features, no
   build tool, no JBang. It is meant to be audited by strangers.
-- The shims exist twice: `src/flixw` / `src/flixw.cmd` on disk, and the `SHIM` / `CMD` text blocks
-  inside `src/flixw.java` (what `install` writes). Edit both or they drift.
-- `docs/schema/lock-v1.schema.json` is **generated** from `LOCK_SCHEMA` in `src/flixw.java` by
-  `java src/flixw.java wrapper --schema`, and `tests/lint.sh` diffs the two. Change the Java
+- The shims exist twice: `src/stage0/flixw` / `src/stage0/flixw.cmd` on disk, and the `SHIM` / `CMD` text blocks
+  inside `src/stage0/flixw.java` (what `install` writes). Edit both or they drift.
+- `docs/schema/lock-v1.schema.json` is **generated** from `LOCK_SCHEMA` in `src/stage0/flixw.java` by
+  `java src/stage0/flixw.java wrapper --schema`, and `tests/lint.sh` diffs the two. Change the Java
   list and regenerate; never hand-edit the JSON.
 - Never patch, wrap, or link against `flix.jar`; it is launched as an opaque process.
 - **Never vendor picocli**, or any other library, to reach a completion generator. The
   compiler may be picocli-based; flixw observes that from the outside and delegates to the
-  script the compiler emits. `src/flixw.java` imports nothing.
-- The completion scripts are text blocks in `src/flixw.java` with **no on-disk copies** —
+  script the compiler emits. `src/stage0/flixw.java` imports nothing.
+- The completion scripts are text blocks in `src/stage0/flixw.java` with **no on-disk copies** —
   unlike the shims. They are emitted by `completion`, never installed, so
   `install`, `validate` and `doctor --fix` do not know about them. Do not add copies.
 - The cached compiler is SHA-256 verified on **every** run. One download attempt, at most one

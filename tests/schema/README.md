@@ -2,7 +2,7 @@
 
 Locks that two validators are asked about: stage 0's `readLock`, which runs on every
 invocation, and the published JSON Schema, which runs in whoever's editor. Both are
-derived from `LOCK_SCHEMA` in `src/flixw.java`, so the question worth asking is whether
+derived from `LOCK_SCHEMA` in `src/stage0/flixw.java`, so the question worth asking is whether
 they still reach the same verdict — and where they deliberately do not.
 
 `tests/UnitCheck.java` walks all four directories through `readLock`. CI additionally

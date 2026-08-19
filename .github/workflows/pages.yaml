@@ -55,7 +55,7 @@ jobs:
       - name: the tag must match WRAPPER_VERSION
         run: |
           tag="${{ inputs.tag || github.ref_name }}"
-          version=$(java src/flixw.java wrapper --version | head -1 | cut -d' ' -f2)
+          version=$(java src/stage0/flixw.java wrapper --version | head -1 | cut -d' ' -f2)
           if [ "$tag" != "v$version" ]; then
             echo "tag $tag does not match WRAPPER_VERSION $version" >&2
             exit 1

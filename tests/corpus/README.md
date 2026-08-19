@@ -5,7 +5,7 @@ conforming TOML parser gives for each of them.
 
 ## Why it exists
 
-`tomlLookup()` in `src/flixw.java` is a hand-written scanner, not a TOML parser — stage 0
+`tomlLookup()` in `src/stage0/flixw.java` is a hand-written scanner, not a TOML parser — stage 0
 has no dependencies by design. [`docs/LIMITATIONS.md`](../../docs/LIMITATIONS.md) is candid
 that this is the weakest component in the wrapper, and the honest question about a
 hand-written scanner is not whether it handles the specification, but whether it disagrees

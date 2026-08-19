@@ -29,18 +29,18 @@ you are deliberately letting lead.
 The wrapper has no build system — it is one Java 21 source file, run via JEP 330.
 
 ```sh
-java src/flixw.java wrapper --version         # offline; no project, lock, or network needed
-java src/flixw.java wrapper --help            # routing table (enriched if run inside a project)
-java src/flixw.java wrapper --schema          # the JSON Schema for lock.toml, on stdout
-java src/flixw.java completion bash # a TAB-completion script, on stdout
-javac -d /tmp/flixw-out src/flixw.java        # compile check
+java src/stage0/flixw.java wrapper --version         # offline; no project, lock, or network needed
+java src/stage0/flixw.java wrapper --help            # routing table (enriched if run inside a project)
+java src/stage0/flixw.java wrapper --schema          # the JSON Schema for lock.toml, on stdout
+java src/stage0/flixw.java completion bash # a TAB-completion script, on stdout
+javac -d /tmp/flixw-out src/stage0/flixw.java        # compile check
 FLIXW_TRACE=1 ./flixw check                   # per-phase timings on stderr
 ```
 
 Exercising it end to end means installing into a scratch project:
 
 ```sh
-java src/flixw-setup.java setup /tmp/proj src/flixw.java   # the four project files
+java src/assets/flixw-setup.java setup /tmp/proj src/stage0/flixw.java   # the four project files
 cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads the JAR
 ./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flixw pin --refresh                      # rewrite the lock in this release's shape; offline
@@ -108,9 +108,9 @@ wrapper release; only `.flixw/lock.toml` differs per project.
 
 | File | Role |
 |---|---|
-| `src/flixw` | POSIX `sh` shim: find a `java`, prefer the cached compiled stage 0, else source-launch |
-| `src/flixw.cmd` | same for `cmd.exe`/PowerShell |
-| `src/flixw.java` | **stage 0** — everything else, in one dependency-free file |
+| `src/stage0/flixw` | POSIX `sh` shim: find a `java`, prefer the cached compiled stage 0, else source-launch |
+| `src/stage0/flixw.cmd` | same for `cmd.exe`/PowerShell |
+| `src/stage0/flixw.java` | **stage 0** — everything else, in one dependency-free file |
 
 Stage 0 owns project discovery, lock parsing, drift detection, version validation, Java
 selection, compiler acquisition, unconditional SHA-256 verification, verb dispatch, wrapper
@@ -138,8 +138,8 @@ write the cache, which `doctor` checks.
 
 ### The shims exist twice
 
-`src/flixw` and `src/flixw.cmd` are the checked-in copies of the `SHIM` and `CMD` text blocks
-in `src/flixw.java`, which is what `install` actually writes out (`CMD` with CRLF). **Edit both
+`src/stage0/flixw` and `src/stage0/flixw.cmd` are the checked-in copies of the `SHIM` and `CMD` text blocks
+in `src/stage0/flixw.java`, which is what `install` actually writes out (`CMD` with CRLF). **Edit both
 sides or they drift.** In the Java text block, backslashes are escaped (`\\`); on disk they
 are literal.
 
@@ -162,7 +162,7 @@ the JAR — a content-addressed compiler directory may legitimately be read-only
 
 ### The lock's shape is stated once
 
-`LOCK_SCHEMA` in `src/flixw.java` is a list of `LockField` — table, key, required, pattern,
+`LOCK_SCHEMA` in `src/stage0/flixw.java` is a list of `LockField` — table, key, required, pattern,
 description — and it is the only place the lock format is written down. `lockText` writes
 from it, `readLock` validates against it, and `wrapper --schema` renders it as the JSON
 Schema published at `https://wstein.github.io/flixw/schema/lock-v1.schema.json`.
@@ -191,7 +191,7 @@ not a rename to perform, and v1 would go on being served throughout it.
 diffs the two, so **regenerate it rather than editing it**:
 
 ```sh
-java src/flixw.java wrapper --schema > docs/schema/lock-v1.schema.json
+java src/stage0/flixw.java wrapper --schema > docs/schema/lock-v1.schema.json
 ```
 
 Patterns live in the intersection of Java's regex dialect and ECMA-262's — `String.matches`
@@ -262,9 +262,9 @@ requires a resolvable project root, and both of these have to answer without one
 
 | Asset | reached by | why not a plugin |
 |---|---|---|
-| `src/flixw-help.java` | `help [<topic>]`, `completion <shell>` | the static completer answers before `findRoot`, same as `--schema`/`--version` |
-| `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
-| `src/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
+| `src/assets/flixw-help.java` | `help [<topic>]`, `completion <shell>` | the static completer answers before `findRoot`, same as `--schema`/`--version` |
+| `src/assets/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
+| `src/assets/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
 
 `ensureAsset(name, version)` fetches, verifies and caches any of them; see "Completion is
 data, not a generated script" below for the shape, which is now shared. The version is a
@@ -283,7 +283,7 @@ automatic network fetch is the wrong default answer to a missing dependency in a
 whose whole argument is that it fetches only what a lock named and a digest confirmed.
 Provisioning still exists, explicitly, as `./flixw wrapper --install-jdk`.
 
-`src/flixw-jdk.java` carries a constraint the completion asset does not, and it is the
+`src/assets/flixw-jdk.java` carries a constraint the completion asset does not, and it is the
 reason the two are separate files rather than one. Stage 0 source-launches a companion
 asset **with the JVM it is itself running on**, and the provisioner exists precisely for
 the machine whose only JVM is below `MIN_JAVA` — so it must compile and run at
@@ -323,7 +323,7 @@ else committed, and `plugin remove ..` without that check dead-reckons to
 `./flixw completion bash|zsh|fish|pwsh` prints a completer built from a picocli
 `CommandSpec`: the pinned compiler's commands with their own descriptions, the wrapper verbs
 they have not displaced, and the compiler's options with value-taking ones marked. `help`
-renders that same tree — `tree()` in `src/flixw-help.java` builds it once — so a completion
+renders that same tree — `tree()` in `src/assets/flixw-help.java` builds it once — so a completion
 cannot disagree with the help screen on the same terminal.
 
 bash and zsh come from picocli's own `AutoComplete`, one script serving both. fish and
@@ -352,12 +352,12 @@ repository contains a copy of it.
 
 ### What ships is not what you read
 
-`src/flixw.java` is the documented source. What a release publishes, and what every
+`src/stage0/flixw.java` is the documented source. What a release publishes, and what every
 adopting project commits as `.flixw/flixw.java`, is that file with its commentary removed
 — generated by `tests/strip.java` in `tests/pack.sh`, never committed:
 
 ```sh
-java tests/strip.java src/flixw.java 0.25.2 "stage 0" > flixw.java   # 4733 -> 3310 lines
+java tests/strip.java src/stage0/flixw.java 0.25.2 "stage 0" > flixw.java   # 4733 -> 3310 lines
 ```
 
 Every companion asset ships the same way, with its own name as the third argument.
@@ -424,7 +424,7 @@ pin, strict lock and manifest floor, Java selection and relaunch, atomic acquisi
 unconditional digest verification, launch, a minimal status, and the plugin broker. Rich
 maintenance moves out to verified companion assets, not to `./flixw plugin` — that
 dispatch requires a resolvable project root, so it cannot answer for a project whose lock
-is the broken thing. `src/flixw-help.java` is the shape to copy.
+is the broken thing. `src/assets/flixw-help.java` is the shape to copy.
 
 `tests/lint.sh` holds that with three numbers, all ceilings **at today's value** rather
 than at the target, so the gate is green on the way down instead of red until the last
@@ -432,9 +432,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3023 | 2900 |
+| code lines in `src/stage0/flixw.java` | 3023 | 2900 |
 | comment density | 32% | ≥25% floor |
-| bytes | 269001 | 225000 |
+| bytes | 269015 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
@@ -442,7 +442,7 @@ number a reader checks against is then the one nothing is holding. The code-line
 last moved for `help`, which needed to keep the compiler's own help text rather than throw
 it away after parsing verbs out of it.
 
-The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
+The first cut against these was JDK provisioning, out to `src/assets/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is
 ~400 lines, because the 202 that moved brought ~200 of infrastructure with them (HTTP,
 hashing, cache paths, `FLIXWnnn`) that stage 0 keeps for its own use. *Total* lines went
@@ -465,7 +465,7 @@ after the JDK move:
 
 The install cluster *was* extractable, and went: `SHIM`, `CMD`, `install`,
 `updateWrapper`, the templates and `mergeGitattributes` are
-`src/flixw-setup.java`, 428 code lines out of stage 0. It passes the self-contained
+`src/assets/flixw-setup.java`, 428 code lines out of stage 0. It passes the self-contained
 test — given a target directory it writes files and needs nothing stage 0 computes — and
 the one thing that looked like a counter-example was solved rather than accepted: stage 0
 keeps `SHIM_SHA256`/`CMD_SHA256`, so `validate` and `doctor` still detect a drifted shim
@@ -519,7 +519,7 @@ been measured rather than estimated. Extraction is now essentially exhausted: wh
 is a view over state the verified chain computes, and moving it would duplicate the
 gathering while relocating only the presentation.
 
-The gates measure `src/flixw.java`, the documented source — not the stripped file that
+The gates measure `src/stage0/flixw.java`, the documented source — not the stripped file that
 ships, which is a function of it. The code-line count is identical in both by construction;
 only the byte and density numbers differ, and those describe what a *maintainer* reads.
 

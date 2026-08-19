@@ -1,6 +1,6 @@
 // flixw unit checks -- the parts of stage 0 the shell suite cannot reach from outside.
 //
-//   javac -d <out> src/flixw.java src/flixw-help.java src/flixw-jdk.java \
+//   javac -d <out> src/stage0/flixw.java src/assets/flixw-help.java src/assets/flixw-jdk.java \
 //         tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
@@ -318,7 +318,7 @@ public final class UnitCheck {
      * every value below arrives as JSON from a third party.
      */
     static void provisioning() {
-        // These parse Adoptium's reply, which now lives in src/flixw-jdk.java -- stage 0
+        // These parse Adoptium's reply, which now lives in src/assets/flixw-jdk.java -- stage 0
         // no longer provisions. findJavaUnder below is still stage 0's: it *discovers* a
         // JDK the asset installed earlier, on every run, without fetching the asset.
         //

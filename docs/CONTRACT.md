@@ -139,7 +139,7 @@ URLs. The vendored copy is there to be executed and digest-checked — in your r
 in your diffs — so it ships as mechanism: 3288 lines instead of 4678, 152 KB instead of 255.
 
 **The transformation is reproducible, and that is the point.** Running
-`java tests/strip.java src/flixw.java <version>` on the tagged source regenerates the
+`java tests/strip.java src/stage0/flixw.java <version>` on the tagged source regenerates the
 published bytes exactly, so "read it before you trust it" survives the two artifacts being
 different files: read the documented source, regenerate, compare digests with what you
 have. A release whose published `flixw.java` did not match that would be detectable by

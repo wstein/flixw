@@ -4179,7 +4179,7 @@ public final class flixw {
      * asset. A wrapper that could not tell you your shim was wrong without a network
      * would be worse than one that cannot fix it.
      *
-     * <p>{@code tests/lint.sh} hashes {@code src/flixw} and {@code src/flixw.cmd} and
+     * <p>{@code tests/lint.sh} hashes {@code src/stage0/flixw} and {@code src/stage0/flixw.cmd} and
      * fails if either disagrees, so these cannot rot behind a shim edit.
      */
     /**
@@ -4214,9 +4214,9 @@ public final class flixw {
     }
 
     static final String SHIM_SHA256 =
-        "f0d8bfd875d0d8436a8dcf82c0afb757028de7f223f410c9a89822ab6b7cabbf";
+        "0862cc2ef47012a48df6d585cfe659fec887cc4af1b46b792686734132f00dfa";
     static final String CMD_SHA256 =
-        "ccaaefdc8aaf3303814849f2fe7c08900d2b5ba7c469b62d146b5739a5003e19";
+        "03b5b4740e73ea426ff82799185127cc24bb9b34a1419b4f6b2434c5f6352495";
 
     /**
      * Wrapper-owned, not a plugin -- fetched and verified against the release this stage 0

@@ -15,7 +15,7 @@
 # the inner shell, under the environment the case sets up, not when the case is written.
 set -eu
 
-# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flixw
+# shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 work=$root/tests/.work/run
 version=${FLIXW_TEST_VERSION:-0.75.2}
@@ -66,8 +66,8 @@ fileurl() {
 
 relfixture=$work/release
 mkdir -p "$relfixture"
-cp "$root/src/flixw.java" "$root/src/flixw-jdk.java" \
-   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
+cp "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
+   "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
    "$relfixture/"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$relfixture" && sha256sum flixw.java flixw-jdk.java \
@@ -78,7 +78,7 @@ else
 fi
 # The renderer's picocli rides the fixture exactly as it rides a real release, so the
 # suite exercises the same ensureAsset path a user takes rather than a special case.
-picocli_v=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
+picocli_v=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java")
 picocli_jar=$root/tests/.work/picocli-$picocli_v.jar
 if [ ! -f "$picocli_jar" ]; then
   curl -fsSL -o "$picocli_jar" \
@@ -347,8 +347,8 @@ def main(): Unit \ {IO, Sys.Exit} = {
 }
 EOF
 
-java "$root/src/flixw-setup.java" setup "$proj" > /dev/null
-cp "$root/src/flixw.java" "$proj/.flixw/flixw.java"
+java "$root/src/assets/flixw-setup.java" setup "$proj" > /dev/null
+cp "$root/src/stage0/flixw.java" "$proj/.flixw/flixw.java"
 
 # The suite's scratch tree lives inside this repository, which gitignores it. `validate`
 # reports gitignored wrapper files as a failure -- correctly -- so the fixture has to be
@@ -403,7 +403,7 @@ g 87 'unknown operation' "wrapper has no --install"             ./flixw wrapper 
 # An older instruction says `install`. It must fail loudly rather than quietly setting up a
 # directory of that name, which is what a fall-through-to-default verb did.
 t 87 "the setup asset rejects a stale verb rather than pathing it" \
-  java "$root/src/flixw-setup.java" install .
+  java "$root/src/assets/flixw-setup.java" install .
 # The bootstrap moved into flixw's namespace because `install` is a name Flix could claim
 # for a project's dependencies, and holding it meant `./flixw install` reached flixw rather
 # than the compiler in any project that had not pinned yet.
@@ -413,7 +413,7 @@ t 87 "the setup asset rejects a stale verb rather than pathing it" \
 # got the wrapper reinstalling itself instead.
 t 81 "install reaches ordinary dispatch, even with no lock"     sh -c '
   d=$1/bare-install; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw-setup.java" setup "$d" >/dev/null 2>&1
+  java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
   cd "$d" && rm -f .flixw/lock.toml
   ./flixw install' sh "$work" "$root"
 t 1  "...and did not quietly reinstall the wrapper"             sh -c '
@@ -591,7 +591,7 @@ t 0  "an upstream cached compiler carries no fork annotation" sh -c '
 t 0  "pin alone -- with no other command run against it -- records its own digest" sh -c '
   d=$1/pin-record-only; rm -rf "$d"; mkdir -p "$d"
   cd "$d" || exit 1
-  java "$2/src/flixw-setup.java" setup . >/dev/null 2>&1
+  java "$2/src/assets/flixw-setup.java" setup . >/dev/null 2>&1
   cp "$3/flix.toml" flix.toml
   cache="$d/.cache"
   FLIX_CACHE_HOME="$cache" ./flixw pin '"$version"' >/dev/null 2>&1
@@ -913,7 +913,7 @@ t 87 "wrapper --schema takes no arguments"                     ./flixw wrapper -
 # Offline and project-free, like --version: a build validating locks should be able to
 # carry its own copy of the schema rather than reaching the network for one.
 t 0  "wrapper --schema needs no project"                       sh -c '
-  cd "$1" && java "$2" wrapper --schema | grep -q json-schema.org' sh "$work" "$root/src/flixw.java"
+  cd "$1" && java "$2" wrapper --schema | grep -q json-schema.org' sh "$work" "$root/src/stage0/flixw.java"
 t 0  "every generated lock names the schema"                    sh -c '
   head -1 .flixw/lock.toml | grep -q "^#:schema https://wstein.github.io/flixw/schema/lock-v1.schema.json$"'
 t 0  "validate reports the lock as conforming and named"        sh -c '
@@ -1091,7 +1091,7 @@ g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific pro
 ./flixw completion bash >/dev/null 2>&1
 
 # ---- the JDK provisioner asset ------------------------------------------------------
-# Stage 0 no longer provisions: `wrapper --install-jdk` fetches src/flixw-jdk.java on the
+# Stage 0 no longer provisions: `wrapper --install-jdk` fetches src/assets/flixw-jdk.java on the
 # same footing as the completion generator and runs it. Everything below stops at or
 # before that fetch, because the step after it is a ~200MB download from Adoptium -- so
 # what is asserted here is the trust boundary, not the install, which is verified by hand.
@@ -1120,8 +1120,8 @@ g 84 'flixw-jdk.java' "SHA256SUMS silent on the provisioner names it specificall
 
 # The asset stands alone -- it is a program, launched by a JVM that may predate this one --
 # so its own argument handling is asserted directly, with no stage 0 and no network.
-t 87 "the provisioner rejects a wrong argument count"           java "$root/src/flixw-jdk.java"
-t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/flixw-jdk.java" x "$work"
+t 87 "the provisioner rejects a wrong argument count"           java "$root/src/assets/flixw-jdk.java"
+t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/assets/flixw-jdk.java" x "$work"
 
 # The whole of runJdkAsset -- fetch, verify, cache, launch, read the one line it prints,
 # probe it -- with a stand-in provisioner that names the JVM already running. The real one
@@ -1129,7 +1129,7 @@ t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/
 # the trust path is exercised exactly as it is in production, only the payload differs.
 stub=$work/jdkstub
 rm -rf "$stub" && mkdir -p "$stub"
-cp "$root/src/flixw-help.java" "$stub/"
+cp "$root/src/assets/flixw-help.java" "$stub/"
 cat > "$stub/flixw-jdk.java" <<'STUB'
 final class flixwjdk {
     public static void main(String[] a) {
@@ -1149,9 +1149,9 @@ t 0  "...and it was cached under the shared asset tree"         sh -c '
 
 # Stage 0 itself must no longer carry any of it: a grep is the only check that stays true
 # after someone "helpfully" restores one of these for a quick fix.
-t 1  "stage 0 names no JDK vendor endpoint"                     grep -q "api.adoptium.net" "$root/src/flixw.java"
-t 1  "stage 0 has no archive unpacker"                          grep -q "ZipInputStream" "$root/src/flixw.java"
-t 1  "stage 0 never prompts for a download"                     grep -q "FLIXW_INSTALL_JDK" "$root/src/flixw.java"
+t 1  "stage 0 names no JDK vendor endpoint"                     grep -q "api.adoptium.net" "$root/src/stage0/flixw.java"
+t 1  "stage 0 has no archive unpacker"                          grep -q "ZipInputStream" "$root/src/stage0/flixw.java"
+t 1  "stage 0 never prompts for a download"                     grep -q "FLIXW_INSTALL_JDK" "$root/src/stage0/flixw.java"
 
 # --- a FLIX_JAR that names flixw's own cache -------------------------------
 # The failure this closes: cache names are content-addressed, so a re-pin changes them.
@@ -1385,7 +1385,7 @@ t 80 "FLIX_PROJECT_ROOT naming no directory"                    env FLIX_PROJECT
 # write one without a pinned compiler.
 t 0  "pin works in a project with no manifest yet"              sh -c '
   d=$1/bare; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw-setup.java" setup "$d" >/dev/null 2>&1
+  java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
   cd "$d" && ./flixw pin '"$version"' >/dev/null 2>&1
   test -f .flixw/lock.toml' sh "$work" "$root"
 g 81 'nested' "the nearest manifest wins over the anchor's"     sh -c 'cd nested && ../flixw -- --version'
@@ -1440,7 +1440,7 @@ t 87 "completion takes exactly one shell"                       ./flixw completi
 # wrapper verbs plus the built-in table rather than failing.
 t 0  "completion needs no project at all"                       sh -c '
   d=$1/nocomp; rm -rf "$d"; mkdir -p "$d"
-  cd "$d" && java "$2/src/flixw.java" completion fish | grep -q "__fish_use_subcommand"' sh "$work" "$root"
+  cd "$d" && java "$2/src/stage0/flixw.java" completion fish | grep -q "__fish_use_subcommand"' sh "$work" "$root"
 
 # The scripts are loaded by real shells, not merely grepped: a completion that parses in a
 # test harness and not in the shell it is for has been tested for the wrong thing.
@@ -1488,7 +1488,7 @@ t 87 "FLIX_JAR pointing at nothing is a usage error"            env FLIX_JAR=/no
 # a local build runs into, so it is documented in docs/CONTRACT.md and asserted here.
 g 81 'lock.toml' "FLIX_JAR does not substitute for a pin"       sh -c '
   d=$1/nolock; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw-setup.java" setup "$d" >/dev/null 2>&1
+  java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
   cd "$d" && FLIX_JAR="$1/impostor/impostor.jar" ./flixw check' sh "$work" "$root"
 t 0  "a read-only verb cache stays silent"                      sh -c '
   chmod -R a-w "$FLIX_CACHE_HOME/verbs"
@@ -1502,7 +1502,7 @@ t 0  "a read-only verb cache stays silent"                      sh -c '
 for spelling in --help -h help; do
   g 0 'repository-local Flix bootstrap' "$spelling works before any project is pinned" sh -c '
     d=$1/nolock-help; rm -rf "$d"; mkdir -p "$d"
-    java "$2/src/flixw-setup.java" setup "$d" >/dev/null 2>&1
+    java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
     cd "$d" && ./flixw '"$spelling"'' sh "$work" "$root"
 done
 
@@ -1575,8 +1575,8 @@ t 0  "stdout carries only compiler output"                      sh -c '
 echo "unit checks"
 # flixw-help.java links against picocli, so the unit checks compile against the same jar the
 # release publishes -- staged into tests/.work above, beside the release fixture.
-javac -cp "$picocli_jar" -d "$work/unit" "$root/src/flixw.java" "$root/src/flixw-help.java" \
-  "$root/src/flixw-jdk.java" \
+javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/src/assets/flixw-help.java" \
+  "$root/src/assets/flixw-jdk.java" \
   "$root/tests/UnitCheck.java"
 set +e
 java -cp "$work/unit:$picocli_jar" UnitCheck "$root/tests/corpus" "$root/tests/schema"
@@ -1652,7 +1652,7 @@ g 88 'markers' "an unbalanced flixw marker is a failure"         sh -c '
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
 t 0  "doctor --fix is a no-op when files match"                ./flixw doctor --fix
 g 0  'rewrote' "doctor --fix repairs a clobbered shim"        sh -c 'echo broken > flixw.cmd; ./flixw doctor --fix'
-t 0  "the repaired shim matches the source of truth"            cmp flixw.cmd "$root/src/flixw.cmd"
+t 0  "the repaired shim matches the source of truth"            cmp flixw.cmd "$root/src/stage0/flixw.cmd"
 t 0  "doctor --fix restores the executable bit"                sh -c 'chmod -x flixw; java .flixw/flixw.java doctor --fix; test -x flixw'
 
 # flixw's own namespace is answered before dispatch, so nothing can take it away: not a
@@ -1679,10 +1679,10 @@ g 88 'rewrote' "doctor --fix survives an unreadable lock"        sh -c '
 # 'install'.` That broke every upgrade from 0.18.0, and it is invisible to any test that
 # does not set the variable, so the case sets it deliberately.
 t 0 "the installer ignores a stale FLIXW_SOURCE"                sh -c '
-  cp "$1/src/flixw-setup.java" "$2/elsewhere-setup.java"
+  cp "$1/src/assets/flixw-setup.java" "$2/elsewhere-setup.java"
   rm -rf "$2/upgraded" && mkdir -p "$2/upgraded"
   FLIXW_SOURCE="$PWD/.flixw/flixw.java" \
-    java "$2/elsewhere-setup.java" setup "$2/upgraded" "$1/src/flixw.java" \
+    java "$2/elsewhere-setup.java" setup "$2/upgraded" "$1/src/stage0/flixw.java" \
       >/dev/null 2>&1 || exit 1
   test -x "$2/upgraded/flixw" && test -f "$2/upgraded/.flixw/flixw.java"' sh "$root" "$work"
 
@@ -1696,10 +1696,10 @@ rm -rf "$newrel" && mkdir -p "$newrel"
 # A release that is genuinely newer, so the downgrade guard has to let it through. Same
 # tree with the version rewritten: what is under test is the upgrade machinery, not a diff.
 sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
-  "$root/src/flixw.java" > "$newrel/flixw.java"
+  "$root/src/stage0/flixw.java" > "$newrel/flixw.java"
 sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
-  "$root/src/flixw-setup.java" > "$newrel/flixw-setup.java"
-cp "$root/src/flixw-help.java" "$root/src/flixw-jdk.java" "$newrel/"
+  "$root/src/assets/flixw-setup.java" > "$newrel/flixw-setup.java"
+cp "$root/src/assets/flixw-help.java" "$root/src/assets/flixw-jdk.java" "$newrel/"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$newrel" && sha256sum flixw.java flixw-setup.java flixw-help.java \
      flixw-jdk.java > SHA256SUMS)
@@ -1709,7 +1709,7 @@ else
 fi
 upgproj=$work/upgraded-real
 rm -rf "$upgproj" && mkdir -p "$upgproj"
-java "$root/src/flixw-setup.java" setup "$upgproj" "$root/src/flixw.java" >/dev/null 2>&1
+java "$root/src/assets/flixw-setup.java" setup "$upgproj" "$root/src/stage0/flixw.java" >/dev/null 2>&1
 g 0 '0.25.2 -> 9.9.9' "upgrade moves the project to a newer release"  sh -c '
   cd "$1" && FLIXW_RELEASE_SOURCE="$2/" FLIXW_ASSET_SOURCE="$2/" \
     ./flixw wrapper --upgrade 2>&1' sh "$upgproj" "$(fileurl "$newrel")"
@@ -1729,7 +1729,7 @@ t 0 "...and the new release's assets were warmed"                sh -c '
 # anything. It asserted nothing while looking like it asserted the digest guard.
 tamperproj=$work/upgraded-tampered
 rm -rf "$tamperproj" && mkdir -p "$tamperproj"
-java "$root/src/flixw-setup.java" setup "$tamperproj" "$root/src/flixw.java" >/dev/null 2>&1
+java "$root/src/assets/flixw-setup.java" setup "$tamperproj" "$root/src/stage0/flixw.java" >/dev/null 2>&1
 g 85 'digest mismatch' "upgrade refuses a release whose stage 0 was tampered with"  sh -c '
   bad=$2-tampered; rm -rf "$bad"; cp -R "$2" "$bad"
   printf "\n// tampered\n" >> "$bad/flixw.java"
@@ -1762,12 +1762,12 @@ echo "install advice"
 # reader to pin reads as though the upgrade had lost their compiler.
 g 0 'commit all five files' "first contact says to pin"          sh -c '
   d=$1/advice-new; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw-setup.java" setup "$d" 2>&1' sh "$work" "$root"
+  java "$2/src/assets/flixw-setup.java" setup "$d" 2>&1' sh "$work" "$root"
 g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
   d=$1/advice-pinned; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw-setup.java" setup "$d" >/dev/null 2>&1
+  java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
   cp "$3/.flixw/lock.toml" "$d/.flixw/lock.toml"
-  java "$2/src/flixw-setup.java" setup "$d" 2>&1' sh "$work" "$root" "$proj"
+  java "$2/src/assets/flixw-setup.java" setup "$d" 2>&1' sh "$work" "$root" "$proj"
 
 # --- git integration -------------------------------------------------------
 echo "git integration"
@@ -1826,7 +1826,7 @@ fi
 echo "plugins"
 pp=$work/pluginproj
 rm -rf "$pp" && mkdir -p "$pp"
-java "$root/src/flixw-setup.java" setup "$pp" >/dev/null 2>&1
+java "$root/src/assets/flixw-setup.java" setup "$pp" >/dev/null 2>&1
 git init -q "$pp"
 (cd "$pp" && ./flixw pin "$version" >/dev/null 2>&1)
 ppcv=$(cd "$pp" && ./flixw info 2>/dev/null | awk '/^compiler /{print $2}')
@@ -1963,7 +1963,7 @@ g 0  'expected by lock.toml but not installed' \
 
 pp3=$work/pluginproj-nolock
 rm -rf "$pp3" && mkdir -p "$pp3"
-java "$root/src/flixw-setup.java" setup "$pp3" >/dev/null 2>&1
+java "$root/src/assets/flixw-setup.java" setup "$pp3" >/dev/null 2>&1
 git init -q "$pp3"
 t 0  "plugin install works before any project has ever been pinned" sh -c '
   cd "$1" && ./flixw plugin install echoer 1.0.0 "$2/pluginjar/plugin.jar" >/dev/null 2>&1' \

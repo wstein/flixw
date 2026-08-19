@@ -28,8 +28,8 @@ parity, lock-schema parity, and size; `run.sh` is the end-to-end regression suit
 
 ## Change expectations
 
-- Keep `src/flixw`, `src/flixw.cmd`, and the `SHIM`/`CMD` text blocks in
-  `src/flixw.java` byte-identical where applicable.
+- Keep `src/stage0/flixw`, `src/stage0/flixw.cmd`, and the `SHIM`/`CMD` text blocks in
+  `src/stage0/flixw.java` byte-identical where applicable.
 - Preserve the stock-compiler, atomic-acquisition, unconditional-digest, and inherited
   stdio/cwd invariants.
 - Add a regression for a behavioural change. Add a lock fixture rather than hard-coding
