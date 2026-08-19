@@ -373,9 +373,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3368 | 3050 |
+| code lines in `src/flixw.java` | 3313 | 3050 |
 | comment density | 28% | ≥25% floor |
-| bytes | 277921 | 237000 |
+| bytes | 275286 | 237000 |
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is
