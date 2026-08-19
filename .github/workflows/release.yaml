@@ -57,15 +57,32 @@ jobs:
         run: |
           notes=$(mktemp)
           {
-            printf '## Install into an existing project\n\n'
-            printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-%s.tar.gz\n' \
-                   "$GITHUB_REPOSITORY" "$TAG" "$version"
-            printf 'tar -xzf flixw-%s.tar.gz     # writes flixw, flixw.cmd, .flixw/flixw.java\n' "$version"
+            # Setup-first, matching the README's own order. The one-file route is the one
+            # somebody can actually audit before running -- ~640 lines against stage 0's
+            # 3000 -- so it leads, and the digest is printed above the command rather than
+            # piped into a checker, because a reader who cannot see it cannot check it.
+            setup_sha=$(awk '$2 == "flixw-setup.java" { print $1 }' dist/SHA256SUMS)
+            printf '## Start here: one file, verified\n\n'
+            printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-setup.java\n' \
+                   "$GITHUB_REPOSITORY" "$TAG"
+            printf 'sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java\n```\n\n'
+            printf 'It must print exactly this, and if it does not, stop:\n\n'
+            printf '```\n%s  flixw-setup.java\n```\n\n' "$setup_sha"
+            printf 'Then, in the project you want to use Flix in:\n\n'
+            printf '```console\njava ./flixw-setup.java        # writes flixw, flixw.cmd and .flixw/flixw.java\n'
             printf './flixw pin <flix-version>     # writes the lock and fetches the compiler\n'
             printf './flixw doctor --fix           # merges the .gitattributes block\n```\n\n'
-            printf 'A `.zip` with the same contents is attached for machines without `tar`, and '
-            printf '`flixw-setup.java` on its own is the one-file route: verify it, run it,\n'
-            printf 'and it fetches this release'"'"'s stage 0.\n\n'
+            printf 'It fetches this release'"'"'s stage 0 and verifies it against the digests '
+            printf 'below.\n\n'
+            printf '## Or the archive, if you would rather not run a downloaded program first\n\n'
+            printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-%s.tar.gz\n' \
+                   "$GITHUB_REPOSITORY" "$TAG" "$version"
+            printf 'tar -xzf flixw-%s.tar.gz   # writes flixw, flixw.cmd, .flixw/flixw.java\n' "$version"
+            printf './flixw pin <flix-version>\n./flixw doctor --fix\n```\n\n'
+            printf 'A `.zip` with the same contents is attached for machines without `tar`. '
+            printf 'Both archives are built by running the installer into a staging directory, '
+            printf 'so the archive route cannot drift from the install route.\n\n'
+            printf '## The companion assets\n\n'
             printf 'The `flixw-*.java` assets are companion programs, fetched on first use '
             printf 'per machine and verified against the digests below. They are not '
             printf 'installed into a project; `wrapper --upgrade` warms all of them.\n\n'
@@ -73,10 +90,17 @@ jobs:
             printf 'unmodified upstream artifact, Apache-2.0, used only by `flixw-help.java` '
             printf 'and only by `./flixw help`. Stage 0 never loads it and no project ever '
             printf 'commits it; see `THIRD_PARTY_NOTICES.md`, attached.\n\n'
-            printf 'Verify before you run it -- these digests are the ones this workflow built:\n\n'
+            printf '`flixw.java` here is the stripped stage 0 -- the documented source with '
+            printf 'its commentary removed. `java tests/strip.java src/stage0/flixw.java %s ' "$version"
+            printf '"stage 0"` at tag %s regenerates it byte for byte.\n\n' "$TAG"
+            printf '## Verify before you run it\n\n'
+            printf 'These digests are the ones this workflow built:\n\n'
             printf '```\n'
             cat dist/SHA256SUMS
-            printf '```\n'
+            printf '```\n\n'
+            printf 'The digest above the setup command is printed on this page *and* in the '
+            printf "repository's README, which is a different artifact with its own history "
+            printf '%s\n' '-- a second opinion rather than an echo.'
           } > "$notes"
           # Every 0.x is a pre-release. The paper calls this an experiment and the README
           # says so on its first line; publishing them as finished releases would say

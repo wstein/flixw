@@ -52,29 +52,47 @@ strings, digests and paths will differ on your machine.
 
 ### 1. Download the setup program, and check it
 
-The expected SHA-256 for v0.25.2 is
+```console
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.2/flixw-setup.java
+sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
+```
+
+It must print exactly this, and if it does not, stop:
 
 ```
 ac7983cb9f1189e0cfcd7fdfe11d628b2d151bdc3df3c5a15391d63fe7a66caa  flixw-setup.java
 ```
 
-```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.2/flixw-setup.java
+**The digest comes from this page, not from the download.** That is the whole point of the
+step. Taking it from the release's own `SHA256SUMS` would prove only that the file arrived
+intact — a tampered release would carry a matching `SHA256SUMS` to go with it. This page is
+a different artifact with its own history, so it is a second opinion rather than an echo,
+and `tests/lint.sh` fails if it ever stops matching what a release actually publishes.
 
-# paste the digest above; this prints "OK" and exits non-zero if it does not match
+`sha256sum` is coreutils and busybox; `shasum -a 256` is what stock macOS has. Neither is on
+every machine, which is why both are given.
+
+<details>
+<summary>The same as one command, for scripts and CI</summary>
+
+Comparing by eye is fine for a one-off. A pipeline wants an exit status:
+
+```console
 echo "ac7983cb9f1189e0cfcd7fdfe11d628b2d151bdc3df3c5a15391d63fe7a66caa  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
-That is a check, not a comparison you make by eye — but the digest still comes from this
-page, not from the download. The digest is printed here rather than piped
-from the release's own `SHA256SUMS`, because taking it from the same place as the file
-proves only that the download arrived intact. This page is a different artifact, on a
-different path, with its own history — a second opinion rather than an echo, and
-`tests/lint.sh` fails if it stops matching what a release publishes.
+It prints `flixw-setup.java: OK` and exits non-zero on a mismatch.
 
-`sha256sum` is coreutils and busybox; `shasum -a 256` is what stock macOS has. Neither is
-on every machine, which is why both are given.
+Verifying against the release's own manifest instead is one line shorter and one guarantee
+weaker — it catches a corrupted or intercepted download, not a replaced release:
+
+```console
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.2/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS    # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
+```
+
+</details>
 
 <details>
 <summary>The same, in cmd.exe</summary>
