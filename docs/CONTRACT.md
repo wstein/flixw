@@ -533,7 +533,7 @@ up for. It has always been a one-time, explicit command that already cost a JVM 
 templates it fills in now live in `src/flixw-completion.java`, a small companion source
 file fetched from the same flixw release this stage 0 is, verified against that release's
 own `SHA256SUMS` — the same trust footing `wrapper --upgrade` already gives `flixw.java`
-itself — and cached under `<cache>/wrapper/completion/<version>/`. Only the *first*
+itself — and cached under `<cache>/wrapper/assets/<version>/`. Only the *first*
 `--completion` call on a machine, for a given release, needs network; every call after
 that, from any project, is an offline cache hit. A cold cache with no network reachable
 fails with `FLIXW005` naming what could not be reached, the same shape a failed compiler
@@ -833,8 +833,10 @@ between shim and stage 0, not an implementation detail:
 <cache>/jdks/default                 # one line: the java the last install produced
 <cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}
 <cache>/plugins/.context-*.json      # one per invocation, deleted by a shutdown hook
-<cache>/wrapper/completion/<version>/flixw-completion.java        # the TAB-completion generator
-<cache>/wrapper/completion/<version>/flixw-completion.java.sha256 # verified once, checked locally after
+<cache>/wrapper/assets/<version>/flixw-completion.java        # the TAB-completion generator
+<cache>/wrapper/assets/<version>/flixw-completion.java.sha256 # verified once, checked locally after
+<cache>/wrapper/assets/<version>/flixw-jdk.java               # the optional JDK provisioner
+<cache>/wrapper/assets/<version>/flixw-jdk.java.sha256        # same, one sidecar per asset
 ```
 
 The stage-0 class is compiled with `--release 21`, the same floor `MIN_JAVA` declares.
