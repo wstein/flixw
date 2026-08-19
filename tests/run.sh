@@ -1558,11 +1558,6 @@ set -e
 case $rc:$upg in
   0:*"Nothing to do"*)
     pass=$((pass + 1)); printf '  ok   %-52s rc=%s\n' "upgrade declines to downgrade" "$rc" ;;
-  *"names no digest for flixw.java"*)
-    # Every release up to 0.19.1 published stage 0 as flix.java. Until one ships under
-    # the current name there is nothing for this to compare against, and saying so beats
-    # asserting against whatever the feed happens to hold.
-    s "upgrade declines to downgrade" "no published release carries flixw.java yet" ;;
   *)
     fail=$((fail + 1)); printf '  FAIL %-52s rc=%s\n' "upgrade declines to downgrade" "$rc"
     printf '       %s\n' "$(printf '%s' "$upg" | head -3 | tr '\n' '|')" ;;
@@ -1626,7 +1621,14 @@ if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
       set -e
       ls "$1"/flixw-*.tar.gz "$1"/flixw-*.zip "$1"/flixw.java "$1"/SHA256SUMS' sh "$pk/out"
     # install into ref, minus the file the archives deliberately leave out.
-    java "$root/src/flixw.java" wrapper --install "$pk/ref" >/dev/null 2>&1 || true
+    #
+    # From the *published* stage 0, not from src/. What a release ships is the documented
+    # source with its comments stripped, and pack.sh puts that in the archives -- so
+    # installing from src/ here would compare a stripped archive against a documented
+    # reference and call the difference a drift. Both routes still have to agree; they just
+    # both start from the artifact the release actually publishes, which is the thing this
+    # case exists to pin down.
+    java "$pk/out/flixw.java" wrapper --install "$pk/ref" >/dev/null 2>&1 || true
     rm -f "$pk/ref/.gitattributes"
     t 0 "the tarball unpacks to exactly what install writes"     sh -c '
       tar -xzf "$1"/flixw-*.tar.gz -C "$2" && diff -r "$3" "$2"' sh "$pk/out" "$pk/tar" "$pk/ref"

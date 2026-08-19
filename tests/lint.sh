@@ -329,6 +329,72 @@ else
   head -20 "$work/javadoc.log"
 fi
 
+# --- 8b. the stage 0 that actually ships -----------------------------------
+# Projects commit .flixw/flixw.java into their own repositories, so what they receive is
+# the documented source with its commentary removed -- generated at release time by
+# tests/strip.java. That makes the readable artifact and the running one different files,
+# which is only honest while anyone can regenerate the second from the first. These checks
+# are what "reproducible" means here in practice.
+version=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java" | head -1)
+# The file has to be named for the class it declares, or javac rejects it before reading a
+# line -- which would report a stripper bug that is not there.
+mkdir -p "$work/shipdir"
+if java "$root/tests/strip.java" "$root/src/flixw.java" "$version" >"$work/shipdir/flixw.java" \
+      2>"$work/strip.log"; then
+  # Determinism first: everything below is worthless if two runs can differ.
+  java "$root/tests/strip.java" "$root/src/flixw.java" "$version" >"$work/shipped2.java" 2>&1
+  if cmp -s "$work/shipdir/flixw.java" "$work/shipped2.java"; then
+    say "ok    the stripper is deterministic"
+  else
+    bad "tests/strip.java is not deterministic; the published bytes cannot be reproduced"
+  fi
+
+  # It has to be the same program. A stripper that ate a string literal, or read the
+  # `"""` inside a comment as a text block, produces something javac rejects -- and the
+  # release would ship it to every project that installed.
+  if javac -d "$work/shipped-classes" "$work/shipdir/flixw.java" >"$work/shipped.log" 2>&1; then
+    say "ok    the shipped stage 0 compiles"
+  else
+    bad "the stripped stage 0 does not compile"
+    head -5 "$work/shipped.log"
+  fi
+  if [ -n "$floor" ]; then
+    if javac --release "$floor" -d "$work/shipped-floor" "$work/shipdir/flixw.java" \
+          >"$work/shipped-floor.log" 2>&1; then
+      say "ok    the shipped stage 0 compiles at Java $floor"
+    elif grep -q "release version $floor not supported" "$work/shipped-floor.log"; then
+      say "skip  shipped floor check (this javac no longer targets $floor)"
+    else
+      bad "the stripped stage 0 no longer compiles at Java $floor"
+    fi
+  fi
+
+  # Behaviour, not just syntax: --schema renders the lock format from LOCK_SCHEMA through
+  # a string builder full of quotes and escapes, so it is the output most likely to notice
+  # a stripper that mishandled a literal.
+  if java "$work/shipdir/flixw.java" wrapper --schema >"$work/shipped-schema.json" 2>&1 \
+     && cmp -s "$work/shipped-schema.json" "$root/docs/schema/lock-$schema_version.schema.json"; then
+    say "ok    the shipped stage 0 emits the same lock schema"
+  else
+    bad "the shipped stage 0 emits a different lock schema than the documented one"
+  fi
+
+  # The header is the whole of what a vendored copy tells its reader, so it has to carry
+  # the two places the commentary actually lives.
+  missing=
+  for url in "https://wstein.github.io/flixw/" "https://github.com/wstein/flixw"; do
+    grep -qF "$url" "$work/shipdir/flixw.java" || missing="$missing $url"
+  done
+  if [ -z "$missing" ]; then
+    say "ok    the shipped header names the docs and the source"
+  else
+    bad "the shipped stage 0 does not name:$missing"
+  fi
+else
+  bad "tests/strip.java did not run"
+  head -5 "$work/strip.log"
+fi
+
 # --- 9. cmd.exe line endings -----------------------------------------------
 # CRLF is load-bearing for cmd.exe: a LF-only .cmd breaks multi-line if/for blocks.
 if od -c "$root/src/flixw.cmd" | grep -q '\\r'; then
@@ -356,7 +422,7 @@ fi
 # it is asking for.
 MAX_CODE_LINES=2923          # target: 2900 -- see "What detaches, and what does not" in AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=255285             # target: 225000, derived from the two numbers above
+MAX_BYTES=255412             # target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
