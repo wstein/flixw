@@ -15,6 +15,9 @@
 # 7. schema parity              docs/schema/ is what `wrapper --schema` emits, nothing else
 # 8. javadoc                    the published API docs build with no malformed doc comment
 # 9. CRLF                       src/flixw.cmd must keep its cmd.exe line endings
+# 10. the size ratchet         stage 0 is shrinking to a verified launcher; the code-line
+#                              ceiling and the comment-density floor hold that, pulling
+#                              against each other so neither is met at the other's cost
 set -eu
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/flixw
@@ -221,6 +224,75 @@ if od -c "$root/src/flixw.cmd" | grep -q '\\r'; then
   say "ok    src/flixw.cmd has CRLF line endings"
 else
   bad "src/flixw.cmd must have CRLF line endings"
+fi
+
+# --- 10. the size ratchet --------------------------------------------------
+# Stage 0 is heading for a verified-launcher contract, and the three numbers below are
+# how that shrink is held rather than intended. They are *ceilings at today's value*,
+# not the target: a gate set at the target fails every commit until the last one, which
+# means it gets commented out on the first day. Lower them as work lands; the advisory
+# at the bottom says when they have gone slack.
+#
+# The line gate counts *code* lines, excluding blanks and comment-only lines. A gate on
+# physical lines is a gate on comments, and comments are this repository's security
+# story -- "audited by strangers who must trust it with a download" is not a style
+# preference, it is the reason the density floor exists alongside the ceiling. The two
+# pull against each other on purpose: neither can be met by sacrificing the other.
+#
+# Text blocks count as code. The shims embed shell `case` arms beginning with `*` and
+# `/*`, which any leading-token classifier reads as javadoc -- so the density floor
+# could otherwise be met by shipping more embedded shell, which is the opposite of what
+# it is asking for.
+MAX_CODE_LINES=3513          # target: 2650 -- verified launcher + narrow plugin broker
+MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
+MAX_BYTES=286152             # target: 210000, derived from the two numbers above
+
+# shellcheck disable=SC2046  # deliberate: awk emits four bare integers to split on
+set -- $(awk '
+BEGIN { intb = 0 }
+{
+  line = $0; sub(/^[ \t]+/, "", line); n = length($0) + 1
+  if (intb)                     { kl++; kb += n; if (line ~ /^"""/) intb = 0; next }
+  if ($0 ~ /"""[ \t]*$/)        { kl++; kb += n; intb = 1; next }
+  if (line == "")               { bl++; next }
+  if (line ~ /^(\/\/|\*|\/\*)/) { cl++; next }
+  kl++; kb += n
+}
+END { printf "%d %d %d %d\n", kl, cl, bl, kb+cb+bb }
+' "$root/src/flixw.java")
+code=$1; comments=$2; blanks=$3
+bytes=$(wc -c < "$root/src/flixw.java" | tr -d ' ')
+physical=$((code + comments + blanks))
+density=$((comments * 100 / physical))
+
+if [ "$code" -le "$MAX_CODE_LINES" ]; then
+  say "ok    stage 0 is $code code lines (ceiling $MAX_CODE_LINES, target 2650)"
+else
+  bad "stage 0 grew to $code code lines; the ceiling is $MAX_CODE_LINES"
+  say "      the target is a verified launcher at 2650; raising the ceiling needs a reason"
+fi
+
+if [ "$density" -ge "$MIN_COMMENT_PCT" ]; then
+  say "ok    comment density is $density% of $physical lines (floor $MIN_COMMENT_PCT%)"
+else
+  bad "comment density fell to $density%; the floor is $MIN_COMMENT_PCT%"
+  say "      code shrinks by deleting subsystems, not by deleting the reasons for them"
+fi
+
+if [ "$bytes" -le "$MAX_BYTES" ]; then
+  say "ok    src/flixw.java is $bytes bytes (ceiling $MAX_BYTES, target 210000)"
+else
+  bad "src/flixw.java grew to $bytes bytes; the ceiling is $MAX_BYTES"
+fi
+
+# A ratchet that is never tightened is a ceiling, and a ceiling well above the work is
+# not a gate at all. Nudge, do not fail: the tightening is a deliberate edit, and it
+# belongs in the commit that earned it rather than in whatever commit trips a threshold.
+slack_lines=$((MAX_CODE_LINES - code))
+slack_bytes=$((MAX_BYTES - bytes))
+if [ "$slack_lines" -ge 100 ] || [ "$slack_bytes" -ge 5120 ]; then
+  say "note  the ratchet has gone slack by $slack_lines lines / $slack_bytes bytes"
+  say "      lower MAX_CODE_LINES to $code and MAX_BYTES to $bytes in tests/lint.sh"
 fi
 
 say ""

@@ -67,7 +67,7 @@ people's repositories already point at the schema URL this serves.
 The repository's configured checks, both required before a commit:
 
 ```sh
-sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF
+sh tests/lint.sh    # javac -Werror, shellcheck, shim byte-parity, schema parity, javadoc, CRLF, size
 sh tests/run.sh     # 212-case regression suite; one ~32MB download on a cold cache
 ```
 
@@ -194,6 +194,18 @@ deprecation notice. `FLIX_BACKEND=wrapper|compiler` forces a side during a trans
 `plugin` and `task` are namespaces, not bare verbs — see below — so nothing under them is
 subject to this retirement; only the two words `plugin` and `task` themselves are.
 
+**Bare wrapper verbs are staying.** Moving them under `wrapper --*` would delete verb
+capture, both help parsers, the `<cache>/verbs/*` records, `routingNotice` and the
+deprecation path — about 220 code lines, the difference between a 2400 and a 2650 target —
+and it was weighed and declined: `./flixw doctor` reading like `gradlew doctor` is the
+whole reason this CLI is nicer than the wrapper it is modelled on. The retirement
+machinery is the price of the spelling, and it is being paid deliberately.
+
+`pin` is the exception that already exists. It is dispatched *before* `selectJava`,
+`acquire` and `verbs()` — it never consults the compiler's verb set, so it is not subject
+to retirement at all. That is not an optimisation: `pin` is the documented repair for a
+project that cannot reach a compiler, so it cannot be routed by asking a compiler.
+
 ### Plugins and tasks are a stable ABI, not more stage-0 commands
 
 Two separate mechanisms, chosen deliberately over adding more builtin verbs: `./flixw
@@ -314,6 +326,48 @@ candidates directly, which is what a keypress asks, so it needs no readline simu
 also matches on the command's **base name**, so one `complete -c flixw` covers `flixw`,
 `./flixw` and an absolute path; bash matches the word as typed and needs both spellings
 registered.
+
+### Size is a ratchet, not an aspiration
+
+Stage 0 is shrinking toward a **verified launcher with a narrow plugin broker**: install,
+pin, strict lock and manifest floor, Java selection and relaunch, atomic acquisition,
+unconditional digest verification, launch, a minimal status, and the plugin broker. Rich
+maintenance moves out to verified companion assets, not to `./flixw plugin` — that
+dispatch requires a resolvable project root, so it cannot answer for a project whose lock
+is the broken thing. `src/flixw-completion.java` is the shape to copy.
+
+`tests/lint.sh` holds that with three numbers, all ceilings **at today's value** rather
+than at the target, so the gate is green on the way down instead of red until the last
+commit:
+
+| Gate | today | target |
+|---|---:|---:|
+| code lines in `src/flixw.java` | 3513 | 2650 |
+| comment density | 27% | ≥25% floor |
+| bytes | 286152 | 210000 |
+
+
+The line gate counts **code** lines — blanks and comment-only lines excluded — and the
+density floor pulls the other way on purpose. A gate on *physical* lines is a gate on
+comments, and the comments are the security story: a 2650-*physical*-line gate sits below
+the zero-comment floor of the keep-set above (~2050 code lines), so such a gate can only
+be met by deleting the reasons. Text blocks count as code; the shims embed shell `case`
+arms starting with `*` and `/*`, so a leading-token classifier would let the density floor
+be met by shipping more embedded shell.
+
+The three numbers must stay arithmetically compatible, and the byte target is *derived*
+from the other two rather than chosen. At the measured 53 bytes per code line and 69 per
+comment line, 2650 code lines at a 25% density is 3797 physical lines and 206509 bytes —
+so **a 100 KB target is unreachable**, being below even the zero-comment cost of 2650 code
+lines (140 KB). When one number moves, re-derive the others rather than picking a round one.
+
+The target is 2650 rather than 2400 because bare wrapper verbs are staying (see "Dispatch
+is compiler-first" above), and
+verb capture is what makes them safe. Buying the last 250 lines means giving them up.
+
+Lowering a ceiling is a deliberate edit and belongs in the commit that earned it; lint
+prints a `note` when the slack passes 100 lines or 5 KB rather than failing, because the
+commit that happens to trip a threshold is rarely the commit that should own the change.
 
 ### Invariants that are load-bearing
 
