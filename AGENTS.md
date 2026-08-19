@@ -471,7 +471,30 @@ keeps `SHIM_SHA256`/`CMD_SHA256`, so `validate` and `doctor` still detect a drif
 the shape to copy when something looks stuck: keep the *judgement* resident and move the
 *bytes*.
 
-**Rich maintenance is not extractable the way provisioning was.** `info`, `doctor` and
+#### The test that keeps being got wrong
+
+Twice now a candidate was scored low by asking *"does it share primitives with stage 0?"*
+and stopping at yes. That is the wrong question, and it was wrong both times.
+
+The right one is: **can the judgement stay resident while the bulk leaves?** The installer
+looked unmovable because `validate` compares shims against `SHIM`/`CMD` — until stage 0
+kept two SHA-256 constants and 428 lines left. `info --verbose` looked unmovable because
+listing JDKs needs `knownInstalls`/`probeVersion`/`probe` — until you notice `selectJava`
+already enumerates every candidate before choosing one, so stage 0 holds the list and can
+simply hand it over.
+
+So a read-only inspection asset (`flixw-inspect.java`) is viable on one condition: it
+**receives gathered state and never re-gathers**. Passing the resolved JDK candidates,
+lock and compiler status, cache root and plugin/asset summaries costs ~20 lines and moves
+~90. Letting it rescan would cost 128 lines of duplicated primitives *and* create a second
+source of JDK policy — the one shown in `info` would be the one that never runs during
+selection, free to disagree with the one that does.
+
+The same condition applies to any deep-audit asset: whichever of them owns cache walking,
+the other calls it, or the duplication returns through a side door.
+
+**Rich maintenance is not extractable the way provisioning was** — as a whole. Its
+*gathering* is not extractable; its *rendering* is. `info`, `doctor` and
 `validate` are views over state the verified chain computes anyway, so moving them
 relocates the presentation and duplicates the gathering. A companion asset earns its
 keep when it removes work, not when it removes a rendering of work that still happens.
