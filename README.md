@@ -129,7 +129,11 @@ rm flixw-setup.java
 In your project it writes the wrapper files and nothing else — it merges its block into an
 existing `.gitattributes` rather than replacing it, and never touches `flix.toml` or
 `.flixw/lock.toml`. It does reach the network once, to fetch and digest-verify this
-release's wrapper code into a cache outside your project.
+release's wrapper code into a cache outside your project. It also writes a small
+user-wide launcher to `~/bin/flixw` (or `FLIXW_BIN_HOME/flixw`): once `~/bin` is on your
+`PATH`, `flixw info` from a project delegates to that project's checked-in `./flixw`.
+The launcher never selects a compiler or supplies a lock, and reports an error outside a
+project tree.
 
 **Its last line tells you which of two situations you are in.**
 
@@ -408,10 +412,10 @@ The schema, the API docs for stage 0, and a short index of both live at
 ## TAB completion
 
 ```sh
-./flixw wrapper --completion bash > ~/.local/share/bash-completion/completions/flixw
-./flixw wrapper --completion zsh  > "${fpath[1]}/_flixw"
-./flixw wrapper --completion fish > ~/.config/fish/completions/flixw.fish
-./flixw wrapper --completion pwsh >> $PROFILE
+./flixw completion bash > ~/.local/share/bash-completion/completions/flixw
+./flixw completion zsh  > "${fpath[1]}/_flixw"
+./flixw completion fish > ~/.config/fish/completions/flixw.fish
+./flixw completion pwsh >> $PROFILE
 ```
 
 Write it once. The script holds no verbs — it reads them when you press TAB from a note the
@@ -419,7 +423,7 @@ wrapper keeps in `.flixw/local/`, so completion follows the pin and you do not r
 anything after `./flixw pin`. Different projects on the same machine complete their own
 verbs. Nothing starts a JVM at TAB time, so TAB stays instant.
 
-The generator behind `wrapper --completion` is fetched from the flixw release you're
+The generator behind `completion` is fetched from the flixw release you're
 running and cached machine-wide, the same way `wrapper --upgrade` fetches `flixw.java`
 itself — so the very first `--completion` call on a machine, for a given flixw release,
 needs network once; every call after that, from any project, is offline.

@@ -36,6 +36,7 @@ proj=$work/proj
 if command -v cygpath >/dev/null 2>&1; then cache_native=$(cygpath -m "$cache")
 else cache_native=$cache; fi
 export FLIX_CACHE_HOME="$cache_native"
+export FLIXW_BIN_HOME="$work/bin"
 
 # The suite asserts what flixw does with a *clean* environment, and every variable below
 # changes that. A developer working on a Flix fork legitimately has FLIX_JAR exported, and
@@ -1006,15 +1007,15 @@ echo "completion"
 # every companion asset, which is what ensureAsset looks a wanted name up in.
 complfixture=$relfixture
 
-t 87 "wrapper --completion needs a shell"                      ./flixw wrapper --completion
-t 87 "wrapper --completion rejects an unknown shell"           ./flixw wrapper --completion csh
-t 87 "wrapper --completion takes one shell only"               ./flixw wrapper --completion bash zsh
+t 87 "completion needs a shell"                      ./flixw completion
+t 87 "completion rejects an unknown shell"           ./flixw completion csh
+t 87 "completion takes one shell only"               ./flixw completion bash zsh
 # Project-free, like --schema: a dotfiles repository generating completers has no lock and
 # no compiler. Not offline, unlike --schema -- see the fetch/cache/verify cases below --
 # but this one call is a cache hit already by the time it runs, from the shell already
 # exercised at the top of this section.
-t 0  "wrapper --completion needs no project"                   sh -c '
-  cd "$1" && java "$2" wrapper --completion bash | grep -q "complete -F _flixw"' \
+t 0  "completion needs no project"                   sh -c '
+  cd "$1" && java "$2" completion bash | grep -q "complete -F _flixw"' \
   sh "$work" "$root/src/flixw.java"
 
 # A stand-in project carrying only the note, so the completers can be driven against a
@@ -1023,8 +1024,8 @@ mkdir -p "$work/complproj/.flixw/local"
 printf 'build\ncheck\ndoctor\nrun\n' > "$work/complproj/.flixw/local/verbs"
 : > "$work/complproj/flixw"
 
-./flixw wrapper --completion bash > "$work/_flixw.bash"
-./flixw wrapper --completion zsh  > "$work/_flixw.zsh"
+./flixw completion bash > "$work/_flixw.bash"
+./flixw completion zsh  > "$work/_flixw.zsh"
 t 0  "the bash completer parses"                               bash -n "$work/_flixw.bash"
 if command -v zsh >/dev/null 2>&1; then
   t 0  "the zsh completer parses"                              zsh -n "$work/_flixw.zsh"
@@ -1033,7 +1034,7 @@ else
 fi
 # fish is the one completer that can be driven without simulating readline: `complete -C`
 # asks it for the candidates of a command line, which is exactly what a keypress asks.
-./flixw wrapper --completion fish > "$work/flixw.fish"
+./flixw completion fish > "$work/flixw.fish"
 if command -v fish >/dev/null 2>&1; then
   # --no-config, because a developer's own fish config is not part of what is under test
   # and a broken line in it would fail this suite for the wrong reason.  Unlike bash -c,
@@ -1125,10 +1126,10 @@ t 0  "the verb note is git-ignored"                            sh -c '
 # fixture's SHA256SUMS the same way --upgrade verifies flixw.java, and cached from there.
 t 0  "a cold cache fetches and verifies the generator"          sh -c '
   rm -rf "$1/wrapper"
-  ./flixw wrapper --completion bash >/dev/null 2>&1 || exit 1
+  ./flixw completion bash >/dev/null 2>&1 || exit 1
   find "$1/wrapper/assets" -name "flixw-completion.java.sha256" | grep -q .' sh "$cache"
 t 0  "a warm cache needs no source at all"                      sh -c '
-  FLIXW_ASSET_SOURCE="file:///nonexistent/" ./flixw wrapper --completion bash \
+  FLIXW_ASSET_SOURCE="file:///nonexistent/" ./flixw completion bash \
     | grep -q "complete -F _flixw"'
 g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh -c '
   rm -rf "$1/wrapper"
@@ -1139,23 +1140,23 @@ g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh
   printf "\n// tampered\n" >> "$bad/flixw-completion.java"
   if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
   else u="file://$bad"; fi
-  FLIXW_ASSET_SOURCE="$u/" ./flixw wrapper --completion bash' \
+  FLIXW_ASSET_SOURCE="$u/" ./flixw completion bash' \
   sh "$cache" "$work" "$complfixture"
 t 0  "...and nothing was cached"                                sh -c '
   ! find "$1/wrapper/assets" -name flixw-completion.java 2>/dev/null | grep -q .' sh "$cache"
 g 84 'cannot reach' "no network on a cold cache fails with a clear diagnostic"  sh -c '
   rm -rf "$1/wrapper"
-  FLIXW_ASSET_SOURCE=https://dist.invalid ./flixw wrapper --completion bash' sh "$cache"
+  FLIXW_ASSET_SOURCE=https://dist.invalid ./flixw completion bash' sh "$cache"
 empty=$work/emptycomplfixture
 rm -rf "$empty" && mkdir -p "$empty"
 : > "$empty/SHA256SUMS"
 g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific problem" sh -c '
   rm -rf "$1/wrapper"
-  FLIXW_ASSET_SOURCE="$2/" ./flixw wrapper --completion bash' sh "$cache" "$(fileurl "$empty")"
+  FLIXW_ASSET_SOURCE="$2/" ./flixw completion bash' sh "$cache" "$(fileurl "$empty")"
 # Restore a warm, valid cache: later sections in this suite share $cache, and leaving it
 # in whatever failure state the last negative case above left it in would be a trap for
 # the next person adding a case here, not a property this suite promises to anyone else.
-./flixw wrapper --completion bash >/dev/null 2>&1
+./flixw completion bash >/dev/null 2>&1
 
 # ---- the JDK provisioner asset ------------------------------------------------------
 # Stage 0 no longer provisions: `wrapper --install-jdk` fetches src/flixw-jdk.java on the

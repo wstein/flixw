@@ -121,7 +121,7 @@ policy cannot be overridden by `-ExecutionPolicy Bypass`, so a `.ps1` can be
 administratively unrunnable in exactly the corporate environments where it would matter.
 
 That reasoning is about the *shim*, and it does not change for completion.
-`./flixw wrapper --completion pwsh` prints a `Register-ArgumentCompleter` block for the
+`./flixw completion pwsh` prints a `Register-ArgumentCompleter` block for the
 user's own `$PROFILE`; it registers against the `flixw.cmd` that already ships, because
 PowerShell completes native commands including batch files. Nothing moves to a `.ps1`. If
 an execution policy stops `$PROFILE` from loading, the completer does not load either —
@@ -290,12 +290,12 @@ aliases, never fetched) are how the wrapper extends without adding more stage-0 
 see [CONTRACT.md](CONTRACT.md#plugins-and-tasks).
 
 TAB-completion generation has since moved out of `src/flixw.java`, but not onto the plugin
-mechanism above: `wrapper --completion` has to keep working with no project in scope, which
+mechanism above: `completion` has to keep working with no project in scope, which
 `./flixw plugin <name>` cannot (that dispatch always needs a resolvable project root). It is
 instead a wrapper-owned companion asset (`src/flixw-completion.java`), fetched from the
 matching flixw release and verified against that release's own `SHA256SUMS` — the same
 trust footing `wrapper --upgrade` already gives `flixw.java` itself — then cached. The
-honest cost, stated plainly the way this file's other entries are: `wrapper --completion`
+honest cost, stated plainly the way this file's other entries are: `completion`
 used to need no network at all; now its first call on a machine, for a given release, does.
 Every call after that is an offline cache hit, same as the compiler and JDK caches. JDK
 provisioning remains a migration *candidate* only, and is harder either way it might move —

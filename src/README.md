@@ -9,7 +9,7 @@ loaded, who verifies it, and what breaks if it is wrong.
 | `flixw` | shim (POSIX `sh`) | every invocation, before stage 0 |
 | `flixw.cmd` | shim (`cmd.exe`) | every invocation, before stage 0 |
 | `flixw-setup.java` | companion asset, **and the bootstrap** | run directly to adopt flixw; `doctor --fix` |
-| `flixw-completion.java` | companion asset | only `wrapper --completion` |
+| `flixw-completion.java` | companion asset | only `completion` |
 | `flixw-jdk.java` | companion asset | only `wrapper --install-jdk` |
 | `flixw-inspect.java` | companion asset | only `info --verbose` and `wrapper --purge` |
 | `flixw-help.java` | companion asset | only `help` — the one file linking against picocli |

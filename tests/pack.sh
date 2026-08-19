@@ -120,7 +120,7 @@ cp "$shipped" "$out/flixw.java"
 # Not packed into the archives: neither is ever installed into a project. Both are fetched
 # on first use and cached machine-wide -- ensureAsset in src/flixw.java expects them as
 # bare release assets beside flixw.java, not inside a tarball. flixw-jdk.java is reached by
-# `wrapper --install-jdk`, flixw-completion.java by `wrapper --completion <shell>`.
+# `wrapper --install-jdk`, flixw-completion.java by `completion <shell>`.
 # Stripped too, for the same reason stage 0 is: the commentary is written for whoever
 # audits flixw, and that reader is in the repository or on the site -- both named in the
 # header the stripper leaves behind. Compiled after stripping, because a release shipping

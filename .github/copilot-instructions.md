@@ -20,7 +20,7 @@ and `src/flixw.cmd` are shims that only locate a `java` and prefer the cached co
   compiler may be picocli-based; flixw observes that from the outside and delegates to the
   script the compiler emits. `src/flixw.java` imports nothing.
 - The completion scripts are text blocks in `src/flixw.java` with **no on-disk copies** —
-  unlike the shims. They are emitted by `wrapper --completion`, never installed, so
+  unlike the shims. They are emitted by `completion`, never installed, so
   `install`, `validate` and `doctor --fix` do not know about them. Do not add copies.
 - The cached compiler is SHA-256 verified on **every** run. One download attempt, at most one
   Java relaunch, no retry loops.

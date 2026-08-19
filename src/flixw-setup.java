@@ -628,6 +628,47 @@ final class flixwsetup {
         exit /b %ERRORLEVEL%
         """;
 
+    /**
+     * A user-wide convenience entry point. It deliberately contains no bootstrap policy:
+     * it merely finds a checked-in wrapper below the caller and lets that wrapper retain
+     * ownership of project discovery, Java selection and the compiler lock.
+     */
+    static final String GLOBAL_SHIM = """
+        #!/bin/sh
+        # flixw project launcher -- GENERATED; DO NOT EDIT.
+        # Written by flixw-setup.java into ~/bin (or $FLIXW_BIN_HOME). It finds the
+        # nearest checked-in flixw wrapper and delegates all policy to it.
+        set -eu
+        here=$(pwd -P)
+        while :; do
+          if [ -x "$here/flixw" ] && [ -f "$here/.flixw/flixw.java" ]; then
+            exec "$here/flixw" "$@"
+          fi
+          parent=$(dirname -- "$here")
+          [ "$parent" = "$here" ] && break
+          here=$parent
+        done
+        echo "flixw: no checked-in flixw wrapper found above $(pwd -P); run setup in a project first" >&2
+        exit 87
+        """;
+
+    /** The user-wide bin directory; the override also keeps automated installs isolated. */
+    static Path globalBin() {
+        String override = System.getenv("FLIXW_BIN_HOME");
+        if (override != null && !override.isBlank()) return Paths.get(override).toAbsolutePath().normalize();
+        return Paths.get(System.getProperty("user.home"), "bin").toAbsolutePath().normalize();
+    }
+
+    /** Installs the policy-free global launcher without changing any project file. */
+    static Path installGlobalShim() throws IOException {
+        Path bin = globalBin();
+        Files.createDirectories(bin);
+        Path launcher = bin.resolve("flixw");
+        Files.writeString(launcher, GLOBAL_SHIM, StandardCharsets.UTF_8);
+        launcher.toFile().setExecutable(true, false);
+        return launcher;
+    }
+
     static void install(Path target, Path source) {
         try {
             Path fw = target.resolve(WRAPPER_DIR);
@@ -642,8 +683,10 @@ final class flixwsetup {
                               StandardCharsets.UTF_8);
             writeLocalIgnore(target);
             mergeGitattributes(target.resolve(".gitattributes"));
+            Path global = installGlobalShim();
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
                              + "/flixw.java into " + target);
+            System.out.println("installed global launcher " + global);
             // `install` is reached two ways, and they need different sentences. First
             // contact has nothing pinned and the next step is pinning; an upgrade arrives
             // here through `wrapper --upgrade` with a lock already in place, and telling

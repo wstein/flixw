@@ -501,7 +501,7 @@ final class flixwhelp {
      * A fish completion generated from the pinned compiler's own help: verbs with their
      * descriptions, and the compiler's options.
      *
-     * <p>This is the enriched counterpart to {@code wrapper --completion fish}, which stays
+     * <p>This is the enriched counterpart to {@code completion fish}, which stays
      * static and project-independent by design -- it reads {@code .flixw/local/verbs} at TAB
      * time so it cannot go stale at the next {@code pin}. What it cannot do is carry
      * descriptions or options, because those are not in that note. This one can, at the price
@@ -525,7 +525,7 @@ final class flixwhelp {
     static void completion(Ctx c, String shell) {
         if (!"fish".equals(shell)) {
             System.err.println("flixw: help completion generates fish only");
-            System.err.println("       for bash, zsh, fish or pwsh: ./flixw wrapper --completion <shell>");
+            System.err.println("       for bash, zsh, fish or pwsh: ./flixw completion <shell>");
             System.exit(89);
         }
         String help = c.get("helpFile").isEmpty() ? "" : readOrEmpty(c.get("helpFile"));

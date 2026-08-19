@@ -503,6 +503,12 @@ installer downloaded from a release — it fetches and digest-verifies the stage
 release, then writes the project files. `wrapper --upgrade` uses the same program, handing
 it the stage 0 it has already verified rather than letting it fetch a second copy.
 
+Setup also writes `~/bin/flixw` (or `FLIXW_BIN_HOME/flixw`) as a user-wide convenience
+launcher. It walks upward from the caller's working directory for the nearest executable
+`flixw` with `.flixw/flixw.java`, then `exec`s it. It owns no Java, compiler, cache or lock
+policy; those remain solely with the checked-in wrapper it found. Outside such a project it
+fails rather than searching elsewhere or downloading anything.
+
 `install` is therefore a name flixw does not own, and `./flixw install` reaches the
 compiler like any other word it does not own — which is where a project asking to install
 its dependencies was always trying to go.
@@ -560,14 +566,14 @@ generous.
 
 ## Completion
 
-`./flixw wrapper --completion bash|zsh|fish|pwsh` prints a TAB-completion script on stdout.
+`./flixw completion bash|zsh|fish|pwsh` prints a TAB-completion script on stdout.
 Nothing is installed into the project; you place the output where your shell looks:
 
 ```console
-./flixw wrapper --completion bash > ~/.local/share/bash-completion/completions/flixw
-./flixw wrapper --completion zsh  > "${fpath[1]}/_flixw"
-./flixw wrapper --completion fish > ~/.config/fish/completions/flixw.fish
-./flixw wrapper --completion pwsh >> $PROFILE
+./flixw completion bash > ~/.local/share/bash-completion/completions/flixw
+./flixw completion zsh  > "${fpath[1]}/_flixw"
+./flixw completion fish > ~/.config/fish/completions/flixw.fish
+./flixw completion pwsh >> $PROFILE
 ```
 
 The script is byte-identical for every project on a given release, because it contains no

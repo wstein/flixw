@@ -32,7 +32,7 @@ The wrapper has no build system — it is one Java 21 source file, run via JEP 3
 java src/flixw.java wrapper --version         # offline; no project, lock, or network needed
 java src/flixw.java wrapper --help            # routing table (enriched if run inside a project)
 java src/flixw.java wrapper --schema          # the JSON Schema for lock.toml, on stdout
-java src/flixw.java wrapper --completion bash # a TAB-completion script, on stdout
+java src/flixw.java completion bash # a TAB-completion script, on stdout
 javac -d /tmp/flixw-out src/flixw.java        # compile check
 FLIXW_TRACE=1 ./flixw check                   # per-phase timings on stderr
 ```
@@ -262,7 +262,7 @@ requires a resolvable project root, and both of these have to answer without one
 
 | Asset | reached by | why not a plugin |
 |---|---|---|
-| `src/flixw-completion.java` | `wrapper --completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
+| `src/flixw-completion.java` | `completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
 | `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 | `src/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
 | `src/flixw-help.java` | `help [<topic>]` | renders a tree stage 0 gathered; see the picocli note below |
@@ -321,7 +321,7 @@ else committed, and `plugin remove ..` without that check dead-reckons to
 
 ### Completion is data, not a generated script
 
-`wrapper --completion bash|zsh|fish|pwsh` prints a completer. The script is **static and
+`completion bash|zsh|fish|pwsh` prints a completer. The script is **static and
 byte-identical across projects** — everything per-project is read at TAB time from
 `.flixw/local/verbs`, the note stage 0 leaves next to the `local/java` note the shim
 already reads. That is forced by dispatch: the candidate set is the compiler's verbs ∪ the
@@ -347,7 +347,7 @@ forever until the next release moves it to a new, version-keyed path.
 
 This keeps the JVM off the **TAB-press** path unchanged: a keypress still costs one file
 read against `.flixw/local/verbs`, never a stage 0 launch. What changed is the *setup*
-call: `wrapper --completion <shell>` was already one-time, explicit and already cost a JVM
+call: `completion <shell>` was already one-time, explicit and already cost a JVM
 launch; now its first call on a machine, for a given release, also needs network once, to
 fetch and verify the generator. Every call after that — from any project, on that machine,
 for that release — is an offline cache hit, the same shape `--install-jdk` already has.
@@ -419,7 +419,7 @@ they read as one help system instead of four screens the reader has to reconcile
 
 `./flixw help completion fish` emits a completion built from the compiler's captured help:
 verbs *with their descriptions*, and the compiler's options, with `-r` on the ones that take
-a value. It complements `wrapper --completion fish`, which stays static and project-
+a value. It complements `completion fish`, which stays static and project-
 independent — that one reads `.flixw/local/verbs` at TAB time so it cannot go stale at the
 next `pin`, and the price of that is that it carries no descriptions and no options.
 
@@ -527,9 +527,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3050 | 2900 |
+| code lines in `src/flixw.java` | 3080 | 2900 |
 | comment density | 32% | ≥25% floor |
-| bytes | 269226 | 225000 |
+| bytes | 272506 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
@@ -723,7 +723,7 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   parity: argument parity with the POSIX shim is not achievable and is not claimed. See
   `docs/LIMITATIONS.md`.
 - `cmd.exe` has no per-command completion mechanism at all — not a limited one, none — so
-  `wrapper --completion` has no `cmd` target and never will. PowerShell users are served by
+  `completion` has no `cmd` target and never will. PowerShell users are served by
   the `pwsh` script, which registers against the existing `flixw.cmd`; **the trampoline does
   not move to a `.ps1`**, because a `.ps1` is not invokable as a bare command from `cmd.exe`
   or a build tool and a Group-Policy execution policy can make one administratively

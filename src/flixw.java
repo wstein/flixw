@@ -92,7 +92,7 @@ public final class flixw {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "info", "doctor", "validate", "help", "plugin", "task");
+        List.of("pin", "info", "doctor", "validate", "help", "completion", "plugin", "task");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -2529,6 +2529,35 @@ public final class flixw {
             // Npm's `scripts`, not a new verb per task: a project's own tasks.toml, never
             // fetched, never installed, no trust question -- it is a shell string in a
             // file the project already trusts, the same as any other checked-in script.
+            // Was `wrapper --completion <shell>`. It moved because the `wrapper --*` namespace
+            // is for operations on the wrapper *itself* -- its version, its upgrade, its
+            // cache -- and emitting a completion script is not one of those; it is an
+            // ordinary thing a user does to their shell, and it reads like one now. Being a
+            // bare verb also puts it under compiler-first dispatch, so it retires by itself
+            // the day Flix implements `completion`, like every other wrapper verb.
+            case "completion" -> {
+                List<String> shells = new ArrayList<>(rest);
+                boolean rich = shells.remove("--rich");
+                if (shells.size() != 1)
+                    throw w008(COMPLETION_USAGE);
+                String shell = shells.get(0);
+                if (!COMPLETION_SHELLS.contains(shell))
+                    throw w008("./flixw completion: unknown shell " + q(shell)
+                             + "\n       " + COMPLETION_USAGE);
+                // --rich is fish-only because it is the only shell whose completion format
+                // carries a description per candidate natively, which is the whole of what
+                // the extra work buys. Offering it for the others would promise a difference
+                // they cannot show.
+                if (rich && !shell.equals("fish"))
+                    throw w008("./flixw completion: --rich is fish-only"
+                             + "\n       " + COMPLETION_USAGE);
+                if (rich) {
+                    helpTopic(List.of("completion", "fish"), root, lock, jar, jvm,
+                              compilerVerbs, lock == null ? null : lock.sha256());
+                    return;
+                }
+                completionScript(rest);
+            }
             case "task" -> {
                 Map<String, String> tasks = readTasks(root);
                 if (rest.isEmpty()) {
@@ -3893,28 +3922,6 @@ public final class flixw {
             // the person who forgot.  Not offline, unlike --schema: the generator itself is a
             // wrapper-owned companion asset, fetched once per machine per release and cached
             // from there on -- the same shape --install-jdk already has, not --version's.
-            case "--completion" -> {
-                if (rest.size() != 1)
-                    throw w008(wrapperUsage("'--completion' takes exactly one shell name"));
-                String shell = rest.get(0);
-                if (!COMPLETION_SHELLS.contains(shell))
-                    throw w008(wrapperUsage("unknown shell " + q(shell)));
-                Path asset = ensureAsset(COMPLETION_ASSET);
-                List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
-                for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
-                fallback.sort(null);
-                Path javaExe = exeIn(System.getProperty("java.home"));
-                ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), asset.toString(),
-                    shell, String.join(",", fallback)).inheritIO();
-                try {
-                    System.exit(awaitWithReaper(pb.start()));
-                } catch (IOException e) {
-                    throw w005("cannot run " + asset + ": " + why(e));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    System.exit(130);
-                }
-            }
             default -> throw w008(wrapperUsage("unknown operation " + q(op)));
         }
     }
@@ -3922,7 +3929,7 @@ public final class flixw {
     static String wrapperUsage(String problem) {
         return "./flixw wrapper: " + problem
              + "\n       usage: ./flixw wrapper [--help | --version | --upgrade"
-             + "\n                              | --install-jdk | --purge [days] [--yes] | --schema | --completion]"
+             + "\n                              | --install-jdk | --purge [days] [--yes] | --schema]"
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
              + "\n         --upgrade      move this project to the newest published flixw"
@@ -3931,13 +3938,50 @@ public final class flixw {
              + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for"
              + "\n                        that many days, 14 by default"
              + "\n         --schema       the JSON Schema for " + WRAPPER_DIR + "/lock.toml, on stdout"
-             + "\n         --completion <shell>   a TAB-completion script, on stdout,"
-             + "\n                        for one of " + String.join(", ", COMPLETION_SHELLS);
+             + "\n       (a TAB-completion script is ./flixw completion <shell>)";
     }
 
     // ---- completion -------------------------------------------------------
 
     static final List<String> COMPLETION_SHELLS = List.of("bash", "zsh", "fish", "pwsh");
+
+    /**
+     * The project-independent completer, on stdout.
+     *
+     * <p>Reached from two places on purpose: early in {@link #realMain}, so it answers with
+     * no project at all, and from the wrapper verb, so `./flixw completion fish` inside a
+     * project takes the same path and cannot produce different bytes.
+     */
+    static void completionScript(List<String> args) {
+        List<String> shells = new ArrayList<>(args);
+        shells.remove("--rich");
+        if (shells.size() != 1)
+            throw w008(COMPLETION_USAGE);
+        String shell = shells.get(0);
+        if (!COMPLETION_SHELLS.contains(shell))
+            throw w008("./flixw completion: unknown shell " + q(shell)
+                     + "\n       " + COMPLETION_USAGE);
+        Path asset = ensureAsset(COMPLETION_ASSET);
+        List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
+        for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
+        fallback.sort(null);
+        ProcessBuilder pb = new ProcessBuilder(
+            exeIn(System.getProperty("java.home")).toString(), asset.toString(),
+            shell, String.join(",", fallback)).inheritIO();
+        try {
+            System.exit(awaitWithReaper(pb.start()));
+        } catch (IOException e) {
+            throw w005("cannot run " + asset + ": " + why(e));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.exit(130);
+        }
+    }
+
+    static final String COMPLETION_USAGE =
+          "usage: ./flixw completion <" + String.join("|", COMPLETION_SHELLS) + "> [--rich]"
+        + "\n         --rich   fish only: bake in this compiler's verb descriptions and"
+        + "\n                  options, which needs regenerating after a re-pin";
 
     static final String COMPLETION_ASSET = "flixw-completion.java";
 
@@ -4178,7 +4222,7 @@ public final class flixw {
      * Verified once, at fetch time, not on every call: unlike the compiler cache, there is
      * no local record of the expected digest to check against for free (this asset is not
      * named by any project's lock), so re-fetching {@code SHA256SUMS} on every invocation
-     * would mean every {@code wrapper --completion} needs network forever -- exactly what
+     * would mean every {@code completion} needs network forever -- exactly what
      * "cached, works offline" is supposed to rule out. A sidecar {@code .sha256} file
      * records what was verified, so every later call still cheaply self-checks the cached
      * bytes against it, offline, rather than trusting bare presence.
@@ -4402,6 +4446,18 @@ public final class flixw {
             throw w008(wrapperUsage("unknown launcher flag " + q(first)
                      + "\n       flixw's own operations moved under one verb"));
 
+        // Before findRoot, like `wrapper --schema` and unlike every other bare verb. The
+        // plain script is a pure function of (shell, verb table) and is what somebody runs
+        // once, from wherever they happen to be, while setting up a shell -- often before
+        // any flixw project exists on the machine. Requiring a project to emit it would
+        // make the setup step depend on having already finished the setup. `--rich` is the
+        // exception and says so: it describes one pinned compiler, so it needs the project
+        // that pinned it, and it is dispatched with the other wrapper verbs below.
+        if ("completion".equals(first) && !argv.contains("--rich")) {
+            completionScript(argv.subList(1, argv.size()));
+            return;
+        }
+
         Path anchor = wrapperAnchor();
 
         // After install, which is entirely offline and has no business failing on a mirror
@@ -4610,7 +4666,8 @@ public final class flixw {
               ./flixw <verb> [args]     the pinned stock compiler, or a wrapper verb
               ./flixw -- <args>         forced compiler pass-through
               ./flixw help [<topic>]    the full table: flix, wrapper, plugin, task
-              ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --purge [days] [--yes] | --schema | --completion]
+              ./flixw completion <shell> [--rich]   a TAB-completion script, on stdout
+              ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --purge [days] [--yes] | --schema]
 
               wrapper verbs   %s
               FLIX_JAR=<path> runs a local build, unverified (see docs/CONTRACT.md)
