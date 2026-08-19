@@ -1599,7 +1599,7 @@ fi
 upgproj=$work/upgraded-real
 rm -rf "$upgproj" && mkdir -p "$upgproj"
 java "$root/src/flixw-setup.java" setup "$upgproj" "$root/src/flixw.java" >/dev/null 2>&1
-g 0 '0.25.0 -> 9.9.9' "upgrade moves the project to a newer release"  sh -c '
+g 0 '0.25.1 -> 9.9.9' "upgrade moves the project to a newer release"  sh -c '
   cd "$1" && FLIXW_RELEASE_SOURCE="$2/" FLIXW_ASSET_SOURCE="$2/" \
     ./flixw wrapper --upgrade 2>&1' sh "$upgproj" "$(fileurl "$newrel")"
 t 0 "...and the project now carries that stage 0"                sh -c '
@@ -1627,7 +1627,7 @@ g 85 'digest mismatch' "upgrade refuses a release whose stage 0 was tampered wit
   cd "$1" && FLIXW_RELEASE_SOURCE="$u/" FLIXW_ASSET_SOURCE="$u/" \
     ./flixw wrapper --upgrade 2>&1' sh "$tamperproj" "$newrel"
 t 0 "...and left the project on the stage 0 it had"              sh -c '
-  grep -q "WRAPPER_VERSION = \"0.25.0\"" "$1/.flixw/flixw.java"' sh "$tamperproj"
+  grep -q "WRAPPER_VERSION = \"0.25.1\"" "$1/.flixw/flixw.java"' sh "$tamperproj"
 
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
 # that keeps it from walking backwards -- and it must hold whether this version is newer

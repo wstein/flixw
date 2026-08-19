@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  */
 public final class flixw {
 
-    static final String WRAPPER_VERSION = "0.25.0";
+    static final String WRAPPER_VERSION = "0.25.1";
     static final String WRAPPER_DIR = ".flixw";
     static final int MIN_JAVA = 21;
     /**

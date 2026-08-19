@@ -64,7 +64,7 @@ final class flixwsetup {
      * {@code tests/lint.sh} fails if they do not, the same way it checks the Java floor
      * and {@code WRAPPER_DIR}.
      */
-    static final String WRAPPER_VERSION = "0.25.0";
+    static final String WRAPPER_VERSION = "0.25.1";
 
     /** A SHA256SUMS is a few hundred bytes; this is room to spare, not a target. */
     static final int METADATA_CAP = 1 << 21;
