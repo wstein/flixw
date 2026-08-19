@@ -38,7 +38,7 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 # render() directly rather than through a subprocess -- exactly the pattern this warning
 # exists to flag by default, and exactly what this repository's own multi-file layout is.
 if javac -Xlint:all,-auxiliaryclass -Werror -d "$work/classes" \
-        "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+        "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
@@ -119,6 +119,25 @@ elif grep -q "release version $floor not supported" "$work/floor.log"; then
 else
   bad "stage 0 no longer compiles at Java $floor, which its diagnostics promise"
   head -5 "$work/floor.log"
+fi
+
+# The JDK provisioner has the *same* floor, and for a sharper reason than stage 0's.
+# Stage 0 source-launches a companion asset with the JVM it is itself running on, and this
+# asset exists precisely for the machine whose only JVM is below MIN_JAVA -- so a Java 21
+# construct in it would make the provisioner unrunnable in the one case it is for, with
+# nothing failing until a user hit it. The completion asset carries no such constraint: it
+# is only ever reached from a JVM that already cleared the floor.
+if [ -n "$floor" ]; then
+  if javac --release "$floor" -d "$work/floor-jdk" "$root/src/flixw-jdk.java" \
+        >"$work/floor-jdk.log" 2>&1; then
+    say "ok    the JDK provisioner compiles at Java $floor, the JVM it may be launched by"
+  elif grep -q "release version $floor not supported" "$work/floor-jdk.log"; then
+    say "skip  provisioner floor check (this javac no longer targets $floor)"
+  else
+    bad "src/flixw-jdk.java no longer compiles at Java $floor; it is launched by the"
+    say "      too-old JVM it exists to replace, so it cannot use a newer language level"
+    head -5 "$work/floor-jdk.log"
+  fi
 fi
 
 # --- 6. the wrapper namespace is spelled the same way everywhere -----------
@@ -210,7 +229,7 @@ fi
 # this repository's conventions reject; the groups left on are about comments being
 # *wrong*, not about there being fewer of them than a tool would like.
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
-        -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+        -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
@@ -243,9 +262,9 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3513          # target: 2650 -- verified launcher + narrow plugin broker
+MAX_CODE_LINES=3381          # target: 2650 -- verified launcher + narrow plugin broker
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=286152             # target: 210000, derived from the two numbers above
+MAX_BYTES=277261             # target: 210000, derived from the two numbers above
 
 # shellcheck disable=SC2046  # deliberate: awk emits four bare integers to split on
 set -- $(awk '

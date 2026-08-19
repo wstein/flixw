@@ -1697,23 +1697,6 @@ public final class flixw {
     /** Adoptium answers in a few tens of KiB; this is room to spare, not a target. */
     static final int METADATA_CAP = 1 << 21;
 
-    static final String ADOPTIUM_API = "https://api.adoptium.net/v3/assets/latest/";
-    static final String ADOPTIUM_RELEASES = "https://github.com/adoptium/";
-
-    record JdkPackage(String name, String url, String sha256) {}
-
-    /** aarch64 or x64 as Adoptium spells it, or null where it publishes nothing for us. */
-    static String jdkArch() {
-        return switch (System.getProperty("os.arch", "").toLowerCase(Locale.ROOT)) {
-            case "aarch64", "arm64" -> "aarch64";
-            case "x86_64", "amd64" -> "x64";
-            default -> null;
-        };
-    }
-
-    /** Windows gets a zip; nobody publishes a tar.gz for it. */
-    static String jdkArchiveType() { return isWindows() ? "zip" : "tar.gz"; }
-
     /** One bounded HTTPS GET returning text.  Metadata only; bytes go through download(). */
     static String httpGet(String url) {
         HttpClient client = httpClient();
@@ -1751,159 +1734,6 @@ public final class flixw {
         }
     }
 
-    /** Enough JSON for flat string fields of one small, known response. */
-    static String jsonField(String json, String key) {
-        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]*)\"")
-                           .matcher(json);
-        return m.find() ? m.group(1) : null;
-    }
-
-    /**
-     * The first brace-balanced object under `"key":`.  Enough for this one response, whose
-     * values are URLs, digests and filenames and contain no braces of their own.
-     */
-    static String jsonObject(String json, String key) {
-        int i = json.indexOf("\"" + key + "\"");
-        if (i < 0) return null;
-        int open = json.indexOf('{', i);
-        if (open < 0) return null;
-        int depth = 0;
-        for (int j = open; j < json.length(); j++) {
-            char c = json.charAt(j);
-            if (c == '{') depth++;
-            else if (c == '}' && --depth == 0) return json.substring(open, j + 1);
-        }
-        return null;
-    }
-
-    /**
-     * Resolves the current Temurin release for this platform.
-     *
-     * The response describes an `installer` -- a .pkg or .msi -- *before* the `package`
-     * that is the archive, and both carry a `checksum` and a `link`.  Reading the first
-     * match in the document would fetch a macOS installer package and verify it against
-     * its own digest: consistently, and uselessly.  The fields are read out of the
-     * `package` object for that reason.
-     */
-    static JdkPackage resolveTemurin(int feature) {
-        String arch = jdkArch();
-        if (arch == null)
-            throw w003("no Temurin build is published for " + System.getProperty("os.name")
-                     + " " + System.getProperty("os.arch") + "; install a JDK by hand");
-        String os = isWindows() ? "windows" : isMac() ? "mac" : "linux";
-        String body = httpGet(ADOPTIUM_API + feature + "/hotspot?architecture=" + arch
-                            + "&image_type=jdk&os=" + os + "&vendor=eclipse");
-        String pkg = jsonObject(body, "package");
-        if (pkg == null)
-            throw w005("Adoptium published no JDK " + feature + " for " + os + "/" + arch);
-        String name = jsonField(pkg, "name");
-        String url = jsonField(pkg, "link");
-        String sha = jsonField(pkg, "checksum");
-        if (name == null || url == null || sha == null)
-            throw w005("Adoptium metadata was missing name, link or checksum for "
-                     + os + "/" + arch);
-        // All three came out of a third party's JSON.  None is used as a URL, a filename
-        // or a digest until it has been checked to be one.
-        if (!url.startsWith(ADOPTIUM_RELEASES))
-            throw w005("refusing a download outside " + ADOPTIUM_RELEASES + ": " + redact(url));
-        // A prefix test still admits text that is not a URI, and URI.create would then
-        // throw out of HttpRequest.newBuilder with no FLIXW code attached -- the same way
-        // `https:///mirror` once did for FLIX_DIST_URL.
-        try {
-            URI u = URI.create(url);
-            if (u.getHost() == null || u.getHost().isBlank() || u.getPath() == null
-                || u.getPath().isBlank() || u.getPath().contains(".."))
-                throw w005("refusing a malformed download url: " + redact(url));
-        } catch (IllegalArgumentException e) {
-            throw w005("Adoptium metadata carried an unparseable url: " + redact(url));
-        }
-        if (!sha.matches("[0-9a-f]{64}"))
-            throw w005("Adoptium metadata carried no usable checksum for " + name);
-        if (!name.matches("[A-Za-z0-9._+-]{1,120}"))
-            throw w005("refusing an unexpected package name: " + q(name));
-        return new JdkPackage(name, url, sha);
-    }
-
-    /**
-     * Downloads, verifies and unpacks one JDK into the wrapper cache, and returns its
-     * `java`.  The directory is named for the archive, which carries the exact build, so a
-     * second project on the same machine reuses it and a re-run is a no-op.
-     */
-    static Path installJdk(JdkPackage p) {
-        Path dir = cacheHome().resolve("jdks");
-        Path dest = dir.resolve(p.name().replaceAll("\\.(tar\\.gz|zip)$", ""));
-        // Containing a bin/java is not evidence of anything: any directory can. The note
-        // flixw writes after a verified unpack is, so a tree without one -- or with one
-        // recording a different archive -- is replaced rather than trusted.
-        Path origin = dest.resolve(".flixw-origin");
-        boolean vouched = false;
-        try {
-            vouched = Files.isDirectory(dest) && Files.isRegularFile(origin)
-                   && Files.readString(origin, StandardCharsets.UTF_8).strip().equals(p.sha256());
-        } catch (IOException ignored) { }
-        if (Files.isDirectory(dest) && !vouched) deleteTree(dest);
-        if (!Files.isDirectory(dest)) {
-            Path tmp = null, staging = null;
-            try {
-                Files.createDirectories(dir);
-                tmp = Files.createTempFile(dir, ".jdk-", ".part");
-                System.err.println("flixw: downloading " + p.name());
-                System.err.println("       from " + p.url());
-                download(p.url(), tmp);
-                String got = sha256(tmp);
-                if (!got.equals(p.sha256()))
-                    throw w006("digest mismatch for " + p.name()
-                             + "\n       expected " + p.sha256()
-                             + "\n       actual   " + got);
-                staging = Files.createTempDirectory(dir, ".unpack-");
-                String log = unpack(tmp, staging);
-                // Unpacking is judged by its result rather than an exit status: the only
-                // thing that matters is whether a runnable java came out of it.
-                if (findJavaUnder(staging) == null)
-                    throw w007("no bin/java after unpacking " + p.name()
-                             + (log.isBlank() ? "" : "\n       " + log.strip()));
-                boolean moved = false;
-                try {
-                    Files.move(staging, dest, StandardCopyOption.ATOMIC_MOVE);
-                    staging = null;
-                    moved = true;
-                } catch (IOException e) {
-                    // Another process may have finished the same install first. That is a
-                    // win, not a collision: content is addressed by the archive name, so
-                    // what is there is what we were about to put there.
-                    if (findJavaUnder(dest) == null) throw e;
-                }
-                // Only the process that unpacked the tree may vouch for it. The loser of
-                // that race verified an archive it then threw away, so signing a tree it
-                // never wrote would turn the note from "flixw unpacked a verified archive
-                // here" into "some flixw once verified an archive of this name" -- and if
-                // the winner dies before writing its own note, the next run replacing an
-                // unvouched tree is the outcome worth having.
-                if (moved) {
-                    try { Files.writeString(origin, p.sha256() + System.lineSeparator()); }
-                    catch (IOException ignored) { }   // a read-only cache is still usable
-                }
-            } catch (IOException e) {
-                throw w007("cannot install a JDK into " + dir + ": " + why(e));
-            } finally {
-                if (tmp != null) { try { Files.deleteIfExists(tmp); } catch (IOException ignored) { } }
-                if (staging != null) deleteTree(staging);
-            }
-        }
-        Path exe = findJavaUnder(dest);
-        if (exe == null) throw w003("no bin/java inside " + dest);
-        // One line naming the java, so a shim can use it without knowing that Temurin
-        // nests differently on every platform -- and so that a machine with no system
-        // java at all still has a route back to this one. Part of the cache contract.
-        try {
-            Files.writeString(dir.resolve("default"), exe + System.lineSeparator(),
-                              StandardCharsets.UTF_8);
-        } catch (IOException ignored) {
-            // A read-only cache is a correct configuration; the JDK still works here.
-        }
-        return exe;
-    }
-
     /** The java recorded by the last successful install, if it is still there. */
     static Path installedJdk() {
         Path marker = cacheHome().resolve("jdks").resolve("default");
@@ -1922,32 +1752,6 @@ public final class flixw {
             if (!exe.toRealPath().startsWith(jdks.toRealPath())) return null;
             return exe;
         } catch (IOException | RuntimeException e) { return null; }
-    }
-
-    /** Returns whatever the unpacker said, for a diagnostic; success is judged separately. */
-    static String unpack(Path archive, Path dest) throws IOException {
-        if (isWindows()) { unzip(archive, dest); return ""; }
-        // System tar on POSIX: it already handles modes, symlinks and hostile member
-        // names, all of which a hand-written reader would have to get right to be safe.
-        String out = runCapture(List.of("tar", "-xzf", archive.toString(),
-                                        "-C", dest.toString()),
-                                Duration.ofMinutes(10), 1 << 16);
-        return out == null ? "tar did not finish within 10 minutes" : out;
-    }
-
-    static void unzip(Path archive, Path dest) throws IOException {
-        try (var zin = new java.util.zip.ZipInputStream(Files.newInputStream(archive))) {
-            for (java.util.zip.ZipEntry e; (e = zin.getNextEntry()) != null; ) {
-                // A zip entry names its own destination, so it can name one outside the
-                // directory being unpacked into.  Refuse rather than write there.
-                Path target = dest.resolve(e.getName()).normalize();
-                if (!target.startsWith(dest))
-                    throw new IOException("refusing zip entry outside the target: " + e.getName());
-                if (e.isDirectory()) { Files.createDirectories(target); continue; }
-                Files.createDirectories(target.getParent());
-                Files.copy(zin, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-        }
     }
 
     /**
@@ -1991,25 +1795,6 @@ public final class flixw {
     }
 
     /**
-     * Offers to fetch one only when there is somebody to answer.  A prompt written into a
-     * pipe, a CI log or a hook is not a question, it is a hang, so those get the
-     * instructions and a failure instead -- and an opt-in they can set once.
-     */
-    static boolean offerJdk(int want) {
-        if (env("FLIXW_INSTALL_JDK") != null) return true;
-        if (env("CI") != null || System.console() == null) {
-            System.err.println("       or set FLIXW_INSTALL_JDK=1 to let flixw download a"
-                             + " verified Temurin " + want + " into its own cache,");
-            System.err.println("       or run: ./flixw wrapper --install-jdk");
-            return false;
-        }
-        System.err.print("flixw: download Eclipse Temurin " + want
-                       + " into the flixw cache instead? [y/N] ");
-        String line = System.console().readLine();
-        return line != null && line.strip().toLowerCase(Locale.ROOT).startsWith("y");
-    }
-
-    /**
      * Is there a JDK on this machine that satisfies the pin? Asked by `pin` so that writing
      * one is not silently a decision to break the next command. It never offers, downloads
      * or throws: the answer is used for a note, and a pin for a JDK this machine does not
@@ -2025,33 +1810,34 @@ public final class flixw {
         return false;
     }
 
-    /** Nothing usable was found: say how to fix it, then offer to do it. */
+    /**
+     * Nothing usable was found: say how to fix it, and stop.  Never returns -- the
+     * {@code Jvm} result type only exists so the sole caller can {@code return} it.
+     *
+     * <p>This used to prompt and then download a JDK inline, and that was the wrong shape
+     * twice over.  It put ~200 lines of third-party metadata parsing, archive handling and
+     * per-platform policy inside the file that is loaded on every single invocation, to
+     * serve the rarest path there is; and it made an automatic network fetch the default
+     * answer to a missing dependency, in a wrapper whose entire argument is that it
+     * fetches only what a lock named and a digest confirmed.  A precise diagnostic naming
+     * the repair is the better answer, and it is the one every other missing-dependency
+     * case here already gives.  Provisioning is still available -- explicitly, as
+     * {@code ./flixw wrapper --install-jdk} -- and lives in a verified companion asset.
+     */
     static Jvm noJavaFound(int self, String pin) {
+        // A pinned project is told about the pinned feature release, not the wrapper's
+        // floor: naming 21 to a project that asked for 22 recommends installing something
+        // that still cannot be selected.
+        int want = pin == null ? MIN_JAVA : feature(pin);
         System.err.println(pin == null
             ? "FLIXW003: no Java in [" + MIN_JAVA + ", " + TESTED_CEILING
               + "] found; this JVM is " + self
             : "FLIXW003: no Java " + pin + " found, which " + WRAPPER_DIR
               + "/lock.toml pins; this JVM is " + self);
-        // A pinned project gets the pinned feature release, not the wrapper's floor:
-        // fetching 21 for a project that asked for 22 installs something that cannot then
-        // be selected, and offering it in those words is worse still -- it was the
-        // instructions and the prompt that said 21 while the pin said 22.
-        int want = pin == null ? MIN_JAVA : feature(pin);
         jdkInstructions(want);
-        if (!offerJdk(want)) throw w003("no usable Java; see the instructions above");
-        Path exe = installJdk(resolveTemurin(want));
-        int f = probe(exe);
-        if (f < MIN_JAVA)
-            throw w003("the JDK just installed reports Java " + f + ", which is below "
-                     + MIN_JAVA + "; install one by hand");
-        if (!satisfiesJavaPin(pin, probeVersion(exe)))
-            throw w003("the JDK just installed reports Java " + probeVersion(exe)
-                     + ", which does not satisfy the pinned java " + pin
-                     + "\n       Adoptium publishes feature releases, not every patch;"
-                     + " pin the feature release, or install that build by hand");
-        System.err.println("flixw: using " + exe);
-        System.err.println("       flixw owns this JDK; set JAVA_HOME to it to use it elsewhere.");
-        return new Jvm(exe, f, "flixw-installed Temurin");
+        System.err.println("       or run: ./flixw wrapper --install-jdk   (fetches a verified"
+                         + " Temurin " + want + " into flixw's own cache)");
+        throw w003("no usable Java; see the instructions above");
     }
 
     /** `./flixw wrapper --install-jdk`, so the choice need not wait for a failure. */
@@ -2069,7 +1855,7 @@ public final class flixw {
                 if (j != null) want = feature(j);
             }
         } catch (Fail ignored) { }
-        Path exe = installJdk(resolveTemurin(want == null ? MIN_JAVA : want));
+        Path exe = runJdkAsset(want == null ? MIN_JAVA : want);
         int f = probe(exe);
         if (f < MIN_JAVA)
             throw w003("the JDK just installed reports Java " + f + ", below " + MIN_JAVA);
@@ -2077,6 +1863,45 @@ public final class flixw {
         System.err.println("flixw: Temurin Java " + f + " is installed.");
         System.err.println("       flixw will find it from now on; export JAVA_HOME="
                          + exe.getParent().getParent() + " to use it elsewhere.");
+    }
+
+    /**
+     * Fetches, verifies and runs the JDK provisioner, and returns the {@code java} it
+     * installed -- the one line the asset prints on stdout.
+     *
+     * <p>Run as a child rather than source-launched in place because it is the only way
+     * to keep this JVM's exit status: the asset uses flixw's own {@code FLIXWnnn} codes
+     * and advisory exits, and a caller must not be able to tell that the work moved out
+     * of stage 0.  Its stderr is inherited so its progress lines land where every other
+     * flixw diagnostic does.
+     */
+    static Path runJdkAsset(int feature) {
+        Path asset = ensureAsset(JDK_ASSET);
+        Path javaExe = exeIn(System.getProperty("java.home"));
+        ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), asset.toString(),
+                Integer.toString(feature), cacheHome().toString());
+        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+        pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+        try {
+            Process proc = pb.start();
+            String out;
+            try (InputStream in = proc.getInputStream()) {
+                out = new String(in.readAllBytes(), StandardCharsets.UTF_8).strip();
+            }
+            int rc = awaitWithReaper(proc);
+            // The asset speaks flixw's own diagnostic language and has already printed a
+            // FLIXWnnn line to the inherited stderr. Adding a second code here would
+            // report one failure twice, and the outer one would be the less specific of
+            // the two -- so its status is propagated and nothing further is said.
+            if (rc != 0) System.exit(rc);
+            if (out.isEmpty()) throw w003("the JDK provisioner named no java");
+            return Paths.get(out);
+        } catch (IOException e) {
+            throw w005("cannot run " + asset + ": " + why(e));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw w003("JDK install interrupted");
+        }
     }
 
     // ---- FLIX_JVM_OPTS ----------------------------------------------------
@@ -3383,23 +3208,29 @@ public final class flixw {
         System.out.println("installed plugins");
         printAligned(pluginRows);
 
-        // A wrapper-owned companion asset, not a plugin: fetched once per machine per
-        // flixw release the same way --upgrade fetches flixw.java itself, cached under its
-        // own subtree so this trust tier stays visually distinct from user-installed
-        // plugins and project-pinned compilers.
-        Path complDir = cacheHome().resolve("wrapper").resolve("completion");
-        List<Path> complVersions = List.of();
-        try (var s = Files.isDirectory(complDir) ? Files.list(complDir) : null) {
-            if (s != null) complVersions = s.filter(Files::isDirectory).sorted().toList();
+        // Wrapper-owned companion assets, not plugins: fetched once per machine per flixw
+        // release the same way --upgrade fetches flixw.java itself, cached under their own
+        // subtree so this trust tier stays visually distinct from user-installed plugins
+        // and project-pinned compilers. Listed by walking the directory rather than from
+        // the two constants, so an asset left behind by a release this one has since
+        // replaced is still visible to whoever is deciding what to delete.
+        Path assetsDir = cacheHome().resolve("wrapper").resolve("assets");
+        List<Path> assetVersions = List.of();
+        try (var s = Files.isDirectory(assetsDir) ? Files.list(assetsDir) : null) {
+            if (s != null) assetVersions = s.filter(Files::isDirectory).sorted().toList();
         } catch (IOException ignored) { }
-        List<String[]> complRows = new ArrayList<>();
-        for (Path v : complVersions) {
+        List<String[]> assetRows = new ArrayList<>();
+        for (Path v : assetVersions) {
             String ver = v.getFileName().toString();
-            complRows.add(new String[] { ver, COMPLETION_ASSET,
-                ver.equals(canonical(WRAPPER_VERSION)) ? "  <= this release" : "" });
+            String mark = ver.equals(canonical(WRAPPER_VERSION)) ? "  <= this release" : "";
+            try (var s = Files.list(v)) {
+                for (Path f : s.filter(x -> x.getFileName().toString().endsWith(".java"))
+                               .sorted().toList())
+                    assetRows.add(new String[] { ver, f.getFileName().toString(), mark });
+            } catch (IOException ignored) { }
         }
-        System.out.println("cached completion generator");
-        printAligned(complRows);
+        System.out.println("cached companion assets");
+        printAligned(assetRows);
     }
 
     /**
@@ -4419,7 +4250,7 @@ public final class flixw {
                 String shell = rest.get(0);
                 if (!COMPLETION_SHELLS.contains(shell))
                     throw w008(wrapperUsage("unknown shell " + q(shell)));
-                Path asset = ensureCompletionAsset();
+                Path asset = ensureAsset(COMPLETION_ASSET);
                 List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
                 for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
                 fallback.sort(null);
@@ -4459,6 +4290,9 @@ public final class flixw {
 
     static final String COMPLETION_ASSET = "flixw-completion.java";
 
+    /** The optional JDK provisioner; see {@link #runJdkAsset}. */
+    static final String JDK_ASSET = "flixw-jdk.java";
+
     /**
      * Wrapper-owned, not a plugin -- fetched and verified against the release this stage 0
      * itself is, never installed by a user and never carrying the "3rd-party, unaudited"
@@ -4466,15 +4300,19 @@ public final class flixw {
      * the compiler's own distribution base: a self-hosted mirror, or (unset in production)
      * a local fixture for this project's own tests.
      */
-    static String completionSourceBase() {
-        String o = env("FLIXW_COMPLETION_SOURCE");
+    static String assetSourceBase() {
+        String o = env("FLIXW_ASSET_SOURCE");
         if (o != null) return o.replaceAll("/+$", "") + "/";
         return "https://github.com/wstein/flixw/releases/download/v"
              + canonical(WRAPPER_VERSION) + "/";
     }
 
-    static Path completionAssetDir() {
-        return cacheHome().resolve("wrapper").resolve("completion").resolve(canonical(WRAPPER_VERSION));
+    /**
+     * Version-keyed, so a release's assets can be cached forever: the entry cannot go
+     * stale except by a new release, which is exactly when this path moves.
+     */
+    static Path assetDir() {
+        return cacheHome().resolve("wrapper").resolve("assets").resolve(canonical(WRAPPER_VERSION));
     }
 
     /**
@@ -4491,9 +4329,9 @@ public final class flixw {
      * records what was verified, so every later call still cheaply self-checks the cached
      * bytes against it, offline, rather than trusting bare presence.
      */
-    static Path ensureCompletionAsset() {
-        Path dir = completionAssetDir();
-        Path asset = dir.resolve(COMPLETION_ASSET), marker = dir.resolve(COMPLETION_ASSET + ".sha256");
+    static Path ensureAsset(String name) {
+        Path dir = assetDir();
+        Path asset = dir.resolve(name), marker = dir.resolve(name + ".sha256");
         if (Files.isRegularFile(asset) && Files.isRegularFile(marker)) {
             try {
                 if (sha256(asset).equals(Files.readString(marker, StandardCharsets.UTF_8).trim()))
@@ -4502,7 +4340,7 @@ public final class flixw {
             // Falls through: a corrupt cache entry re-fetches, exactly like a corrupt
             // compiler jar does in acquire().
         }
-        String base = completionSourceBase();
+        String base = assetSourceBase();
         String sums;
         try {
             sums = base.startsWith("file://")
@@ -4511,21 +4349,21 @@ public final class flixw {
         } catch (IOException e) {
             throw w005("cannot read " + redact(base) + "SHA256SUMS: " + why(e));
         }
-        String want = digestFor(sums, COMPLETION_ASSET);
+        String want = digestFor(sums, name);
         if (want == null || !want.matches("[0-9a-f]{64}"))
-            throw w005("no published flixw " + WRAPPER_VERSION + " release names " + COMPLETION_ASSET
+            throw w005("no published flixw " + WRAPPER_VERSION + " release names " + name
                      + "\n       run: ./flixw wrapper --upgrade   (or wait for this version to be released)");
         try {
             Files.createDirectories(dir);
-            Path tmp = Files.createTempFile(dir, ".completion-", ".part");
+            Path tmp = Files.createTempFile(dir, ".asset-", ".part");
             try {
                 if (base.startsWith("file://"))
-                    Files.copy(Paths.get(URI.create(base + COMPLETION_ASSET)), tmp,
+                    Files.copy(Paths.get(URI.create(base + name)), tmp,
                                StandardCopyOption.REPLACE_EXISTING);
-                else download(base + COMPLETION_ASSET, tmp);
+                else download(base + name, tmp);
                 String got = sha256(tmp);
                 if (!got.equals(want))
-                    throw w006("digest mismatch for " + COMPLETION_ASSET
+                    throw w006("digest mismatch for " + name
                              + "\n       expected " + want + "\n       actual   " + got);
                 try { Files.move(tmp, asset, StandardCopyOption.ATOMIC_MOVE); }
                 catch (IOException e) { if (!Files.isRegularFile(asset)) throw e; }
@@ -4534,7 +4372,7 @@ public final class flixw {
             }
             writeAtomic(marker, sha256(asset));
         } catch (IOException e) {
-            throw w007("cannot cache " + COMPLETION_ASSET + ": " + why(e));
+            throw w007("cannot cache " + name + ": " + why(e));
         }
         return asset;
     }

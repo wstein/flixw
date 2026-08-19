@@ -169,11 +169,20 @@ anyway — but the verb no longer displaces a wrapper verb of the same name, and
 A machine-readable command list from upstream would remove this entirely. The fork's
 `capabilities` verb is a step in that direction.
 
-## JDK provisioning is opt-in, and cannot bootstrap from nothing
+## JDK provisioning is explicit, and cannot bootstrap from nothing
 
-`flixw` finds a Java. When it finds none it prints what to type on your OS, and — only if
-you say yes — downloads one: Eclipse Temurin at `MIN_JAVA`, verified against the SHA-256
-Adoptium publishes for that exact package, unpacked into `<cache>/jdks/`.
+`flixw` finds a Java. When it finds none it prints what to type on your OS, and stops.
+Nothing is downloaded. Running `./flixw wrapper --install-jdk` fetches one: Eclipse
+Temurin at the pinned feature release (or `MIN_JAVA` outside a project), verified against
+the SHA-256 Adoptium publishes for that exact package, unpacked into `<cache>/jdks/`.
+
+Earlier releases prompted for this and installed inline when you agreed. They no longer
+do, and `FLIXW_INSTALL_JDK` is gone with the prompt it pre-answered. The reasoning is in
+`docs/CONTRACT.md`: an automatic fetch is the wrong default in a wrapper that otherwise
+downloads only what a lock named and a digest confirmed, and the code for it does not
+belong in the file that loads on every invocation. It now lives in `flixw-jdk.java`, a
+companion asset fetched and digest-verified against the release's own `SHA256SUMS` on
+first use per machine per release.
 
 Temurin is the only vendor flixw fetches, and the instructions it prints name the same
 one. It is vendor-neutral rather than tied to a single cloud's ecosystem, TCK-verified
@@ -190,8 +199,9 @@ so something must be able to run it before flixw can fetch anything. With no `ja
 anywhere, the shim exits before stage 0 starts, and what you get is its own message: how
 to install Temurin on this OS, and a note that `./flixw wrapper --install-jdk` manages one
 for you once any Java 16 or newer is reachable — 16 being what stage 0 itself compiles at,
-not what the compiler needs. The offer therefore reaches you when a *too old* Java exists,
-and not when none does.
+not what the compiler needs. `flixw-jdk.java` compiles at 16 for the same reason: stage 0
+launches it with the JVM stage 0 is running on, which in this situation is the too-old one.
+The route therefore reaches you when a *too old* Java exists, and not when none does.
 
 Afterwards it is no longer true. A JDK flixw installed is recorded in
 `<cache>/jdks/default`, and the shims read that when `PATH`, `JAVA_HOME` and
@@ -211,13 +221,14 @@ cannot distinguish that from a real one without running it, so it is used and th
 own message is what you see. Setting `JAVA_HOME`, or removing the stub from `PATH`, is the
 way out.
 
-**It never prompts where nobody can answer.** In CI, in a pipe, or in a git hook a prompt
-is not a question, it is a hang; so a non-terminal stdin, or `CI` in the environment, gets
-the instructions and a failure instead. `FLIXW_INSTALL_JDK=1` opts in ahead of time for
-scripted setup, and `./flixw wrapper --install-jdk` does it on demand.
+**It never prompts at all.** There is no terminal check, no `CI` check and no opt-in
+variable, because there is no longer a question to ask: a missing Java is a diagnostic
+naming `./flixw wrapper --install-jdk`, and CI scripts that want one run that command.
+This removed a whole class of "it hung in a git hook" failure rather than guarding
+against it.
 
 **The Windows install has been reasoned about, not run.** Unpacking there is a zip read
-by `java.util.zip` inside stage 0 — not `tar`, `Expand-Archive` or any external tool, so it
+by `java.util.zip` inside `flixw-jdk.java` — not `tar`, `Expand-Archive` or any external tool, so it
 needs nothing installed beyond the Java already running. The real Adoptium Windows archive
 was extracted and inspected during development: 577 entries, correct layout, `java.exe`
 where it belongs. What could not be exercised off Windows is `Files.isExecutable` on a

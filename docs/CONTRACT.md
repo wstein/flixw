@@ -227,8 +227,8 @@ Resolution, in order: `FLIX_JAVA_HOME` or `JAVA_HOME` if set — obeyed as alway
 named JDK that contradicts the pin is an error naming both sides rather than a silent
 substitution; then the running JVM; then a JDK flixw installed; then any known
 installation. A machine with nothing matching gets `FLIXW003`, and everything about that message — the
-install instructions, the download prompt, the environment variable — names the *pinned*
-feature release rather than the wrapper's floor.
+install instructions and the `--install-jdk` suggestion alike — names the *pinned* feature
+release rather than the wrapper's floor.
 
 `pin --java` says so at once when the machine has no such JDK. It still writes the pin,
 because the machine that runs the build may not be this one, and `--install-jdk` can fetch
@@ -350,19 +350,39 @@ tested ground. Directory order does not decide: on a machine holding 11, 17, 21,
 exactly-tested JDK one entry away.
 
 When nothing usable is found, stage 0 prints OS-specific installation instructions and
-exits `FLIXW003`. If stdin is a terminal and `CI` is unset it first offers to download a
-JDK — Eclipse Temurin at `MIN_JAVA`, verified against Adoptium's published SHA-256 for
-that package and unpacked into `<cache>/jdks/` — and `FLIXW_INSTALL_JDK=1` accepts that
-offer in advance. `./flixw wrapper --install-jdk` performs it on demand and prints the
-resulting `java` on stdout. Temurin is the only vendor fetched; any other already on the
-machine is found and used. It is never taken silently.
+exits `FLIXW003`. **It does not download anything.** Provisioning is explicit:
 
-The offer reaches further down than the floor it repairs: stage 0 compiles at
+```console
+./flixw wrapper --install-jdk      # prints the resulting java on stdout
+```
+
+Stage 0 used to prompt at this point and install inline when the answer was yes. That is
+gone. An automatic network fetch is the wrong default answer to a missing dependency in a
+wrapper whose entire argument is that it fetches only what a lock named and a digest
+confirmed — and it put ~200 lines of vendor-metadata parsing, archive handling and
+per-platform policy in the file that loads on every single invocation, to serve the rarest
+path there is. `FLIXW_INSTALL_JDK` is therefore also gone; there is no longer an offer for
+it to pre-accept.
+
+What `--install-jdk` does is unchanged: Eclipse Temurin at the *pinned* feature release
+(or `MIN_JAVA` outside a project), verified against Adoptium's published SHA-256 for that
+package and unpacked into `<cache>/jdks/`. Temurin is the only vendor fetched; any other
+already on the machine is found and used.
+
+The code that does it is a **companion asset**, `flixw-jdk.java`, fetched once per machine
+per flixw release and verified against that release's own `SHA256SUMS` — the same trust
+footing `wrapper --upgrade` gives `flixw.java` itself — then cached under
+`<cache>/wrapper/assets/<version>/`. So `--install-jdk` needs network on its first use per
+release, and none after.
+
+Provisioning reaches further down than the floor it repairs: stage 0 compiles at
 `SOURCE_FLOOR` (16), so every Java from there to `MIN_JAVA` runs flixw, fails to run the
-*compiler*, and can fetch one that will. Below that, and with no Java at all, nothing here
-speaks — stage 0 needs a JVM to say anything — so the shim's own message is the whole
-answer, and it does not offer an install it cannot perform. `tests/lint.sh` compiles stage
-0 at `SOURCE_FLOOR` so that promise cannot rot.
+*compiler*, and can fetch one that will. **`flixw-jdk.java` therefore compiles at
+`SOURCE_FLOOR` too** — stage 0 launches a companion asset with the JVM it is itself
+running on, which here is by definition the too-old one. Below that, and with no Java at
+all, nothing here speaks — stage 0 needs a JVM to say anything — so the shim's own message
+is the whole answer. `tests/lint.sh` compiles both files at `SOURCE_FLOOR` so neither
+promise can rot.
 
 Discovery covers the directories JDKs are unpacked into, including version managers the
 OS has no record of — SDKMAN, asdf, mise, jenv, Gradle, Homebrew on both architectures,
@@ -690,7 +710,6 @@ printed, never fatal.
 | `FLIXW_STRICT_JAVA` | makes the tested ceiling fatal |
 | `FLIXW_UNSAFE_JVM_OPTS` | permits the denied JVM options |
 | `FLIXW_TRACE` | per-phase timings on stderr |
-| `FLIXW_INSTALL_JDK` | accept the Temurin download offer without being asked |
 | `HTTPS_PROXY`, `https_proxy`, `NO_PROXY` | honoured for downloads |
 
 `JAVA_TOOL_OPTIONS` and `_JAVA_OPTIONS` are reported by `doctor` because they alter the

@@ -1,6 +1,7 @@
 // flixw unit checks -- the parts of stage 0 the shell suite cannot reach from outside.
 //
-//   javac -d <out> src/flixw.java src/flixw-completion.java tests/UnitCheck.java
+//   javac -d <out> src/flixw.java src/flixw-completion.java src/flixw-jdk.java \
+//         tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
 // Compiled and run by tests/run.sh; not a separate CI entry point. The groups, in the
@@ -317,6 +318,10 @@ public final class UnitCheck {
      * every value below arrives as JSON from a third party.
      */
     static void provisioning() {
+        // These parse Adoptium's reply, which now lives in src/flixw-jdk.java -- stage 0
+        // no longer provisions. findJavaUnder below is still stage 0's: it *discovers* a
+        // JDK the asset installed earlier, on every run, without fetching the asset.
+        //
         // Shaped like a real Adoptium reply, which describes the .pkg installer *before*
         // the archive and gives both a checksum and a link. Reading the first match in
         // the document fetches the installer and verifies it against its own digest --
@@ -331,30 +336,30 @@ public final class UnitCheck {
                     + "\"checksum\":\"" + "a".repeat(64) + "\"}}}]";
 
         eq("metadata: the installer is not the package",
-           "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.pkg", flixw.jsonField(body, "name"));
-        String pkg = flixw.jsonObject(body, "package");
+           "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.pkg", flixwjdk.jsonField(body, "name"));
+        String pkg = flixwjdk.jsonObject(body, "package");
         eq("metadata: package name", "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.tar.gz",
-           flixw.jsonField(pkg, "name"));
+           flixwjdk.jsonField(pkg, "name"));
         eq("metadata: package checksum, not the installer's", "a".repeat(64),
-           flixw.jsonField(pkg, "checksum"));
+           flixwjdk.jsonField(pkg, "checksum"));
         eq("metadata: package link", "https://github.com/adoptium/x.tar.gz",
-           flixw.jsonField(pkg, "link"));
-        eq("metadata: an absent field is absent", null, flixw.jsonField(pkg, "nope"));
+           flixwjdk.jsonField(pkg, "link"));
+        eq("metadata: an absent field is absent", null, flixwjdk.jsonField(pkg, "nope"));
         // The key is quoted into the pattern, so a key containing regex metacharacters
         // must not become one.
-        eq("metadata: a key is not a pattern", null, flixw.jsonField(pkg, "na.e"));
-        eq("metadata: an absent object is absent", null, flixw.jsonObject(body, "nope"));
+        eq("metadata: a key is not a pattern", null, flixwjdk.jsonField(pkg, "na.e"));
+        eq("metadata: an absent object is absent", null, flixwjdk.jsonObject(body, "nope"));
 
         // Nested braces have to balance, or the object ends at the first inner close.
         eq("metadata: nested objects balance", "x",
-           flixw.jsonField(flixw.jsonObject("{\"a\":{\"b\":{\"c\":1},\"d\":\"x\"}}", "a"), "d"));
+           flixwjdk.jsonField(flixwjdk.jsonObject("{\"a\":{\"b\":{\"c\":1},\"d\":\"x\"}}", "a"), "d"));
 
         // Windows is published as a zip and nothing else; the rest as tar.gz.
         eq("coords: archive type follows the platform",
            System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
                  .startsWith("windows") ? "zip" : "tar.gz",
-           flixw.jdkArchiveType());
-        String arch = flixw.jdkArch();
+           flixwjdk.jdkArchiveType());
+        String arch = flixwjdk.jdkArch();
         if (arch != null && !arch.equals("aarch64") && !arch.equals("x64"))
             bad("coords: architecture", "unexpected " + arch);
         else ok();

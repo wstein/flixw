@@ -844,13 +844,16 @@ echo "completion"
 # tests/pack.sh also builds, which nothing here needs.
 complfixture=$work/complfixture
 rm -rf "$complfixture" && mkdir -p "$complfixture"
-cp "$root/src/flixw-completion.java" "$complfixture/"
+cp "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" "$complfixture/"
+# Both companion assets, because one SHA256SUMS serves both: ensureAsset looks the wanted
+# name up in it, so a fixture carrying only one of them would make the other's "no
+# published release names it" branch fire in every test that touches the JDK provisioner.
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$complfixture" && sha256sum flixw-completion.java > SHA256SUMS)
+  (cd "$complfixture" && sha256sum flixw-completion.java flixw-jdk.java > SHA256SUMS)
 else
-  (cd "$complfixture" && shasum -a 256 flixw-completion.java > SHA256SUMS)
+  (cd "$complfixture" && shasum -a 256 flixw-completion.java flixw-jdk.java > SHA256SUMS)
 fi
-export FLIXW_COMPLETION_SOURCE="file://$complfixture/"
+export FLIXW_ASSET_SOURCE="file://$complfixture/"
 
 t 87 "wrapper --completion needs a shell"                      ./flixw wrapper --completion
 t 87 "wrapper --completion rejects an unknown shell"           ./flixw wrapper --completion csh
@@ -972,9 +975,9 @@ t 0  "the verb note is git-ignored"                            sh -c '
 t 0  "a cold cache fetches and verifies the generator"          sh -c '
   rm -rf "$1/wrapper"
   ./flixw wrapper --completion bash >/dev/null 2>&1 || exit 1
-  find "$1/wrapper/completion" -name "flixw-completion.java.sha256" | grep -q .' sh "$cache"
+  find "$1/wrapper/assets" -name "flixw-completion.java.sha256" | grep -q .' sh "$cache"
 t 0  "a warm cache needs no source at all"                      sh -c '
-  FLIXW_COMPLETION_SOURCE="file:///nonexistent/" ./flixw wrapper --completion bash \
+  FLIXW_ASSET_SOURCE="file:///nonexistent/" ./flixw wrapper --completion bash \
     | grep -q "complete -F _flixw"'
 g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh -c '
   rm -rf "$1/wrapper"
@@ -983,19 +986,19 @@ g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh
   if command -v sha256sum >/dev/null 2>&1; then (cd "$bad" && sha256sum flixw-completion.java > SHA256SUMS)
   else (cd "$bad" && shasum -a 256 flixw-completion.java > SHA256SUMS); fi
   printf "\n// tampered\n" >> "$bad/flixw-completion.java"
-  FLIXW_COMPLETION_SOURCE="file://$bad/" ./flixw wrapper --completion bash' \
+  FLIXW_ASSET_SOURCE="file://$bad/" ./flixw wrapper --completion bash' \
   sh "$cache" "$work" "$complfixture"
 t 0  "...and nothing was cached"                                sh -c '
-  ! find "$1/wrapper/completion" -name flixw-completion.java 2>/dev/null | grep -q .' sh "$cache"
+  ! find "$1/wrapper/assets" -name flixw-completion.java 2>/dev/null | grep -q .' sh "$cache"
 g 84 'cannot reach' "no network on a cold cache fails with a clear diagnostic"  sh -c '
   rm -rf "$1/wrapper"
-  FLIXW_COMPLETION_SOURCE=https://dist.invalid ./flixw wrapper --completion bash' sh "$cache"
+  FLIXW_ASSET_SOURCE=https://dist.invalid ./flixw wrapper --completion bash' sh "$cache"
 empty=$work/emptycomplfixture
 rm -rf "$empty" && mkdir -p "$empty"
 : > "$empty/SHA256SUMS"
 g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific problem" sh -c '
   rm -rf "$1/wrapper"
-  FLIXW_COMPLETION_SOURCE="file://$2/" ./flixw wrapper --completion bash' sh "$cache" "$empty"
+  FLIXW_ASSET_SOURCE="file://$2/" ./flixw wrapper --completion bash' sh "$cache" "$empty"
 # Restore a warm, valid cache: later sections in this suite share $cache, and leaving it
 # in whatever failure state the last negative case above left it in would be a trap for
 # the next person adding a case here, not a property this suite promises to anyone else.
@@ -1304,6 +1307,7 @@ t 0  "stdout carries only compiler output"                      sh -c '
 # per-group counts are the interesting part, and one shell case cannot express them.
 echo "unit checks"
 javac -d "$work/unit" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+  "$root/src/flixw-jdk.java" \
   "$root/tests/UnitCheck.java"
 set +e
 java -cp "$work/unit" UnitCheck "$root/tests/corpus" "$root/tests/schema"

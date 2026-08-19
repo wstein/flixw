@@ -224,17 +224,37 @@ clean checkout cannot depend on a plugin being pre-installed to run at all. `pin
 particular never moves — it creates the trust root (repository, version, digest) everything
 else, plugins included, is verified against.
 
-Two builtins were recorded as migration *candidates* onto this ABI; only one has actually
-moved, and not onto the plugin mechanism itself. TAB-completion generation's templates now
-live in `src/flixw-completion.java`, a wrapper-owned companion asset fetched and cached the
-way `wrapper --upgrade` fetches `flixw.java` itself — *not* a `./flixw plugin`, deliberately:
-`wrapper --completion` has to keep working with no project in scope (it is answered before
-`findRoot` runs, same as `--schema`/`--version`), which `./flixw plugin <name>` cannot do —
-that dispatch always requires a resolvable project root. See "Completion is data, not a
-generated script" below for the fetch/cache/verify shape. JDK provisioning remains a
-candidate and is harder either way — it is reached from inside Java selection's own
-automatic fallback, not only through explicit dispatch, so moving it needs its own design
-pass regardless of which mechanism it would use.
+Two builtins were recorded as migration *candidates* onto this ABI. **Both have now
+moved, and neither onto the plugin mechanism** — they are wrapper-owned companion assets,
+fetched and cached the way `wrapper --upgrade` fetches `flixw.java` itself. `./flixw
+plugin <name>` was the wrong destination for both for one reason: that dispatch always
+requires a resolvable project root, and both of these have to answer without one.
+
+| Asset | reached by | why not a plugin |
+|---|---|---|
+| `src/flixw-completion.java` | `wrapper --completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
+| `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
+
+`ensureAsset(name)` fetches, verifies and caches either one; see "Completion is data, not
+a generated script" below for the shape, which is now shared.
+
+The JDK move also **stopped stage 0 provisioning automatically**. `noJavaFound` used to
+prompt and then download inline; it is now a diagnostic and nothing else, because an
+automatic network fetch is the wrong default answer to a missing dependency in a wrapper
+whose whole argument is that it fetches only what a lock named and a digest confirmed.
+Provisioning still exists, explicitly, as `./flixw wrapper --install-jdk`.
+
+`src/flixw-jdk.java` carries a constraint the completion asset does not, and it is the
+reason the two are separate files rather than one. Stage 0 source-launches a companion
+asset **with the JVM it is itself running on**, and the provisioner exists precisely for
+the machine whose only JVM is below `MIN_JAVA` — so it must compile and run at
+`SOURCE_FLOOR`, not `MIN_JAVA`. A Java 21 construct in it would make the provisioner
+unrunnable in the one case it is for, silently. `tests/lint.sh` compiles it at
+`--release SOURCE_FLOOR` for exactly that reason.
+
+Discovery is *not* provisioning and stayed in stage 0: `installedJdk`, `findJavaUnder` and
+`knownInstalls` run on every invocation to *find* a JDK the asset installed earlier, and
+must not require fetching the asset to do it.
 
 The ABI a plugin receives is deliberately small and additive-only (`FLIXW_ABI_VERSION=1`):
 a flat environment-variable tier for the common case (`FLIXW_PROJECT_ROOT`,
@@ -280,7 +300,7 @@ is shared between the two). Verified once at fetch time, not on every call — t
 local record of the expected digest the way a project's lock gives the compiler cache one
 for free — so a sidecar `.sha256` file records what was checked, and every later call
 re-verifies the cached bytes against *that*, offline, under
-`<cache>/wrapper/completion/<WRAPPER_VERSION>/`. It is a pure function of `(shell, verbs)`,
+`<cache>/wrapper/assets/<WRAPPER_VERSION>/`. It is a pure function of `(shell, verbs)`,
 declares no dependency on `WRAPPER_VERBS`/`BUILTIN_VERBS`, and needs none — stage 0 still
 computes that union and passes it as an argument — which is what lets the cache entry live
 forever until the next release moves it to a new, version-keyed path.
@@ -342,10 +362,16 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3513 | 2650 |
+| code lines in `src/flixw.java` | 3381 | 2650 |
 | comment density | 27% | ≥25% floor |
-| bytes | 286152 | 210000 |
+| bytes | 277261 | 210000 |
 
+The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
+lines and 9.3 KB, about 18% of the distance to the target. It is also the honest shape of
+what "moving it out" costs — the asset is ~400 lines, because the 202 that moved brought
+~200 of infrastructure with them (HTTP, hashing, cache paths, `FLIXWnnn`) that stage 0
+keeps for its own use. *Total* lines went up; only stage 0 shrank, which is what the gate
+measures and what a file loaded on every invocation should be judged by.
 
 The line gate counts **code** lines — blanks and comment-only lines excluded — and the
 density floor pulls the other way on purpose. A gate on *physical* lines is a gate on

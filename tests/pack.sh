@@ -5,6 +5,7 @@
 #   flixw-<version>.zip       the same, for a machine without tar
 #   flixw.java                stage 0 on its own, for the `java flixw.java install .` route
 #   flixw-completion.java     the TAB-completion generator, fetched on first use and cached
+#   flixw-jdk.java            the optional JDK provisioner, fetched on first use and cached
 #   SHA256SUMS                digests of all of the above
 #
 # The archives are not assembled by hand. `install` is run into a staging directory and
@@ -88,12 +89,14 @@ cp "$root/src/flixw.java" "$out/flixw.java"
 # supported wrapper looks for that name.
 cp "$root/src/flixw.java" "$out/flix.java"
 
-# Not packed into the archives: it is never installed into a project, only fetched by
-# `wrapper --completion` on first use and cached machine-wide -- ensureCompletionAsset in
-# src/flixw.java expects it as a bare release asset beside flixw.java, not inside a tarball.
+# Not packed into the archives: neither is ever installed into a project. Both are fetched
+# on first use and cached machine-wide -- ensureAsset in src/flixw.java expects them as
+# bare release assets beside flixw.java, not inside a tarball. flixw-jdk.java is reached by
+# `wrapper --install-jdk`, flixw-completion.java by `wrapper --completion <shell>`.
 cp "$root/src/flixw-completion.java" "$out/flixw-completion.java"
+cp "$root/src/flixw-jdk.java" "$out/flixw-jdk.java"
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java flix.java \
-              flixw-completion.java > SHA256SUMS)
+              flixw-completion.java flixw-jdk.java > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"
