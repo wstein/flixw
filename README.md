@@ -2,54 +2,106 @@
 
 [![CI](https://github.com/wstein/flixw/actions/workflows/ci.yaml/badge.svg)](https://github.com/wstein/flixw/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Java 21+](https://img.shields.io/badge/java-21%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
+[![bootstraps on Java 16+](https://img.shields.io/badge/bootstrap-java%2016%2B-orange.svg)](https://openjdk.org/projects/jdk/16/)
+[![Flix needs Java 21+](https://img.shields.io/badge/flix-java%2021%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/flixw.java)
 [![platforms: linux | macOS | windows](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](.github/workflows/ci.yaml)
 [![docs](https://img.shields.io/badge/docs-wstein.github.io%2Fflixw-blue.svg)](https://wstein.github.io/flixw/)
 
-An **experimental, third-party, opt-in** repository bootstrapper for
-[Flix](https://flix.dev). It pins a Flix compiler version in your project, verifies the
-official release JAR against a committed SHA-256, and runs it — with no Flix
-installation, no compiler fork, and no patched build.
+`./flixw` pins one Flix compiler version in your repository and runs it — no Flix
+installation, no fork, no patched build. A collaborator with nothing but a JDK clones and
+compiles with the same bytes you did.
 
-That digest is recorded from whatever the first `pin` downloaded, so what it buys you is
-that everyone afterwards runs the same bytes — not that those bytes are the ones the Flix
-project built. Flix publishes no signatures, so there is nothing to check them against.
-[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) states the difference plainly, and is worth
-reading before trusting this with a download.
+> **What the digest does and does not prove.** It is recorded from whatever the first `pin`
+> downloaded, so it guarantees everyone runs the *same* bytes — not that those bytes are
+> the ones the Flix project built. Flix publishes no signatures.
+> [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) states the difference plainly and is worth
+> reading before trusting this with a download. This is an **experimental, third-party,
+> opt-in** tool, not affiliated with or endorsed by the Flix project.
 
-> This is not an official Flix tool. It is not affiliated with or endorsed by the Flix
-> project. It works against unmodified release JARs published by
-> [`flix/flix`](https://github.com/flix/flix) — and against a fork's, so long as the fork
-> publishes its build as a GitHub release asset named `flix-<version>.jar` or `flix.jar`:
-> `./flixw pin <owner>/<repo> <version>`. A fork is downloaded, digest-verified and pinned
-> exactly as the stock compiler is; what it is *not* is evidence that a project works with
-> stock Flix, and flixw says so on every pin that names one.
+## Start here
+
+| you have | go to |
+|---|---|
+| an existing Flix project | [the five steps below](#quickstart) — the default |
+| an empty directory | [the five steps below](#quickstart), then `./flixw init` |
+| Windows | the same steps — PowerShell and cmd.exe are collapsed inside [step 1](#1-download-the-setup-program-and-check-it) |
+| a preference for not running downloaded programs | [the release archive](#the-archive-route) |
+
+**Java.** flixw is itself a Java program, so it cannot be the thing that gets you your
+first JDK.
+
+| | needs |
+|---|---|
+| flixw itself, including `setup` and JDK provisioning | Java **16+** |
+| the Flix compiler it runs | Java **21+** |
+
+With anything from 16 up you can start here — flixw runs, tells you if the compiler cannot,
+and can fetch a newer JDK for you. See [what if my Java is older](#what-if-my-java-is-older).
 
 ## Quickstart
 
-A new project, from an empty directory. Every command and every line of output below is
+Install the committed wrapper, pin one Flix compiler version, commit the lock, then use
+`./flixw` where you would have used `flix`. Every command and every line of output below is
 from an actual run.
 
-You need a JDK first: flixw is itself a Java program, so it cannot be the thing that gets
-you your first Java. Java 21+ is what the compiler needs — see
-[what if my Java is older](#what-if-my-java-is-older) if yours is not.
+> **wrapper** what flixw writes into your repo — two shims, stage 0, and a `.gitignore` ·
+> **pin** the act of choosing one exact compiler release · **lock** `.flixw/lock.toml`,
+> which records that choice and its SHA-256 · **cache** a machine-wide directory outside
+> your project where the compiler JAR and JDKs are kept
+
+### 1. Download the setup program, and check it
+
+The expected SHA-256 for v0.25.1 is
+
+```
+1f73d7fd875945dbab6e817cf1eb2a650ca2fa8bbd73197dfaff54682645f851  flixw-setup.java
+```
 
 ```console
-git init hello && cd hello
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.0/flixw-setup.java
-java flixw-setup.java
-rm flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.1/flixw-setup.java
+sha256sum flixw-setup.java        # macOS: shasum -a 256 flixw-setup.java
 ```
+
+**Compare the two before running anything.** The digest is printed here rather than piped
+from the release's own `SHA256SUMS`, because taking it from the same place as the file
+proves only that the download arrived intact. This page is a different artifact, on a
+different path, with its own history — a second opinion rather than an echo, and
+`tests/lint.sh` fails if it stops matching what a release publishes.
+
+`sha256sum` is coreutils and busybox; `shasum -a 256` is what stock macOS has. Neither is
+on every machine, which is why both are given.
+
+<details>
+<summary>The same, in cmd.exe</summary>
+
+`certutil` is the built-in — cmd has no `Get-FileHash`, and `curl.exe` ships with
+Windows 10 and later:
+
+```bat
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.1/flixw-setup.java
+certutil -hashfile flixw-setup.java SHA256
+java .\flixw-setup.java
+del flixw-setup.java
+```
+
+`certutil` prints the digest on a line of its own between two lines of chatter. Older
+Windows builds space the bytes in pairs; compare it without the spaces.
+
+Then read `.\flixw.cmd` wherever this page writes `./flixw`: `.\flixw.cmd pin 0.75.2`,
+`.\flixw.cmd check`, `.\flixw.cmd run`. `setup` writes both shims on every platform, so
+the POSIX `flixw` is there too and is what Git Bash and WSL use.
+</details>
 
 <details>
 <summary>The same, in PowerShell</summary>
 
 ```powershell
-git init hello; cd hello
 Invoke-WebRequest -OutFile flixw-setup.java `
-  https://github.com/wstein/flixw/releases/download/v0.25.0/flixw-setup.java
-java flixw-setup.java
+  https://github.com/wstein/flixw/releases/download/v0.25.1/flixw-setup.java
+(Get-FileHash -Algorithm SHA256 flixw-setup.java).Hash.ToLower()
+# compare with the digest printed above before running the next line
+java .\flixw-setup.java
 Remove-Item flixw-setup.java
 ```
 
@@ -58,25 +110,115 @@ Then read `.\flixw.cmd` wherever this page writes `./flixw`: `.\flixw.cmd pin 0.
 commands work as written.
 </details>
 
-Pin a compiler. This is the step that makes the project reproducible: it fetches Flix
-0.75.2, hashes it, and records the digest in `.flixw/lock.toml`. There is no `flix.toml`
-yet and none is needed — that file is Flix's, and the compiler is about to write it.
+### 2. Run it, in the project root
+
+```console
+java ./flixw-setup.java
+rm flixw-setup.java
+```
+
+In your project it writes the wrapper files and nothing else — it merges its block into an
+existing `.gitattributes` rather than replacing it, and never touches `flix.toml` or
+`.flixw/lock.toml`. It does reach the network once, to fetch and digest-verify this
+release's stage 0 into the cache.
+
+**Its last line tells you which of two situations you are in.**
+
+<table>
+<tr><th>already pinned</th><th>first adoption</th></tr>
+<tr><td>
+
+```
+the compiler pin is untouched;
+commit the wrapper files that changed:
+  git add flixw flixw.cmd .flixw
+```
+
+Nothing further to run. `.flixw/lock.toml` is not rewritten, so the compiler version, its
+digest, the repository it came from and any declared plugins all survive. Skip to step 5.
+
+</td><td>
+
+```
+next: ./flixw pin <version>
+      then commit all five files
+```
+
+The project has no lock yet. Continue with step 3.
+
+</td></tr>
+</table>
+
+### 3. Pin a compiler
 
 ```console
 $ ./flixw pin 0.75.2
 flixw: pinned Flix 0.75.2 from flix/flix (a2697d875725a0dd...)
 ```
 
-`init` is a compiler verb, not one of ours: it goes to the pinned Flix, which scaffolds
-the project around the wrapper.
+This is the trust root: it fetches that exact release, hashes it, and records the digest in
+`.flixw/lock.toml`. Every later run re-checks it. `flix.toml` is untouched — that file is
+Flix's, and `pin` has no business editing it.
+
+An empty directory needs `./flixw init` after this, which is a compiler verb: Flix
+scaffolds the project around the wrapper.
+
+### 4. Run the compiler
 
 ```console
-$ ./flixw init
-$ ./flixw run
-Hello World!
+$ ./flixw check
+$ ./flixw test
+Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 ```
 
-That is the whole bootstrap.
+An ordinary verb goes straight to the pinned compiler. `pin`, `info`, `doctor`, `validate`
+and `help` are flixw's own, because a project needs them before it can reach a compiler at
+all.
+
+### 5. Commit
+
+```console
+git add flixw flixw.cmd .flixw .gitattributes
+```
+
+**What gets committed:** `flixw`, `flixw.cmd`, `.flixw/flixw.java`, `.flixw/.gitignore`,
+`.flixw/lock.toml`, and the flixw block merged into your `.gitattributes`.
+**Never** `.flixw/local/` — that is this machine's resolved JDK and belongs to no one else.
+
+A collaborator with nothing but a JDK now gets the compiler you have.
+
+## After your first successful run
+
+### Coming from flixw 0.20.0–0.24.1
+
+Those releases upgrade by running `flixw.java install`, which no longer exists, so
+`./flixw wrapper --upgrade` fails with `FLIXW001` and **changes nothing at all**. The five
+steps above are the way across, and they are the same steps: your `lock.toml` and compiler
+pin survive, so step 2 will tell you the pin is untouched and there is nothing else to do.
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) has the full failure text.
+
+`flixw-setup.java` is a program you run directly, not a flixw verb — stage 0 has no
+`install` at all. That is deliberate: `install` is a name Flix could claim for a project's
+dependencies, so `./flixw install` reaches the compiler, like every other word flixw does
+not own.
+
+### What you are committing
+
+The `.flixw/flixw.java` in your project is the documented source with its comments removed
+— 3256 lines rather than 4651 — with a header pointing at
+[the docs](https://wstein.github.io/flixw/) and [the source](https://github.com/wstein/flixw)
+for the reasoning behind every check. The strip is reproducible from the tagged source, so
+the file you can read and the file you run can be compared rather than taken on trust.
+
+### When something goes wrong
+
+| symptom | what it means | do this |
+|---|---|---|
+| the shim prints install instructions and stops | no `java` on `PATH` at all | install any JDK 16+; flixw cannot bootstrap itself |
+| `FLIXW003: no Java in [21, …]` | flixw runs, the compiler cannot | `./flixw wrapper --install-jdk`, or install a JDK 21+ |
+| `FLIXW002: no .flixw/lock.toml` | the project has never pinned | `./flixw pin <version>` |
+| `FLIXW005: cannot reach …` on a first pin | no network, and nothing cached yet | pin once online; afterwards the cache serves it |
+| `FLIXW006: digest mismatch` | the bytes are not what the lock pins | do not override it — re-pin, or find out why they differ |
 
 ### What if my Java is older?
 
@@ -89,15 +231,17 @@ Below 16, and with no Java at all, that command cannot help: it is a Java progra
 is nothing to run it. You get the shim's own message naming the install command for your
 platform instead. First contact needs a JDK you installed yourself.
 
-From here every verb is the stock compiler, run by the wrapper:
+From here an ordinary verb is the stock compiler, run by the wrapper — `pin`, `info`,
+`doctor`, `validate` and `help` are flixw's, because a project needs them before it can
+reach a compiler at all:
 
 ```console
 $ ./flixw test
 Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 
 $ ./flixw validate
-ok    ./flixw matches flixw 0.25.0
-ok    ./flixw.cmd matches flixw 0.25.0
+ok    ./flixw matches flixw 0.25.1
+ok    ./flixw.cmd matches flixw 0.25.1
 ok    .flixw/flixw.java  sha256=c41d7b3eec8f91ce...
 ok    the lock satisfies flix.toml
 ok    the compiler reports the version the lock pins
@@ -115,21 +259,13 @@ Any vendor's JDK satisfies it, `21.0.12` pins harder than `21`, and a machine wi
 match is told so before anything is downloaded. Leave it out and flixw picks the newest
 tested JDK it can find, which is what it has always done.
 
-Commit, and a collaborator with nothing but a JDK gets the same compiler you have:
-
-```console
-git add flixw flixw.cmd .flixw .gitattributes flix.toml src test
-```
-
-Verify what you downloaded before you run it: every release publishes the SHA-256 of
-each file it ships, and `./flixw validate` prints the one in your project so you can
-compare it against the release you meant to install.
+`./flixw validate` prints the digest of the stage 0 in your project, so it can be compared
+against the release you meant to install.
 
 ### What the project looks like
 
-Nine committed files and one that stays on your machine, plus a template you may keep or
-delete. flixw writes five of the nine and shares a sixth; all of them are committed on
-purpose, so a clone needs no bootstrap step of its own and no `flix` on `PATH`. (`init`
+Nine committed files and one that stays on your machine. flixw writes five of the nine and
+shares a sixth; all of them are committed on purpose, so a clone needs no bootstrap step of its own and no `flix` on `PATH`. (`init`
 also scaffolds a `README.md`, a `LICENSE.md`, a `.gitignore` and a CI workflow, which are
 yours to keep or delete.)
 
@@ -181,32 +317,19 @@ per Flix release — so the cost of pinning is a number rather than an argument.
 project; [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) says exactly what is and is not
 established.
 
-## Adding it to an existing project
+### The archive route
 
-A project that already has sources and a `flix.toml` takes the quickstart route unchanged
-— `curl` the single file, `java flixw-setup.java`, then `pin`. It adds the
-wrapper without touching anything else: it merges its block into an existing
-`.gitattributes` rather than replacing it, and it never writes `flix.toml`.
-
-The `.flixw/flixw.java` you commit is the documented source with its comments removed —
-3288 lines rather than 4678 — with a header pointing at
-[the docs](https://wstein.github.io/flixw/) and [the source](https://github.com/wstein/flixw)
-for the reasoning behind every check. The strip is reproducible from the tagged source, so
-the file you can read and the file you run can be compared rather than taken on trust.
-
-The bootstrap sits in flixw's own namespace rather than being a bare `install` verb,
-because `install` is a name Flix could claim for a project's dependencies — so
-`./flixw install` reaches the compiler, like every other word flixw does not own.
-
-The archive is the alternative, for when you would rather not run a downloaded program to
-install a program:
+For when you would rather not run a downloaded program to install a program. Its digests come from the release's own `SHA256SUMS`, which proves the
+download arrived intact and nothing more — unlike the setup asset's digest above, which is
+published here, on a different path, and can be compared against something the release did
+not serve:
 
 ```console
-base=https://github.com/wstein/flixw/releases/download/v0.25.0
-curl -fsSLO $base/flixw-0.25.0.tar.gz
-curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.0.tar.gz | shasum -a 256 -c -
-tar -xzf flixw-0.25.0.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
-rm flixw-0.25.0.tar.gz
+base=https://github.com/wstein/flixw/releases/download/v0.25.1
+curl -fsSLO $base/flixw-0.25.1.tar.gz
+curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.1.tar.gz | sha256sum -c -
+tar -xzf flixw-0.25.1.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
+rm flixw-0.25.1.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
                                     # 0.75.2 or v0.75.2 -- the release tag works too
 ./flixw doctor --fix                # merges the .gitattributes block
@@ -214,7 +337,9 @@ git add flixw flixw.cmd .flixw .gitattributes
 ```
 
 The digest line is a check you run, not a comparison you eyeball: it prints `OK` or fails.
-On Windows, `Get-FileHash flixw-0.25.0.tar.gz` and `Expand-Archive` are the equivalents.
+On Windows the equivalents are `Get-FileHash flixw-0.25.1.tar.gz` and `Expand-Archive` in
+PowerShell, or `certutil -hashfile flixw-0.25.1.tar.gz SHA256` and `tar -xf` in cmd.exe —
+`tar` ships with Windows 10 and later.
 
 Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
 own field and flixw reads it as a **minimum**, so the same version or anything newer is
@@ -255,7 +380,7 @@ Nothing about the build depends on the line. A lock written by an older flixw ha
 
 ```console
 $ ./flixw pin --refresh
-flixw: rewrote .flixw/lock.toml in the shape flixw 0.25.0 writes; the pin is unchanged
+flixw: rewrote .flixw/lock.toml in the shape flixw 0.25.1 writes; the pin is unchanged
 ```
 
 That is offline and moves nothing — same repository, version, URL, digest and java pin —
@@ -366,8 +491,8 @@ the difference — so fish users still write `export FOO=bar` in it, not `set -x
 
 flixw itself never reads it; direnv sets the variables in your shell before flixw
 starts, which is why it works in a terminal but not for an editor-spawned `flixw lsp`, and
-why there is no `cmd.exe` equivalent. The template is safe to delete — nothing checks for
-it. See [`docs/CONTRACT.md`](docs/CONTRACT.md#running-a-locally-built-compiler) for the full
+why there is no `cmd.exe` equivalent. flixw ships no `.envrc` template — the variables are
+listed above and in `docs/CONTRACT.md`, which is where they stay current. See [`docs/CONTRACT.md`](docs/CONTRACT.md#running-a-locally-built-compiler) for the full
 rules.
 
 ## Documentation
@@ -384,8 +509,12 @@ rules.
 flixw/
 ├── src/
 │   ├── flixw.java             stage 0 — the whole bootstrap, one dependency-free Java file
-│   ├── flixw-completion.java  TAB-completion generator — a wrapper-owned companion asset,
-│   │                          fetched and cached on demand, never committed into a project
+│   ├── flixw-setup.java       the bootstrap: fetches and verifies stage 0, writes a project
+│   ├── flixw-jdk.java         optional JDK provisioning, for `wrapper --install-jdk`
+│   ├── flixw-inspect.java     the cache inventory behind `info --verbose`
+│   ├── flixw-completion.java  TAB-completion generator
+│   │                          — the four companion assets: published per release, fetched
+│   │                            on first use, digest-verified, never committed to a project
 │   ├── flixw                  POSIX shim — finds a Java, prefers the compiled stage 0
 │   └── flixw.cmd              cmd.exe shim — the same, without a POSIX shell
 ├── tests/             regression suite, unit checks, and a corpus of 95 real

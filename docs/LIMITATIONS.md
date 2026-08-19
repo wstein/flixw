@@ -428,6 +428,39 @@ plugins and companion assets postdate the last Windows build, and the suite was 
 both platforms while every such url was unusable on one of them. The suite now converts
 its fixture paths with `cygpath -m`, which is what makes those cases run there at all.
 
+## Wrappers from 0.20.0 to 0.24.1 cannot upgrade themselves
+
+`./flixw wrapper --upgrade` in those releases downloads the new stage 0 and runs it as
+`flixw.java install <root>`. Stage 0 has no `install` verb from 0.25.0 on, so the child
+falls through to project discovery, anchors on the temp directory it was downloaded into,
+and reports a path nobody mentioned:
+
+```
+flixw: 0.20.3 -> 0.25.0
+FLIXW001: this wrapper belongs to /var/folders/.../flixw-upgrade-8222493112,
+          but the current directory is /Users/you/your-project
+FLIXW009: the downloaded flixw failed to install (exit 80)
+```
+
+**The project is untouched.** Nothing was written; the upgrade failed before it started.
+Re-adopt in place, which keeps the compiler pin and every other project file:
+
+```console
+curl -fsSLO https://github.com/wstein/flixw/releases/latest/download/flixw-setup.java
+java flixw-setup.java
+rm flixw-setup.java
+```
+
+`.flixw/lock.toml` is not rewritten, so the pinned compiler, its digest and any declared
+plugins survive. `git status` afterwards shows the wrapper files changing and nothing else.
+
+This is deliberate, and it is the reason it cannot be fixed from this side: the invoking
+code lives in releases that already shipped, so no future release can change what they run.
+Answering `install` in stage 0 would fix it — that is exactly what the removed bridge did —
+but `install` is a name Flix can claim for a project's dependencies, and holding it for a
+command that runs once before the project exists is what this release set out to stop.
+Re-adoption is one command; a permanently squatted verb is forever.
+
 ## No field evidence
 
 This wrapper has been exercised by a 121-case regression suite — one of those cases being
