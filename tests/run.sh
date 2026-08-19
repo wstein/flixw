@@ -443,6 +443,16 @@ t 0  "doctor --fix repairs what it reports"                     sh -c '
   cp "$1/flixw.keep" flixw; chmod +x flixw; exit $rc' sh "$work"
 t 87 "doctor rejects an unknown option"                         ./flixw doctor --frobnicate
 t 87 "info rejects an unknown option"                           ./flixw info --frobnicate
+t 0  "purge removes an old unpinned compiler and its metadata" sh -c '
+  sha=$(printf "d%.0s" $(seq 1 64))
+  jar=$(ls "$FLIX_CACHE_HOME"/compilers/flix-*.jar | head -1)
+  stale="$FLIX_CACHE_HOME/compilers/flix-9.9.9-$sha.jar"
+  cp "$jar" "$stale"
+  printf stale > "$FLIX_CACHE_HOME/verbs/$sha.verbs"
+  mkdir -p "$FLIX_CACHE_HOME/usage/compiler"
+  printf "2020-01-01\n" > "$FLIX_CACHE_HOME/usage/compiler/$sha.used"
+  ./flixw wrapper --purge --yes
+  test ! -e "$stale" && test ! -e "$FLIX_CACHE_HOME/verbs/$sha.verbs"'
 g 0 'cached compilers' "info --verbose lists the cache"         ./flixw info --verbose
 g 0 'cached JDKs' "info --verbose lists JDKs too"                ./flixw info --verbose
 g 0 '<= pinned' "info --verbose marks the pinned compiler"       ./flixw info --verbose

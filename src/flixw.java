@@ -22,6 +22,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -1234,6 +1235,27 @@ public final class flixw {
     }
 
     /**
+     * A flixw-owned last-use record, deliberately independent of filesystem atime.
+     *
+     * <p>One immutable cache artifact has one opaque marker containing only its UTC date.
+     * Reading first avoids rewriting it on every compiler launch, which matters both for
+     * SSD wear and for making a purge record mean a day of actual use rather than a day a
+     * wrapper happened to start. Failure is non-fatal: cache lifecycle must never stop a
+     * build, and an entry with no usable record is retained by purge.
+     */
+    static void markUsed(String key) {
+        String today = LocalDate.now(java.time.ZoneOffset.UTC).toString() + "\n";
+        Path dir = cacheHome().resolve("usage");
+        Path f = dir.resolve(key + ".used").normalize();
+        if (!f.startsWith(dir)) return;
+        try {
+            if (Files.isRegularFile(f) && Files.readString(f, StandardCharsets.UTF_8).equals(today)) return;
+            Files.createDirectories(f.getParent());
+            writeAtomic(f, today);
+        } catch (IOException ignored) { }
+    }
+
+    /**
      * Validated on every run, not only when a download happens: a warm cache would
      * otherwise hide a malformed mirror setting until the day it is actually needed.
      */
@@ -1316,6 +1338,7 @@ public final class flixw {
         // older flixw already filled -- one that predates this record entirely -- backfills
         // on its very next use, and `info -v` has an answer for every entry, not only today's.
         writePinRecord(lock.sha256(), lock.repo() == null ? UPSTREAM_REPO : lock.repo(), lock.version());
+        markUsed("compiler/" + lock.sha256());
         return jar;
     }
 
@@ -1576,14 +1599,14 @@ public final class flixw {
                          + ", but " + WRAPPER_DIR + "/lock.toml pins java " + pin
                          + "\n       unset " + var + ", or run: ./flixw pin --java "
                          + (full == null ? "<version>" : full));
-            return new Jvm(exe, f, var);
+            return markJvmUse(new Jvm(exe, f, var));
         }
         int self = Runtime.version().feature();
         Path selfExe = ProcessHandle.current().info().command()
                 .map(Paths::get).orElse(exeIn(System.getProperty("java.home")));
         if (acceptable(self, "running JVM")
             && satisfiesJavaPin(pin, Runtime.version().toString().split("[+-]")[0]))
-            return new Jvm(selfExe, self, "running JVM");
+            return markJvmUse(new Jvm(selfExe, self, "running JVM"));
 
         // Every candidate is probed before any is chosen.  probe() reads the JDK's own
         // release file first and only executes a candidate that has none, so this is
@@ -1601,8 +1624,16 @@ public final class flixw {
                 found.add(new Jvm(cand, f, "known installation"));
         }
         Jvm pick = chooseInstall(found, strictJava());
-        if (pick != null) return pick;
+        if (pick != null) return markJvmUse(pick);
         return noJavaFound(self, pin);
+    }
+
+    /** Records a provisioned JDK only after it won selection, never merely because it was probed. */
+    static Jvm markJvmUse(Jvm jvm) {
+        for (Path dir : cachedJdkDirs())
+            if (jvm.exe().normalize().startsWith(dir.normalize()))
+                markUsed("jdk/" + dir.getFileName());
+        return jvm;
     }
 
     /**
@@ -2644,6 +2675,7 @@ public final class flixw {
                      + "\n       actual   " + got
                      + "\n       run: ./flixw plugin remove " + name
                      + "   then reinstall");
+        markUsed("plugin/" + name + "/" + dirName);
         return new ResolvedPlugin(version, sha256, artifact);
     }
 
@@ -2797,6 +2829,40 @@ public final class flixw {
             System.out.println("  everything above came from this wrapper and is unaffected.");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } finally {
+            if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
+        }
+    }
+
+    /**
+     * Runs the cache lifecycle half of the inspector without requiring a project.
+     *
+     * <p>This is explicit and age-based rather than automatic: the cache is shared by
+     * projects, and a wrapper looking at one checkout has no authority to decide which
+     * other checkout may need offline bytes tomorrow. A caller who chooses a retention
+     * window is making that trade-off deliberately. The inspector protects the default
+     * JDK, this release's companion assets and all stage-0 classes; it considers the
+     * its own per-artifact usage record for everything else.
+     */
+    static void purgeCache(int days, boolean yes) {
+        Path ctx = null;
+        try {
+            ctx = Files.createTempFile("flixw-purge-", ".txt");
+            // Purge is deliberately project-free. Do not protect the current project's
+            // lock while silently deleting another project's equally old cache entry.
+            Files.writeString(ctx, inspectContext(null, null), StandardCharsets.UTF_8);
+            Path asset = ensureAsset(INSPECT_ASSET);
+            ProcessBuilder pb = new ProcessBuilder(exeIn(System.getProperty("java.home")).toString(),
+                                                   asset.toString(), ctx.toString(),
+                                                   "--purge", String.valueOf(days),
+                                                   yes ? "--yes" : "--ask").inheritIO();
+            int rc = awaitWithReaper(pb.start());
+            if (rc != 0) throw w009("cache purge failed (exit " + rc + ")");
+        } catch (IOException e) {
+            throw w005("cannot purge the cache: " + why(e));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw w009("cache purge interrupted");
         } finally {
             if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
         }
@@ -3729,6 +3795,18 @@ public final class flixw {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
                 installJdkVerb(argv.subList(1, argv.size()));
             }
+            case "--purge" -> {
+                int days = 14;
+                boolean yes = false, sawDays = false;
+                for (String a : rest) {
+                    if (a.equals("--yes")) { yes = true; continue; }
+                    if (sawDays) throw w008(wrapperUsage("'--purge' takes one number of days"));
+                    try { days = Integer.parseInt(a); sawDays = true; }
+                    catch (NumberFormatException e) { throw w008(wrapperUsage("purge days must be a whole number")); }
+                }
+                if (days < 0) throw w008(wrapperUsage("purge days must not be negative"));
+                purgeCache(days, yes);
+            }
             // Offline, project-free and side-effect-free, like --version: the schema is a
             // property of this stage 0, not of any project, and someone validating a lock
             // in CI should not have to reach the network for the file the lock points at.
@@ -3773,12 +3851,13 @@ public final class flixw {
     static String wrapperUsage(String problem) {
         return "./flixw wrapper: " + problem
              + "\n       usage: ./flixw wrapper [--help | --version | --upgrade"
-             + "\n                              | --install-jdk | --schema | --completion]"
+             + "\n                              | --install-jdk | --purge [days] [--yes] | --schema | --completion]"
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
              + "\n         --upgrade      move this project to the newest published flixw"
              + "\n                        (to repair the files it has: ./flixw doctor --fix)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
+             + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for 14 days"
              + "\n         --schema       the JSON Schema for " + WRAPPER_DIR + "/lock.toml, on stdout"
              + "\n         --completion <shell>   a TAB-completion script, on stdout,"
              + "\n                        for one of " + String.join(", ", COMPLETION_SHELLS);
@@ -3938,8 +4017,10 @@ public final class flixw {
         Path asset = dir.resolve(name), marker = dir.resolve(name + ".sha256");
         if (Files.isRegularFile(asset) && Files.isRegularFile(marker)) {
             try {
-                if (sha256(asset).equals(Files.readString(marker, StandardCharsets.UTF_8).trim()))
+                if (sha256(asset).equals(Files.readString(marker, StandardCharsets.UTF_8).trim())) {
+                    markUsed("asset/" + canonical(version));
                     return asset;
+                }
             } catch (IOException ignored) { }
             // Falls through: a corrupt cache entry re-fetches, exactly like a corrupt
             // compiler jar does in acquire().
@@ -3971,6 +4052,7 @@ public final class flixw {
         } catch (IOException e) {
             throw w007("cannot cache " + name + ": " + why(e));
         }
+        markUsed("asset/" + canonical(version));
         return asset;
     }
 
@@ -4306,7 +4388,7 @@ public final class flixw {
         System.out.println("  ./flixw plugin list | remove <name> | <name> [args]  installed plugins");
         System.out.println("  ./flixw task [<name> [args]]     .flixw/tasks.toml's aliases, or list them");
         System.out.println("  ./flixw wrapper [--help | --version | --upgrade"
-                         + " | --install-jdk | --schema | --completion]");
+                         + " | --install-jdk | --purge [days] [--yes] | --schema | --completion]");
         System.out.println();
         System.out.println("  FLIX_JAR=<path> ./flixw <verb>   run a locally built compiler"
                          + " (unverified; see docs/CONTRACT.md)");

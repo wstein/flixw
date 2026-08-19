@@ -317,6 +317,12 @@ caches:
 actually cached there -- every compiler JAR and JDK, not just the ones this project has
 pinned -- plus every JDK it can find on the machine without flixw having installed it
 (Homebrew, scoop, sdkman, asdf, mise, jenv, and the usual OS install directories).
+When space matters, `./flixw wrapper --purge [days]` offers each flixw cache entry unused
+for 14 days by default for deletion: compiler JARs, provisioned JDKs, plugins and old
+companion assets. flixw records its own last-use date rather than trusting filesystem access
+time. Answer each prompt, or add `--yes` for an intentional non-interactive purge. It retains
+the default JDK, this release's assets and stage-0 cache; entries without a flixw use record
+are retained conservatively.
 
 A real project on this: [`flix-invaders`](https://github.com/wstein/flix-invaders), by
 the same author, which type-checks, tests, formats and packages through `./flixw` on

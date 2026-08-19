@@ -749,6 +749,17 @@ directory listing, not a catalogue: it names nothing that could be pinned, provi
 downloaded but is not already on the machine, because that would be a network call on a
 verb the paper promises stays offline.
 
+`./flixw wrapper --purge [days]` is an explicit cache-recovery operation, not automatic
+maintenance. It offers each flixw-owned compiler, provisioned-JDK, plugin and old
+companion-asset entry unused for 14 days by default (or the supplied non-negative number of
+days); answer each deletion prompt, or add `--yes` for an intentional non-interactive purge.
+Stage 0 records its own one-date usage marker and reads it before writing, so a normal run
+does not rewrite the marker more than once a day; filesystem access timestamps are not used.
+It retains the default JDK, this wrapper release's assets, the small stage-0 compilation
+cache, and entries with no usable flixw usage marker. Purge is best-effort space recovery,
+not a correctness or security mechanism; use it only when cached bytes may be re-acquired if
+a project needs them.
+
 Each cached compiler is labelled with the exact repo and tag it was pinned as, not the
 canonical `x.x.x` its cache filename carries: `acquire` writes that pair beside the digest
 on every run, so it survives long after the project that wrote it moves on to another pin,

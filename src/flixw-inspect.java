@@ -1,8 +1,13 @@
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.LinkOption;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,11 +37,25 @@ final class flixwinspect {
     private flixwinspect() {}
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 1) {
-            System.err.println("usage: java flixw-inspect.java <context-file>");
+        if (args.length != 1 && args.length != 4) {
+            System.err.println("usage: java flixw-inspect.java <context-file> [--purge <days> <--ask|--yes>]");
             System.exit(87);
         }
         Ctx c = read(Paths.get(args[0]));
+        if (args.length == 4) {
+            if (!args[1].equals("--purge")) {
+                System.err.println("usage: java flixw-inspect.java <context-file> [--purge <days> <--ask|--yes>]");
+                System.exit(87);
+            }
+            int days;
+            try { days = Integer.parseInt(args[2]); }
+            catch (NumberFormatException e) { throw new IOException("purge days must be a whole number"); }
+            if (days < 0) throw new IOException("purge days must not be negative");
+            if (!args[3].equals("--ask") && !args[3].equals("--yes"))
+                throw new IOException("purge mode must be --ask or --yes");
+            purge(c, days, args[3].equals("--yes"));
+            return;
+        }
         compilers(c);
         jdks(c);
         plugins(c);
@@ -213,6 +232,120 @@ final class flixwinspect {
         }
         System.out.println("cached companion assets");
         printAligned(rows);
+    }
+
+    // ---- cache lifecycle -------------------------------------------------
+
+    /**
+     * Deletes flixw-owned entries that the filesystem says no process has read recently.
+     *
+     * <p>Stage 0 writes its own one-date usage records when it actually launches an
+     * artifact. Filesystem atime is not evidence: mounts may disable or coarsen it, and a
+     * directory listing may update it without executing anything. A missing or malformed
+     * record is retained, never guessed from modification time. The current wrapper's
+     * companion assets and stage-0 classes stay even when old.
+     */
+    static void purge(Ctx c, int days, boolean yes) {
+        LocalDate cutoff = LocalDate.now(ZoneOffset.UTC).minusDays(days);
+        Purge p = new Purge(cutoff, yes);
+        System.out.println("purging flixw cache entries not used since " + cutoff
+                         + " (" + days + " day" + (days == 1 ? "" : "s") + ")");
+        purgeCompilers(c, p);
+        purgeJdks(c, p);
+        purgePlugins(c, p);
+        purgeAssets(c, p);
+        System.out.println("freed " + humanSize(p.bytes) + " from " + p.count + " entr"
+                         + (p.count == 1 ? "y" : "ies"));
+        System.out.println("stage0 is retained; it is only a few megabytes and speeds every run.");
+    }
+
+    static final class Purge {
+        final LocalDate cutoff;
+        final boolean yes;
+        final BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        long bytes;
+        int count;
+        Purge(LocalDate cutoff, boolean yes) { this.cutoff = cutoff; this.yes = yes; }
+        void remove(Ctx c, Path p, String kind, String key) {
+            try {
+                LocalDate used = used(c, key);
+                if (Files.isSymbolicLink(p) || used == null || used.isAfter(cutoff)) return;
+                long size = treeSize(p);
+                if (!confirm(kind, p, size)) return;
+                deleteTree(p);
+                if (Files.exists(p, LinkOption.NOFOLLOW_LINKS)) return;
+                try { Files.deleteIfExists(cache(c, "usage", key + ".used")); } catch (IOException ignored) { }
+                bytes += size; count++;
+                System.out.println("  removed " + kind + "  " + p.getFileName() + "  (" + humanSize(size) + ")");
+            } catch (IOException ignored) { }
+        }
+        boolean confirm(String kind, Path p, long size) throws IOException {
+            if (yes) return true;
+            System.err.print("delete " + kind + " " + p.getFileName() + " (" + humanSize(size)
+                             + ")? [y/N] ");
+            String answer = in.readLine();
+            return answer != null && (answer.equalsIgnoreCase("y") || answer.equalsIgnoreCase("yes"));
+        }
+    }
+
+    static void purgeCompilers(Ctx c, Purge p) {
+        for (Path jar : filesIn(cache(c, "compilers"))) {
+            Matcher m = JAR.matcher(jar.getFileName().toString());
+            if (!m.matches() || m.group(2).equals(c.lockSha256)) continue;
+            String sha = m.group(2);
+            long before = p.bytes;
+            p.remove(c, jar, "compiler", "compiler/" + sha);
+            if (p.bytes != before)
+                for (String suffix : List.of(".verbs", ".version", ".pin", ".compl"))
+                    try { Files.deleteIfExists(cache(c, "verbs", sha + suffix)); } catch (IOException ignored) { }
+        }
+    }
+
+    static void purgeJdks(Ctx c, Purge p) {
+        Path defaultJava = cache(c, "jdks", "default");
+        String keep = "";
+        try { keep = Files.readString(defaultJava, StandardCharsets.UTF_8).trim(); } catch (IOException ignored) { }
+        for (Path dir : dirsIn(cache(c, "jdks")))
+            if (!keep.startsWith(dir.toString() + java.io.File.separator))
+                p.remove(c, dir, "JDK", "jdk/" + dir.getFileName());
+    }
+
+    static void purgePlugins(Ctx c, Purge p) {
+        for (Path name : dirsIn(cache(c, "plugins")))
+            for (Path version : dirsIn(name))
+                p.remove(c, version, "plugin", "plugin/" + name.getFileName() + "/" + version.getFileName());
+    }
+
+    static void purgeAssets(Ctx c, Purge p) {
+        for (Path version : dirsIn(cache(c, "wrapper", "assets")))
+            if (!version.getFileName().toString().equals(c.wrapperVersion))
+                p.remove(c, version, "asset set", "asset/" + version.getFileName());
+    }
+
+    static List<Path> filesIn(Path dir) {
+        try (var s = Files.isDirectory(dir) ? Files.list(dir) : null) {
+            return s == null ? List.of() : s.filter(Files::isRegularFile).sorted().toList();
+        } catch (IOException e) { return List.of(); }
+    }
+
+    static LocalDate used(Ctx c, String key) {
+        try {
+            return LocalDate.parse(Files.readString(cache(c, "usage", key + ".used"), StandardCharsets.UTF_8).trim());
+        } catch (IOException | RuntimeException e) { return null; }
+    }
+
+    static long treeSize(Path root) throws IOException {
+        try (var s = Files.walk(root)) {
+            return s.filter(Files::isRegularFile).mapToLong(p -> {
+                try { return Files.size(p); } catch (IOException e) { return 0L; }
+            }).sum();
+        }
+    }
+
+    static void deleteTree(Path root) throws IOException {
+        try (var s = Files.walk(root)) {
+            for (Path p : s.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(p);
+        }
     }
 
     // ---- shared rendering --------------------------------------------------
