@@ -3363,7 +3363,7 @@ public final class flixw {
      * fetched asset write access to the trust root.
      */
     static void updateWrapper(Path root) {
-        runInstallAsset(List.of("update", root.toString(), WRAPPER_VERSION));
+        runInstallAsset(List.of("update", root.toString()));
         // A lock only `pin <version>` can repair is not this command's to guess at;
         // everything else doctor --fix reports is still reported.
         try {
@@ -3667,8 +3667,12 @@ public final class flixw {
                              + (published == null ? "the latest release" : published));
             // Hand over: the new stage 0 writes its own shims and its own copy of itself.
             Path javaExe = exeIn(System.getProperty("java.home"));
-            ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), fresh.toString(),
-                                                   "wrapper", "--install", root.toString())
+            // The installer of the release being moved to, given the stage 0 this already
+            // downloaded and verified -- stage 0 has no install verb to hand over to any
+            // more, and fetching a second copy would be a chance to disagree with itself.
+            Path installer = ensureAsset(INSTALL_ASSET, published == null ? WRAPPER_VERSION : published);
+            ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), installer.toString(),
+                                                   "install", root.toString(), fresh.toString())
                                     .inheritIO();
             // The child is a different file in a different directory. Both markers describe
             // *this* process and mean nothing to it -- FLIXW_SOURCE would anchor it in this
@@ -3727,17 +3731,6 @@ public final class flixw {
                 // rather than making the others depend on being inside one.
                 upgradeWrapper(findRoot(wrapperAnchor()));
             }
-            // Bootstrap. In the namespace and not a bare verb, because `install` is a name
-            // Flix could plausibly claim -- for a project's dependencies, which is what
-            // every other tool means by it -- and flixw held it for an operation run once,
-            // ever, before the project exists. `./flixw install` now reaches the compiler
-            // from the first command rather than only after a lock appears.
-            case "--install" -> {
-                if (rest.size() > 1)
-                    throw w008(wrapperUsage("'--install' takes at most a directory"));
-                installProject(Paths.get(rest.isEmpty() ? "." : rest.get(0))
-                                    .toAbsolutePath().normalize(), selfSource());
-            }
             case "--install-jdk" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
                 installJdkVerb(argv.subList(1, argv.size()));
@@ -3785,11 +3778,10 @@ public final class flixw {
 
     static String wrapperUsage(String problem) {
         return "./flixw wrapper: " + problem
-             + "\n       usage: ./flixw wrapper [--help | --version | --install | --upgrade"
+             + "\n       usage: ./flixw wrapper [--help | --version | --upgrade"
              + "\n                              | --install-jdk | --schema | --completion]"
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
-             + "\n         --install [dir]  write the wrapper files into a project"
              + "\n         --upgrade      move this project to the newest published flixw"
              + "\n                        (to repair the files it has: ./flixw doctor --fix)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
@@ -3852,26 +3844,6 @@ public final class flixw {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw w009("install interrupted");
-        }
-    }
-
-    /**
-     * First contact: write the project's files, and leave the machine able to work offline.
-     *
-     * <p>Warming every asset rather than only the installer is close to free here -- the
-     * manifest naming them has just been fetched to verify the installer, and each one is
-     * a few kilobytes -- and it is the difference between "installed" and "installed, and
-     * the next command that wants a completion script will stop to download one". Since
-     * install now needs the network at all, it should ask for it once.
-     */
-    static void installProject(Path target, Path source) {
-        runInstallAsset(List.of("install", target.toString(), WRAPPER_VERSION, source.toString()));
-        // Never fatal: the project is installed by this point, and an asset that was not
-        // pre-fetched is fetched when something wants it.
-        try {
-            warmAssets(readSums(assetSourceBase(WRAPPER_VERSION)), WRAPPER_VERSION);
-        } catch (RuntimeException e) {
-            tr("cannot warm the remaining assets: " + e.getMessage());
         }
     }
 
@@ -4110,25 +4082,6 @@ public final class flixw {
                      + "\n       flixw's own operations moved under one verb"));
 
         Path anchor = wrapperAnchor();
-        // A bridge, not an interface. `wrapper --install` is the bootstrap; this exists
-        // because a released flixw's own upgrade spawns the *downloaded* stage 0 as
-        // `install <root>`, and that wrapper is already published and cannot be changed.
-        // Removing it before every supported release spawns `wrapper --install` would
-        // break upgrading *into* this release, which is the one path with no way back.
-        // Drop it once no supported wrapper spawns the bare word -- and that is a real
-        // condition, not an indefinite one: the `flix.java` bridge was dropped the moment
-        // it was established that nothing had ever used the name it served.
-        //
-        // An explicit target is required, which is what makes this a bridge rather than a
-        // squat on the name: the handover always passes one, and a person typing
-        // `./flixw install` never does. So that reaches the compiler -- where a project
-        // asking to install its dependencies was always trying to go -- from the first
-        // command, instead of only once a lock exists.
-        if ("install".equals(first) && argv.size() > 1
-            && !Files.isRegularFile(lockPath(anchor))) {
-            installProject(Paths.get(argv.get(1)).toAbsolutePath().normalize(), selfSource());
-            return;
-        }
 
         // After install, which is entirely offline and has no business failing on a mirror
         // setting it will never use.
@@ -4333,7 +4286,7 @@ public final class flixw {
         System.out.println("  ./flixw plugin install <name> <version> <url> [--sha256 <digest>]");
         System.out.println("  ./flixw plugin list | remove <name> | <name> [args]  installed plugins");
         System.out.println("  ./flixw task [<name> [args]]     .flixw/tasks.toml's aliases, or list them");
-        System.out.println("  ./flixw wrapper [--help | --version | --install | --upgrade"
+        System.out.println("  ./flixw wrapper [--help | --version | --upgrade"
                          + " | --install-jdk | --schema | --completion]");
         System.out.println();
         System.out.println("  FLIX_JAR=<path> ./flixw <verb>   run a locally built compiler"

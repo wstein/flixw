@@ -8,7 +8,7 @@ loaded, who verifies it, and what breaks if it is wrong.
 | `flixw.java` | **stage 0** | every invocation |
 | `flixw` | shim (POSIX `sh`) | every invocation, before stage 0 |
 | `flixw.cmd` | shim (`cmd.exe`) | every invocation, before stage 0 |
-| `flixw-install.java` | companion asset | only `wrapper --install` and `doctor --fix` |
+| `flixw-install.java` | companion asset, **and the bootstrap** | run directly to adopt flixw; `doctor --fix` |
 | `flixw-completion.java` | companion asset | only `wrapper --completion` |
 | `flixw-jdk.java` | companion asset | only `wrapper --install-jdk` |
 

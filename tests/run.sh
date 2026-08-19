@@ -312,7 +312,7 @@ def main(): Unit \ {IO, Sys.Exit} = {
 }
 EOF
 
-java "$root/src/flixw.java" wrapper --install "$proj" > /dev/null
+java "$root/src/flixw-install.java" install "$proj" > /dev/null
 cp "$root/src/flixw.java" "$proj/.flixw/flixw.java"
 
 # The suite's scratch tree lives inside this repository, which gitignores it. `validate`
@@ -356,7 +356,9 @@ t 87 "an unknown wrapper operation"                                  ./flixw wra
 # handling is asserted here; the fetch/verify/launch path around it has its own section
 # further down, exercised offline against a stand-in provisioner.
 t 87 "wrapper --install-jdk takes no arguments"                 ./flixw wrapper --install-jdk temurin
-t 87 "wrapper --install takes at most a directory"              ./flixw wrapper --install a b
+# Stage 0 has no install verb at all now -- the bootstrap is `java flixw-install.java`,
+# which is what somebody downloads and verifies. An unknown operation, not a missing one.
+g 87 'unknown operation' "wrapper has no --install"             ./flixw wrapper --install .
 # The bootstrap moved into flixw's namespace because `install` is a name Flix could claim
 # for a project's dependencies, and holding it meant `./flixw install` reached flixw rather
 # than the compiler in any project that had not pinned yet.
@@ -366,7 +368,7 @@ t 87 "wrapper --install takes at most a directory"              ./flixw wrapper 
 # got the wrapper reinstalling itself instead.
 t 81 "install reaches ordinary dispatch, even with no lock"     sh -c '
   d=$1/bare-install; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
+  java "$2/src/flixw-install.java" install "$d" >/dev/null 2>&1
   cd "$d" && rm -f .flixw/lock.toml
   ./flixw install' sh "$work" "$root"
 t 1  "...and did not quietly reinstall the wrapper"             sh -c '
@@ -473,7 +475,7 @@ t 0  "an upstream cached compiler carries no fork annotation" sh -c '
 t 0  "pin alone -- with no other command run against it -- records its own digest" sh -c '
   d=$1/pin-record-only; rm -rf "$d"; mkdir -p "$d"
   cd "$d" || exit 1
-  java "$2/src/flixw.java" wrapper --install . >/dev/null 2>&1
+  java "$2/src/flixw-install.java" install . >/dev/null 2>&1
   cp "$3/flix.toml" flix.toml
   cache="$d/.cache"
   FLIX_CACHE_HOME="$cache" ./flixw pin '"$version"' >/dev/null 2>&1
@@ -1336,7 +1338,7 @@ t 80 "FLIX_PROJECT_ROOT naming no directory"                    env FLIX_PROJECT
 # write one without a pinned compiler.
 t 0  "pin works in a project with no manifest yet"              sh -c '
   d=$1/bare; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
+  java "$2/src/flixw-install.java" install "$d" >/dev/null 2>&1
   cd "$d" && ./flixw pin '"$version"' >/dev/null 2>&1
   test -f .flixw/lock.toml' sh "$work" "$root"
 g 81 'nested' "the nearest manifest wins over the anchor's"     sh -c 'cd nested && ../flixw -- --version'
@@ -1353,7 +1355,7 @@ t 87 "FLIX_JAR pointing at nothing is a usage error"            env FLIX_JAR=/no
 # a local build runs into, so it is documented in docs/CONTRACT.md and asserted here.
 g 81 'lock.toml' "FLIX_JAR does not substitute for a pin"       sh -c '
   d=$1/nolock; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
+  java "$2/src/flixw-install.java" install "$d" >/dev/null 2>&1
   cd "$d" && FLIX_JAR="$1/impostor/impostor.jar" ./flixw check' sh "$work" "$root"
 t 0  "a read-only verb cache stays silent"                      sh -c '
   chmod -R a-w "$FLIX_CACHE_HOME/verbs"
@@ -1367,7 +1369,7 @@ t 0  "a read-only verb cache stays silent"                      sh -c '
 for spelling in --help -h help; do
   g 0 'repository-local Flix bootstrap' "$spelling works before any project is pinned" sh -c '
     d=$1/nolock-help; rm -rf "$d"; mkdir -p "$d"
-    java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
+    java "$2/src/flixw-install.java" install "$d" >/dev/null 2>&1
     cd "$d" && ./flixw '"$spelling"'' sh "$work" "$root"
 done
 
@@ -1541,11 +1543,12 @@ g 88 'rewrote' "doctor --fix survives an unreadable lock"        sh -c '
 # first contact and hands the word to the compiler: `Unrecognized file extension:
 # 'install'.` That broke every upgrade from 0.18.0, and it is invisible to any test that
 # does not set the variable, so the case sets it deliberately.
-t 0 "a stage 0 launched by path ignores a stale FLIXW_SOURCE"   sh -c '
-  cp "$1/src/flixw.java" "$2/elsewhere.java"
+t 0 "the installer ignores a stale FLIXW_SOURCE"                sh -c '
+  cp "$1/src/flixw-install.java" "$2/elsewhere-install.java"
   rm -rf "$2/upgraded" && mkdir -p "$2/upgraded"
   FLIXW_SOURCE="$PWD/.flixw/flixw.java" \
-    java "$2/elsewhere.java" wrapper --install "$2/upgraded" >/dev/null 2>&1 || exit 1
+    java "$2/elsewhere-install.java" install "$2/upgraded" "$1/src/flixw.java" \
+      >/dev/null 2>&1 || exit 1
   test -x "$2/upgraded/flixw" && test -f "$2/upgraded/.flixw/flixw.java"' sh "$root" "$work"
 
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
@@ -1570,12 +1573,12 @@ echo "install advice"
 # reader to pin reads as though the upgrade had lost their compiler.
 g 0 'commit all five files' "first contact says to pin"          sh -c '
   d=$1/advice-new; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw.java" wrapper --install "$d" 2>&1' sh "$work" "$root"
+  java "$2/src/flixw-install.java" install "$d" 2>&1' sh "$work" "$root"
 g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
   d=$1/advice-pinned; rm -rf "$d"; mkdir -p "$d"
-  java "$2/src/flixw.java" wrapper --install "$d" >/dev/null 2>&1
+  java "$2/src/flixw-install.java" install "$d" >/dev/null 2>&1
   cp "$3/.flixw/lock.toml" "$d/.flixw/lock.toml"
-  java "$2/src/flixw.java" wrapper --install "$d" 2>&1' sh "$work" "$root" "$proj"
+  java "$2/src/flixw-install.java" install "$d" 2>&1' sh "$work" "$root" "$proj"
 
 # --- git integration -------------------------------------------------------
 echo "git integration"
@@ -1606,7 +1609,8 @@ if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
     # reference and call the difference a drift. Both routes still have to agree; they just
     # both start from the artifact the release actually publishes, which is the thing this
     # case exists to pin down.
-    java "$pk/out/flixw.java" wrapper --install "$pk/ref" >/dev/null 2>&1 || true
+    java "$pk/out/flixw-install.java" install "$pk/ref" "$pk/out/flixw.java" \
+      >/dev/null 2>&1 || true
     rm -f "$pk/ref/.gitattributes"
     t 0 "the tarball unpacks to exactly what install writes"     sh -c '
       tar -xzf "$1"/flixw-*.tar.gz -C "$2" && diff -r "$3" "$2"' sh "$pk/out" "$pk/tar" "$pk/ref"
@@ -1633,7 +1637,7 @@ fi
 echo "plugins"
 pp=$work/pluginproj
 rm -rf "$pp" && mkdir -p "$pp"
-java "$root/src/flixw.java" wrapper --install "$pp" >/dev/null 2>&1
+java "$root/src/flixw-install.java" install "$pp" >/dev/null 2>&1
 git init -q "$pp"
 (cd "$pp" && ./flixw pin "$version" >/dev/null 2>&1)
 ppcv=$(cd "$pp" && ./flixw info 2>/dev/null | awk '/^compiler /{print $2}')
@@ -1749,7 +1753,7 @@ g 0  'expected by lock.toml but not installed' \
 
 pp3=$work/pluginproj-nolock
 rm -rf "$pp3" && mkdir -p "$pp3"
-java "$root/src/flixw.java" wrapper --install "$pp3" >/dev/null 2>&1
+java "$root/src/flixw-install.java" install "$pp3" >/dev/null 2>&1
 git init -q "$pp3"
 t 0  "plugin install works before any project has ever been pinned" sh -c '
   cd "$1" && ./flixw plugin install echoer 1.0.0 "file://$2/pluginjar/plugin.jar" >/dev/null 2>&1' \

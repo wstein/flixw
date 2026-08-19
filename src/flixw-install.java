@@ -1,9 +1,17 @@
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -44,8 +52,151 @@ final class flixwinstall {
      */
     static final String WRAPPER_DIR = ".flixw";
 
-    /** Set from argv so the messages name the release doing the writing, never a second copy. */
-    static String WRAPPER_VERSION = "";
+    /**
+     * The release this installer belongs to, and therefore the stage 0 it installs.
+     *
+     * <p>A constant rather than an argument because this file is the *entry point* now:
+     * somebody downloads it, checks its digest and runs it, with nothing else in hand.
+     * It has to know which release it is in order to fetch the matching stage 0 -- asking
+     * the caller would mean asking somebody who has no way to know the right answer.
+     *
+     * <p>Stage 0 has its own {@code WRAPPER_VERSION} and the two must agree;
+     * {@code tests/lint.sh} fails if they do not, the same way it checks the Java floor
+     * and {@code WRAPPER_DIR}.
+     */
+    static final String WRAPPER_VERSION = "0.25.0";
+
+    /** A SHA256SUMS is a few hundred bytes; this is room to spare, not a target. */
+    static final int METADATA_CAP = 1 << 21;
+
+    /** Where a release's files live. Overridable for this project's own tests. */
+    static String sourceBase() {
+        String o = System.getenv("FLIXW_ASSET_SOURCE");
+        if (o != null && !o.isBlank()) return o.replaceAll("/+$", "") + "/";
+        return "https://github.com/wstein/flixw/releases/download/v" + WRAPPER_VERSION + "/";
+    }
+
+    /**
+     * Fetches this release's stage 0 and checks it against the digest published beside it.
+     *
+     * <p>This is the bootstrap's whole trust step, and it is why the entry point moved
+     * here: what a person has to read before running anything is now this file, not the
+     * 3288-line program it installs. Both are named in the same {@code SHA256SUMS}, so
+     * verifying either establishes the other -- the difference is only in what a human
+     * can actually finish reading.
+     */
+    static Path fetchStage0(Path into) {
+        String base = sourceBase();
+        String sums;
+        try {
+            sums = base.startsWith("file://")
+                ? Files.readString(Paths.get(URI.create(base + "SHA256SUMS")), StandardCharsets.UTF_8)
+                : httpGet(base + "SHA256SUMS");
+        } catch (IOException e) {
+            throw w005("cannot read " + base + "SHA256SUMS: " + why(e));
+        }
+        String want = null;
+        for (String line : sums.split("\r?\n")) {
+            String[] f = line.trim().split("\\s+");
+            if (f.length == 2 && f[1].equals("flixw.java")) want = f[0];
+        }
+        if (want == null || !want.matches("[0-9a-f]{64}"))
+            throw w005("the published SHA256SUMS for " + WRAPPER_VERSION
+                     + " names no digest for flixw.java");
+        Path tmp = into.resolve("flixw.java.part");
+        try {
+            if (base.startsWith("file://"))
+                Files.copy(Paths.get(URI.create(base + "flixw.java")), tmp,
+                           StandardCopyOption.REPLACE_EXISTING);
+            else download(base + "flixw.java", tmp);
+            String got = sha256(tmp);
+            if (!got.equals(want))
+                throw w006("digest mismatch for flixw.java"
+                         + "\n       published " + want + "\n       downloaded " + got);
+            return tmp;
+        } catch (IOException e) {
+            throw w007("cannot fetch stage 0: " + why(e));
+        }
+    }
+
+    /**
+     * Redirects are followed, but only ever onto https -- and the scheme of the *final*
+     * URI is what is checked, because that is the one the bytes actually came from.
+     */
+    static HttpClient httpClient() {
+        return HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(30)).build();
+    }
+
+    /** One bounded HTTPS GET returning text.  Metadata only; bytes go through download(). */
+    static String httpGet(String url) {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(60))
+                .header("User-Agent", "flixw-install/" + WRAPPER_VERSION).build();
+        try {
+            // Bounded, because this response supplies both the JDK's URL and the digest it
+            // will be verified against: a server that answers forever would otherwise be
+            // answering into the heap. ofString has no cap, so the body is read by hand.
+            HttpResponse<InputStream> res =
+                httpClient().send(req, HttpResponse.BodyHandlers.ofInputStream());
+            if (!"https".equals(res.uri().getScheme()))
+                throw w005("refusing a redirect off https: " + redact(res.uri().toString()));
+            if (res.statusCode() != 200)
+                throw w005("HTTP " + res.statusCode() + " from " + redact(url));
+            ByteArrayOutputStream sink = new ByteArrayOutputStream();
+            try (InputStream in = res.body()) {
+                byte[] buf = new byte[1 << 16];
+                int total = 0, n;
+                while (total < METADATA_CAP && (n = in.read(buf)) > 0) {
+                    sink.write(buf, 0, Math.min(n, METADATA_CAP - total));
+                    total += n;
+                }
+                if (total >= METADATA_CAP)
+                    throw w005("metadata from " + redact(url) + " exceeded "
+                             + (METADATA_CAP >> 10) + "KiB");
+            }
+            return sink.toString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw w005("cannot reach " + redact(url) + "\n       " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw w005("metadata request interrupted");
+        }
+    }
+
+    static void download(String url, Path dest) {
+        if (!url.startsWith("https://")) throw w005("refusing non-https url " + redact(url));
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofMinutes(10))
+                .header("User-Agent", "flixw-install/" + WRAPPER_VERSION).build();
+        try {
+            HttpResponse<Path> res = httpClient().send(req, HttpResponse.BodyHandlers.ofFile(dest));
+            if (!"https".equals(res.uri().getScheme()))
+                throw w005("refusing a redirect off https: " + redact(res.uri().toString()));
+            if (res.statusCode() != 200)
+                throw w005("HTTP " + res.statusCode() + " for " + redact(url));
+        } catch (IOException e) {
+            throw w005("download failed: " + redact(url) + "\n       " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw w005("download interrupted");
+        }
+    }
+
+    static String sha256(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] buf = new byte[1 << 16];
+            for (int n; (n = in.read(buf)) > 0; ) md.update(buf, 0, n);
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : md.digest()) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            throw w006("cannot hash " + file + ": " + e);
+        }
+    }
+
 
     static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
@@ -60,8 +211,17 @@ final class flixwinstall {
         Fail(String code, int exit, String msg) { super(code + ": " + msg); this.exit = exit; }
     }
 
+    static Fail w005(String m) { return new Fail("FLIXW005", 84, m); }
+    static Fail w006(String m) { return new Fail("FLIXW006", 85, m); }
+    static Fail w007(String m) { return new Fail("FLIXW007", 86, m); }
     static Fail w008(String m) { return new Fail("FLIXW008", 87, m); }
     static Fail w009(String m) { return new Fail("FLIXW009", 88, m); }
+
+    /** Query strings and userinfo can carry a token; a diagnostic is not a place for one. */
+    static String redact(String v) {
+        if (v == null) return null;
+        return v.replaceAll("://[^/@]*@", "://***@").replaceAll("\\?.*$", "?***");
+    }
 
     static String why(Exception e) {
         String s = e.getMessage();
@@ -85,28 +245,67 @@ final class flixwinstall {
         }
     }
 
+    /**
+     * The bootstrap. {@code java flixw-install.java [dir]} adopts flixw into a project.
+     *
+     * <p>Stage 0 has no install verb at all: this file is what somebody downloads,
+     * verifies and runs, and it fetches the stage 0 matching its own release. What has to
+     * be read before anything executes is therefore ~640 lines rather than 3288 -- the
+     * whole reason the entry point is here and not there.
+     *
+     * <p>{@code update <dir>} is the other half, and is reached only from
+     * {@code ./flixw doctor --fix}: it rewrites the files this one wrote, without
+     * fetching a stage 0, because the project already has one.
+     */
     public static void main(String[] args) {
-        if (args.length < 3) {
-            System.err.println("usage: java flixw-install.java <install|update> <dir> <version>"
-                             + " [<stage0-source>]");
+        String verb = args.length > 0 && (args[0].equals("install") || args[0].equals("update"))
+            ? args[0] : "install";
+        List<String> rest = new java.util.ArrayList<>(List.of(args));
+        if (!rest.isEmpty() && rest.get(0).equals(verb)) rest.remove(0);
+        if (rest.size() > 2) {
+            System.err.println("usage: java flixw-install.java [install] [dir]"
+                             + "\n       java flixw-install.java update <dir>");
             System.exit(87);
         }
-        String verb = args[0];
-        Path target = Paths.get(args[1]).toAbsolutePath().normalize();
-        WRAPPER_VERSION = args[2];
+        Path target = Paths.get(rest.isEmpty() ? "." : rest.get(0)).toAbsolutePath().normalize();
         try {
             switch (verb) {
                 case "install" -> {
-                    if (args.length != 4)
-                        throw w008("install needs the stage 0 source to copy");
-                    install(target, Paths.get(args[3]));
+                    // An explicit stage 0 is how `wrapper --upgrade` uses this: it has
+                    // already downloaded and verified the release it is moving to, and
+                    // fetching a second copy would be both wasteful and a chance to
+                    // disagree with itself. Absent, this fetches its own.
+                    Path fetched = null;
+                    Path source = rest.size() == 2 ? Paths.get(rest.get(1))
+                                                   : (fetched = fetchStage0(tempDir()));
+                    try {
+                        install(target, source);
+                    } finally {
+                        if (fetched != null) {
+                            try { Files.deleteIfExists(fetched); } catch (IOException ignored) { }
+                            try { Files.deleteIfExists(fetched.getParent()); }
+                            catch (IOException ignored) { }
+                        }
+                    }
                 }
-                case "update" -> updateWrapper(target);
+                case "update" -> {
+                    if (rest.size() != 1) throw w008("update needs exactly one directory");
+                    updateWrapper(target);
+                }
                 default -> throw w008("unknown verb " + verb);
             }
         } catch (Fail f) {
             System.err.println(f.getMessage());
             System.exit(f.exit);
+        }
+    }
+
+    /** Somewhere to land the download; the project directory is not ours to litter. */
+    static Path tempDir() {
+        try {
+            return Files.createTempDirectory("flixw-install-");
+        } catch (IOException e) {
+            throw w007("cannot create a temporary directory: " + why(e));
         }
     }
 

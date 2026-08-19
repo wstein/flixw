@@ -40,7 +40,7 @@ FLIXW_TRACE=1 ./flixw check                   # per-phase timings on stderr
 Exercising it end to end means installing into a scratch project:
 
 ```sh
-java src/flixw.java wrapper --install /tmp/proj   # flixw, flixw.cmd, .flixw/flixw.java, .gitattributes
+java src/flixw-install.java install /tmp/proj src/flixw.java   # the four project files
 cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads the JAR
 ./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flixw pin --refresh                      # rewrite the lock in this release's shape; offline
@@ -211,15 +211,18 @@ deprecation notice. `FLIX_BACKEND=wrapper|compiler` forces a side during a trans
 `plugin` and `task` are namespaces, not bare verbs — see below — so nothing under them is
 subject to this retirement; only the two words `plugin` and `task` themselves are.
 
-**The bootstrap is `wrapper --install`, not a bare `install`.** `install` is a name Flix
-could claim — for a project's dependencies, which is what every other tool means by it —
-and holding it meant `./flixw install` reached flixw in any project that had not pinned
-yet, since the old guard only yielded the word once a lock existed. The bare word survives
-*only* with an explicit directory argument, because a published flixw's `--upgrade` spawns
-the downloaded stage 0 as `install <root>` and that cannot be changed retroactively;
-dropping it would break upgrading into this release. A person typing `./flixw install`
-passes no directory, so it routes onward. Drop the bridge once no supported release spawns
-the bare word — the same rule as the `flix.java` name bridge in `tests/pack.sh`.
+**Stage 0 has no install verb at all.** The bootstrap is `java flixw-install.java`: the
+installer is what somebody downloads, verifies and runs, and it fetches the stage 0 of its
+own release. What has to be read before anything executes is therefore ~640 lines instead
+of 3288 — both are named in the same `SHA256SUMS`, so verifying either establishes the
+other, and the difference is only in what a person can actually finish reading.
+
+`install` was a bare verb, then briefly `wrapper --install`, and is now neither. It is a
+name Flix could claim for a project's dependencies, and stage 0 held it for an operation
+that runs once, before the project exists — so `./flixw install` now reaches the compiler
+like every other word flixw does not own. The bridge that kept published 0.20–0.24
+wrappers upgradeable went with it, established the same way the `flix.java` drop was:
+nothing had adopted them.
 
 **Bare wrapper verbs are staying.** Moving them under `wrapper --*` would delete verb
 capture, both help parsers, the `<cache>/verbs/*` records, `routingNotice` and the
@@ -261,7 +264,7 @@ requires a resolvable project root, and both of these have to answer without one
 |---|---|---|
 | `src/flixw-completion.java` | `wrapper --completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
 | `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
-| `src/flixw-install.java` | `wrapper --install`, `doctor --fix` | runs before the project exists |
+| `src/flixw-install.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
 
 `ensureAsset(name, version)` fetches, verifies and caches any of them; see "Completion is
 data, not a generated script" below for the shape, which is now shared. The version is a
@@ -433,9 +436,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 2923 | 2900 |
+| code lines in `src/flixw.java` | 2904 | 2900 |
 | comment density | 29% | ≥25% floor |
-| bytes | 255404 | 225000 |
+| bytes | 252462 | 225000 |
 
 The first cut against these was JDK provisioning, out to `src/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is

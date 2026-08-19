@@ -57,7 +57,7 @@ cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
 (cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-install.java \
    > SHA256SUMS)
 FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
-  java "$root/src/flixw.java" wrapper --install "$stage" >/dev/null
+  java "$root/src/flixw-install.java" install "$stage" "$root/src/flixw.java" >/dev/null
 
 # What ships is the documented source with its commentary removed. Every adopting project
 # commits .flixw/flixw.java into its own repository, and a third of that file is prose

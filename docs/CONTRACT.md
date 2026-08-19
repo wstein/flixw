@@ -20,7 +20,7 @@ flixw.cmd             cmd.exe shim
 .flixw/local/verbs    the verbs this project dispatches; NOT committed
 ```
 
-`wrapper --install` also merges a marked block into `.gitattributes` — the sixth file, and the
+The installer also merges a marked block into `.gitattributes` — the sixth file, and the
 only one flixw shares rather than owns — preserving unrelated rules. `flixw validate` compares the two shims byte for byte against the bytes this
 release ships, reports stage 0's digest for comparison against the published release, and
 fails if a later `.gitattributes` rule overrides the block — any rule matching one of the
@@ -494,17 +494,14 @@ about stage 0 and not about the assets beside it: an upgrade is the natural mome
 notice one is missing from the cache. Ahead of the newest release — working on flixw
 itself — nothing is warmed, because assets for an unpublished version cannot exist.
 
-`./flixw wrapper --install [dir]` writes the wrapper files into a project. It is the
-bootstrap, and it lives here rather than as a bare `install` verb because `install` is a
-name Flix could plausibly claim — for a project's dependencies, which is what every other
-tool means by it. Holding it meant `./flixw install` reached flixw in any project that had
-not pinned yet; it now reaches the compiler from the first command.
+Stage 0 has **no install verb**. Adoption is `java flixw-install.java [dir]`, run on the
+installer downloaded from a release — it fetches and digest-verifies the stage 0 of its own
+release, then writes the project files. `wrapper --upgrade` uses the same program, handing
+it the stage 0 it has already verified rather than letting it fetch a second copy.
 
-The bare word still works when given an explicit directory, and only then. That is not a
-second spelling: a released flixw's own `--upgrade` spawns the downloaded stage 0 as
-`install <root>`, and those wrappers are already published. Removing it would break
-upgrading *into* this release, which is the one path with no way back. A person typing
-`./flixw install` passes no directory and is routed onward; the handover always passes one.
+`install` is therefore a name flixw does not own, and `./flixw install` reaches the
+compiler like any other word it does not own — which is where a project asking to install
+its dependencies was always trying to go.
 
 `./flixw wrapper [--operation]` is answered before any of this. It is flixw's own namespace,
 not a stand-in for anything Flix might ship, so it is not routed to the compiler, does not

@@ -77,7 +77,8 @@ export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
 
 # `install` refuses to run inside an installed project, so give it a clean target.
-if java "$root/src/flixw.java" wrapper --install "$work/parity" >"$work/install.log" 2>&1; then
+if java "$root/src/flixw-install.java" install "$work/parity" "$root/src/flixw.java" \
+      >"$work/install.log" 2>&1; then
   for f in flixw flixw.cmd; do
     if cmp -s "$work/parity/$f" "$root/src/$f"; then
       say "ok    $f matches the text block in src/flixw.java"
@@ -113,6 +114,17 @@ for pair in "flixw:SHIM_SHA256" "flixw.cmd:CMD_SHA256"; do
     say "      update the constant in src/flixw.java, or the shim changed by accident"
   fi
 done
+
+# The installer is the bootstrap now: it fetches the stage 0 of its own release, so it
+# carries WRAPPER_VERSION too. A disagreement would have somebody download 0.25.0's
+# installer and receive some other release's stage 0, with both digests checking out.
+v0=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java" | head -1)
+v1=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw-install.java" | head -1)
+if [ -n "$v0" ] && [ "$v0" = "$v1" ]; then
+  say "ok    WRAPPER_VERSION is $v0 in stage 0 and in the installer"
+else
+  bad "WRAPPER_VERSION disagrees: stage 0 says '$v0', the installer says '$v1'"
+fi
 
 # WRAPPER_DIR is written into the shim text, so the installer needs its own copy -- and a
 # disagreement would have stage 0 reading a directory the installer never wrote.
@@ -420,9 +432,9 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=2923          # target: 2900 -- see "What detaches, and what does not" in AGENTS.md
+MAX_CODE_LINES=2904          # target: 2900 -- see "What detaches, and what does not" in AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=255404             # target: 225000, derived from the two numbers above
+MAX_BYTES=252462             # target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
