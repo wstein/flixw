@@ -1,0 +1,45 @@
+name: Bug report
+description: Report reproducible flixw behaviour that differs from its documented contract.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, private URLs, tokens, or downloaded compiler binaries.
+        For a security vulnerability, use the private reporting process in SECURITY.md.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: State the observed and expected behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include the command, relevant sanitized lock/manifest fragments, and output.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: flixw version
+      placeholder: "./flixw wrapper --version"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Java version
+      placeholder: "macOS 15; Temurin 21.0.5"
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Optional trace
+      description: Attach sanitized `FLIXW_TRACE=1` output if it helps isolate the phase.
+      render: text
