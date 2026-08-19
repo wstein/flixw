@@ -54,11 +54,11 @@ fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/flixw.java" "$root/src/flixw-completion.java" \
    "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
-   "$root/src/flixw-inspect.java" "$fixture/"
+   "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" "$fixture/"
 # Unstripped here on purpose: this fixture exists only so the staging install can run
 # offline, and the stage 0 it writes is replaced by $shipped a few lines below.
 (cd "$fixture" && sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
-   flixw-inspect.java \
+   flixw-inspect.java flixw-help.java \
    > SHA256SUMS)
 FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
   java "$root/src/flixw-setup.java" setup "$stage" "$root/src/flixw.java" >/dev/null
@@ -125,7 +125,25 @@ cp "$shipped" "$out/flixw.java"
 # audits flixw, and that reader is in the repository or on the site -- both named in the
 # header the stripper leaves behind. Compiled after stripping, because a release shipping
 # one javac rejects would break whichever command needs it, and only at that point.
-for a in completion jdk inspect setup; do
+# picocli, republished as a release asset so the renderer's dependency rides the same
+# SHA256SUMS, the same FLIXW_ASSET_SOURCE mirror and the same purge as everything else.
+# Fetching it from Maven Central at run time would have been a second trust story for a
+# wrapper whose whole claim is that there is only one. Apache-2.0; redistribution is fine.
+# The digest lives here rather than in stage 0 because it is a *release-time* claim: at
+# run time picocli is verified against the release's own SHA256SUMS like every other asset,
+# so a constant in stage 0 would be dead weight on every invocation. Pinning it here is what
+# stops a silently re-uploaded artifact from being republished under a flixw tag, and keeps
+# `pack.sh` reproducible for anyone rebuilding a release from the same source.
+pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
+PICOCLI_SHA256=ed441183f309b93f104ca9e071e314a4062a893184e18a3c7ad72ec9cba12ba0
+curl -fsSL -o "$out/picocli-$pv.jar" \
+  "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" || {
+  echo "pack: cannot fetch picocli $pv" >&2; exit 1; }
+got=$($sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
+[ "$got" = "$PICOCLI_SHA256" ] || {
+  echo "pack: picocli $pv digest mismatch: pinned $PICOCLI_SHA256, served $got" >&2; exit 1; }
+
+for a in completion jdk inspect setup help; do
   java "$root/tests/strip.java" "$root/src/flixw-$a.java" "$version" "flixw-$a.java" \
     > "$out/flixw-$a.java"
   javac -d "$work/asset-classes" "$out/flixw-$a.java" || {
@@ -134,6 +152,7 @@ done
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
               flixw-completion.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
+              flixw-help.java "picocli-$pv.jar" \
               > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

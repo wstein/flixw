@@ -1,6 +1,6 @@
 # src/
 
-Five files, three kinds. The kind matters more than the name: it says when the file is
+Seven files, three kinds. The kind matters more than the name: it says when the file is
 loaded, who verifies it, and what breaks if it is wrong.
 
 | file | kind | loaded |
@@ -11,6 +11,8 @@ loaded, who verifies it, and what breaks if it is wrong.
 | `flixw-setup.java` | companion asset, **and the bootstrap** | run directly to adopt flixw; `doctor --fix` |
 | `flixw-completion.java` | companion asset | only `wrapper --completion` |
 | `flixw-jdk.java` | companion asset | only `wrapper --install-jdk` |
+| `flixw-inspect.java` | companion asset | only `info --verbose` and `wrapper --purge` |
+| `flixw-help.java` | companion asset | only `help` — the one file linking against picocli |
 
 ## stage 0
 
@@ -65,16 +67,16 @@ work on the oldest JVM stage 0 supports. `tests/lint.sh` compiles both at the fl
 
 ## why this is one flat directory, and what happens when it is not
 
-Six files, already namespaced by the `flixw-` prefix, and the published asset *name* is
+Seven files, already namespaced by the `flixw-` prefix, and the published asset *name* is
 the release contract rather than its path — `pack.sh` flattens into `dist/`, so the layout
-here is free. Subdirectories for six files would be structure ahead of need.
+here is free. That was written when six files made subdirectories structure ahead of need; at seven the trigger below has fired and the split is owed.
 
 **The split is deferred, not declined, and its shape is already decided.** Leaving both
 open is how a layout question gets re-argued every time somebody adds a file, so:
 
 | | |
 |---|---|
-| **trigger** | a fourth companion asset lands (`src/flixw-*.java` reaching four files; there are now three) |
+| **trigger** | **fired** — `flixw-help.java` is the fifth `src/flixw-*.java`; the split is now due |
 | **shape** | `src/stage0/` for `flixw.java` + both shims, `src/assets/` for the companions |
 | **not** | `wrapper/` and `builtins/` — see below |
 | **not** | a top-level split; `src/` stays the source root beside `docs/` and `tests/` |

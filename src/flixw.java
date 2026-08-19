@@ -3940,6 +3940,154 @@ public final class flixw {
     /** The cache inventory behind {@code info --verbose}; see {@link #listCache}. */
     static final String INSPECT_ASSET = "flixw-inspect.java";
 
+    /** The help renderer; see {@link #helpTopic}. */
+    static final String HELP_ASSET = "flixw-help.java";
+
+    /**
+     * picocli, published as a flixw release asset like every other companion.
+     *
+     * <p>It is the one third-party dependency in flixw, and it is deliberately confined to
+     * the help renderer. Stage 0 does not link against it, does not parse arguments with it
+     * and never loads it: flixw's own argument handling stays auditable without reading
+     * anyone else's code, which is the property this project exists to have.
+     *
+     * <p><b>Republished rather than fetched from Maven Central.</b> A second download origin
+     * would be a second trust story -- outside the release's own {@code SHA256SUMS}, outside
+     * {@code FLIXW_ASSET_SOURCE}, unwarmed by {@code wrapper --upgrade} and unreachable from
+     * a mirror -- for a wrapper whose entire argument is that everything it runs came from
+     * one place and was checked against one manifest. Going through {@link #ensureAsset}
+     * means the renderer's dependency is verified, mirrored, warmed and purged exactly like
+     * stage 0 itself, and costs no new code to do it. picocli is Apache-2.0, so
+     * redistribution is a licensing non-event.
+     */
+    static final String PICOCLI_VERSION = "4.7.6";
+    static final String PICOCLI_ASSET = "picocli-" + PICOCLI_VERSION + ".jar";
+
+    /**
+     * The stored help for this compiler, re-verified against its own provenance record.
+     *
+     * <p>The digest in {@code .helpmeta} is not decoration: this is the one place it is
+     * read, and without the check a truncated or edited {@code .help} would be rendered as
+     * the compiler's own words for as long as that cache entry lived. Returning null re-runs
+     * the capture, which is the same answer a missing record already gets.
+     */
+    static String storedHelp(String identity) {
+        try {
+            String help = Files.readString(helpFile(identity), StandardCharsets.UTF_8);
+            for (String l : Files.readAllLines(helpMetaFile(identity), StandardCharsets.UTF_8))
+                if (l.startsWith("content_sha256="))
+                    return sha256(help.getBytes(StandardCharsets.UTF_8)).equals(l.substring(15))
+                           ? help : null;
+        } catch (IOException ignored) { }
+        return null;
+    }
+
+    /** Everything the renderer is given, so it re-gathers none of it; see {@link #helpTopic}. */
+    static String helpContext(Path root, Lock lock, Path jar, Jvm jvm, List<String> compilerVerbs,
+                              String identity) {
+        StringBuilder b = new StringBuilder();
+        b.append("flixwVersion=").append(WRAPPER_VERSION).append('\n');
+        b.append("projectRoot=").append(root == null ? "" : root).append('\n');
+        b.append("cacheHome=").append(cacheHome()).append('\n');
+        b.append("compilerVersion=").append(lock == null ? "" : lock.version()).append('\n');
+        b.append("compilerJar=").append(jar == null ? "" : jar).append('\n');
+        b.append("javaExe=").append(jvm == null ? "" : jvm.exe()).append('\n');
+        b.append("helpFile=")
+         .append(identity == null || storedHelp(identity) == null ? "" : helpFile(identity))
+         .append('\n');
+        b.append("compilerVerbs=").append(String.join(" ", compilerVerbs)).append('\n');
+        List<String> wv = new ArrayList<>(WRAPPER_VERBS);
+        wv.removeAll(compilerVerbs);
+        b.append("wrapperVerbs=").append(String.join(" ", wv)).append('\n');
+        b.append('\n').append("plugins:").append('\n');
+        if (lock != null)
+            for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
+                b.append(e.getKey()).append('\t').append(e.getValue().version()).append('\t')
+                 .append(e.getValue().sha256()).append('\t')
+                 .append(e.getValue().source() == null ? "" : e.getValue().source()).append('\n');
+        b.append('\n').append("tasks:").append('\n');
+        if (root != null)
+            for (Map.Entry<String, String> e : readTasks(root).entrySet())
+                b.append(esc(e.getKey())).append('\t').append(esc(e.getValue())).append('\n');
+        return b.toString();
+    }
+
+    /**
+     * Escapes a value for the tab-separated rows above.
+     *
+     * <p>Load-bearing for tasks specifically. A task is an arbitrary shell string the project
+     * wrote, and nothing stops it holding a tab or a newline -- a lock's decoded {@code \\n}
+     * reaches here as a real one -- which would split one row into two, or shift every field
+     * after it by one. The renderer reverses this, so the two must change together.
+     */
+    static String esc(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
+                                 .replace("\r", "\\r");
+    }
+
+    /**
+     * Runs the help renderer, which is a companion asset and needs the network exactly once
+     * per machine per release.
+     *
+     * <p>Never fatal in the sense that matters: if the asset or picocli cannot be fetched,
+     * the routing table stage 0 has always been able to print offline is printed instead. A
+     * wrapper that could not tell you what it does without a network would be worse than one
+     * that tells you less of it.
+     */
+    static void helpTopic(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
+                          List<String> compilerVerbs, String identity) {
+        Path ctx = null;
+        Integer rc = null;
+        try {
+            Path asset = ensureAsset(HELP_ASSET);
+            Path picocli = ensureAsset(PICOCLI_ASSET);
+            ctx = Files.createTempFile("flixw-help-", ".txt");
+            Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity),
+                              StandardCharsets.UTF_8);
+            List<String> cmd = new ArrayList<>(List.of(
+                exeIn(System.getProperty("java.home")).toString(),
+                "-cp", picocli.toString(), asset.toString(), ctx.toString()));
+            cmd.addAll(rest.subList(0, Math.min(2, rest.size())));
+            rc = awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
+        } catch (IOException | RuntimeException e) {
+            offlineHelp(identity, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
+        }
+        // Exit *after* the finally, not inside the try. System.exit runs shutdown hooks but
+        // skips finally blocks, so exiting where the child's status is produced would leak
+        // the context file on every successful call -- the same trap writeContextFile ran
+        // into for plugins, where the answer was a shutdown hook because runArtifact cannot
+        // return. This one can return, so it does, and the temporary file is simply deleted.
+        if (rc != null) System.exit(rc);
+    }
+
+    /**
+     * Help with no renderer: the routing table, then the compiler's own captured help.
+     *
+     * <p>This is the path when the asset or picocli cannot be fetched, and it must not be
+     * worse than what {@code ./flixw help} did before there was a renderer at all -- that
+     * printed the wrapper's table *and* the compiler's, and it worked on a cold network
+     * because the compiler was already on disk. Both halves survive here, and the compiler
+     * half now needs no subprocess either: it is the text the last capture stored, verified
+     * against its own digest on the way out.
+     */
+    static void offlineHelp(String identity, Exception e) {
+        System.err.println("flixw: the help renderer could not be fetched: "
+                         + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        System.err.println("       what follows came from this wrapper and the cache, offline.");
+        System.err.println();
+        wrapperHelp();
+        String help = identity == null ? null : storedHelp(identity);
+        if (help == null) return;
+        System.out.println();
+        System.out.println("---- the pinned compiler's own help, as captured ----");
+        System.out.println();
+        System.out.print(help.endsWith("\n") ? help : help + "\n");
+    }
+
     /**
      * The SHA-256 of the two shims this release installs, as they are written to disk --
      * the POSIX one with LF, the {@code .cmd} with CRLF.
@@ -4393,13 +4541,13 @@ public final class flixw {
         // the compiler alone, which is what someone parsing its output would want.
         if (!toCompiler && "help".equals(first)
             || (!forcedCompiler && ("--help".equals(first) || "-h".equals(first)) && argv.size() == 1)) {
-            wrapperHelp();
-            System.out.println();
-            System.out.println("---- Flix " + lock.version() + " ".repeat(3)
-                             + "(./flixw -- --help for this alone) ----");
-            System.out.println();
-            launch(jvm.exe(), opts, jar, List.of("--help"));
-            return;                                  // launch exits; this is for the reader
+            // It used to print the routing table and then launch the compiler for its half,
+            // which put two differently-shaped help screens on one page and left the reader
+            // to work out which side would actually answer a given word. The renderer is
+            // handed both verb sets and says so per command instead.
+            helpTopic(forward.subList(Math.min(1, forward.size()), forward.size()),
+                      root, lock, jar, jvm, compilerVerbs, verbId);
+            return;                                  // helpTopic exits; this is for the reader
         }
 
         if (!toCompiler) {
@@ -4434,27 +4582,29 @@ public final class flixw {
                          + " (pinned compiler " + compilerVersion + " does not implement it)");
     }
 
+    /**
+     * The offline fallback: what stage 0 can say about routing with no network, no compiler
+     * launch and no companion asset.
+     *
+     * <p>Deliberately terse now that {@code ./flixw help} exists. The full table -- a
+     * description per verb, the compiler's options, plugins and tasks -- renders in a
+     * companion asset, and keeping a second rich renderer resident would be paying for the
+     * same page twice on every invocation to have it read on almost none of them. What stays
+     * here is the part that has to work when nothing else does: which words this project
+     * dispatches, and to which side.
+     */
     static void wrapperHelp() {
-        System.out.println("flixw " + WRAPPER_VERSION + " -- repository-local Flix bootstrap");
-        System.out.println();
-        System.out.println("  ./flixw help | --help | -h       this table, then the compiler's own help");
-        System.out.println("  ./flixw <compiler verb> [args]   run the pinned stock compiler");
-        System.out.println("  ./flixw -- <args>                forced compiler pass-through");
-        System.out.println("  ./flixw pin [<owner>/<repo>] [<version>] [--java <v>]  write the lock");
-        System.out.println("  ./flixw pin --refresh            rewrite the lock in this release's shape");
-        System.out.println("  ./flixw info [--verbose | -v]    project, compiler, java, cache"
-                         + " (-v: cached compilers and JDKs)");
-        System.out.println("  ./flixw doctor [--fix]           info, plus every check, with a verdict");
-        System.out.println("  ./flixw validate                 the checks alone, for CI");
-        System.out.println("  ./flixw plugin install <name> <version> <url> [--sha256 <digest>]");
-        System.out.println("  ./flixw plugin list | remove <name> | <name> [args]  installed plugins");
-        System.out.println("  ./flixw task [<name> [args]]     .flixw/tasks.toml's aliases, or list them");
-        System.out.println("  ./flixw wrapper [--help | --version | --upgrade"
-                         + " | --install-jdk | --purge [days] [--yes] | --schema | --completion]");
-        System.out.println();
-        System.out.println("  FLIX_JAR=<path> ./flixw <verb>   run a locally built compiler"
-                         + " (unverified; see docs/CONTRACT.md)");
+        System.out.println("""
+            flixw %s -- repository-local Flix bootstrap
 
+              ./flixw <verb> [args]     the pinned stock compiler, or a wrapper verb
+              ./flixw -- <args>         forced compiler pass-through
+              ./flixw help [<topic>]    the full table: flix, wrapper, plugin, task
+              ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --purge [days] [--yes] | --schema | --completion]
+
+              wrapper verbs   %s
+              FLIX_JAR=<path> runs a local build, unverified (see docs/CONTRACT.md)
+            """.formatted(WRAPPER_VERSION, String.join(" ", WRAPPER_VERBS)));
         System.out.println();
         System.out.println("cache            " + cacheHome());
         System.out.println("java             " + System.getProperty("java.home")

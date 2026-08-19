@@ -67,16 +67,35 @@ fileurl() {
 relfixture=$work/release
 mkdir -p "$relfixture"
 cp "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
-   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$relfixture/"
+   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
+   "$relfixture/"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$relfixture" && sha256sum flixw.java flixw-completion.java flixw-jdk.java \
-     flixw-setup.java flixw-inspect.java > SHA256SUMS)
+     flixw-setup.java flixw-inspect.java flixw-help.java > SHA256SUMS)
 else
   (cd "$relfixture" && shasum -a 256 flixw.java flixw-completion.java flixw-jdk.java \
-     flixw-setup.java flixw-inspect.java > SHA256SUMS)
+     flixw-setup.java flixw-inspect.java flixw-help.java > SHA256SUMS)
+fi
+# The renderer's picocli rides the fixture exactly as it rides a real release, so the
+# suite exercises the same ensureAsset path a user takes rather than a special case.
+picocli_v=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
+picocli_jar=$root/tests/.work/picocli-$picocli_v.jar
+if [ ! -f "$picocli_jar" ]; then
+  curl -fsSL -o "$picocli_jar" \
+    "https://repo1.maven.org/maven2/info/picocli/picocli/$picocli_v/picocli-$picocli_v.jar" \
+    2>/dev/null || true
+fi
+if [ -f "$picocli_jar" ]; then
+  cp "$picocli_jar" "$relfixture/picocli-$picocli_v.jar"
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$relfixture" && sha256sum "picocli-$picocli_v.jar" >> SHA256SUMS)
+  else
+    (cd "$relfixture" && shasum -a 256 "picocli-$picocli_v.jar" >> SHA256SUMS)
+  fi
 fi
 relfixture_url=$(fileurl "$relfixture")
 export FLIXW_ASSET_SOURCE="$relfixture_url/"
+
 
 pass=0
 fail=0
@@ -415,7 +434,10 @@ t 87 "an unknown FLIX_BACKEND is rejected, not ignored"         env FLIX_BACKEND
 # `help` and `--help` answer with both halves. The escape hatches must still reach the
 # compiler alone, because that is what anyone parsing its output is asking for.
 g 0 'repository-local Flix bootstrap' "help merges both halves"  ./flixw help
-g 0 'The Flix Programming Language'   "help includes the compiler's own"  ./flixw help
+# `help` used to print the wrapper table and then launch the compiler for its own screen,
+# which put two differently-shaped help pages on one screen. It is now one rendered tree; the
+# compiler's words verbatim moved to `help flix`, and `-- --help` still reaches the compiler.
+g 0 'Usage: flix' "help flix shows the compiler's own words verbatim"  ./flixw help flix
 g 0 'repository-local Flix bootstrap' "--help merges them too"    ./flixw --help
 g 0 'The Flix Programming Language'   "-- --help is the compiler alone"  ./flixw -- --help
 t 0 "-- --help does not merge"                                  sh -c '
@@ -1437,6 +1459,49 @@ g 81 'nested' "the nearest manifest wins over the anchor's"     sh -c 'cd nested
 mkdir -p "$proj/nested/.flixw"
 cp "$proj/.flixw/lock.toml" "$proj/nested/.flixw/lock.toml"
 t 0  "a nested project runs once it has its own lock"           sh -c 'cd nested && ../flixw -- --version'
+
+# --- help ------------------------------------------------------------------
+echo "help"
+g 0 'Commands:'  "help renders the merged command tree"        ./flixw help
+g 0 'checks the current project for errors' \
+                 "compiler verbs carry the compiler's own descriptions"  ./flixw help
+g 0 '(wrapper)'  "wrapper verbs are marked as the wrapper's"    ./flixw help
+g 0 'checks the current project for errors' \
+                 "help flix <command> describes one command"    ./flixw help flix check
+# Flix 0.75 answers `check --help` with the *top-level* help and exit 0. Saying so is the
+# whole point: without it the top-level screen gets rendered under a "check" heading.
+g 0 'only a top-level' "help flix says when there is no per-command help" ./flixw help flix check
+t 89 "help flix rejects a command the compiler does not list"   ./flixw help flix nosuchverb
+t 89 "an unknown help topic is a usage error"                   ./flixw help nosuchtopic
+g 0 'no plugins\|plugin'  "help plugin answers without running anything" ./flixw help plugin
+g 0 'tasks'      "help task answers from the project's own file"  ./flixw help task
+
+# gencomp, the widely used generic generator, emits the first word of each *description* as
+# a verb for Flix -- `creates`, `checks`, `builds` -- because its section detector consumes
+# the `Command: init` line itself. These two assertions are what separate this generator
+# from that one, so they are worth stating as behaviour rather than as a comment.
+g 0 "__fish_use_subcommand -a 'check'" \
+                 "generated fish completion names real verbs"    ./flixw help completion fish
+t 0  "generated fish completion invents no verb from a description" sh -c '
+  ! ./flixw help completion fish | grep -q -- "-a .creates."'
+# Flix ships a description containing an apostrophe ("the 'effects.lock' file"), so quoting
+# is a live case: unescaped, the literal ends early and the rest becomes fish source.
+t 0  "generated fish completion escapes quotes in descriptions"  sh -c '
+  ./flixw help completion fish | grep -q "effects.lock" \
+    && ! ./flixw help completion fish | grep -qE "^complete[^#]*[^\\\\]'"'"'effects"'
+t 89 "help completion generates fish only"                      ./flixw help completion bash
+
+# The renderer is a companion asset, so it can be unreachable. What must not happen is that
+# `help` then says less than it did before the renderer existed: the compiler's half comes
+# from the cache, offline, with no compiler launch at all.
+t 0  "help degrades to wrapper table plus cached compiler help" sh -c '
+  # The cached asset has to go first. Without this the renderer is already on disk, the
+  # unreachable source is never consulted, and the test passes while asserting nothing --
+  # which is how it was first written. The next test to need the asset re-fetches it.
+  rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
+  out=$(FLIXW_ASSET_SOURCE="file:///nonexistent/" ./flixw help 2>&1)
+  case "$out" in *"repository-local Flix bootstrap"*) ;; *) exit 1 ;; esac
+  case "$out" in *"Usage: flix"*) ;; *) exit 1 ;; esac'
 
 # --- degradation -----------------------------------------------------------
 echo "degradation"

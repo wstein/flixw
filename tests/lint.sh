@@ -30,6 +30,35 @@ fail=0
 say() { printf '%s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 
+# --- 0b. picocli -------------------------------------------------------------
+# src/flixw-help.java is the one file here that compiles against something outside this
+# repository, so the jar has to be present to check it at all. Fetched into the gitignored
+# work dir rather than committed -- nothing binary is committed here, and tests/run.sh
+# already downloads a 32MB compiler on a cold cache, so one 400KB jar is the existing
+# bargain rather than a new one.
+#
+# Verified against the digest stage 0 pins, which makes this a test of that pin as well:
+# if PICOCLI_SHA256 is ever edited to something Maven Central does not serve, this fails
+# here rather than on a user's first `./flixw help`.
+if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
+pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/flixw.java")
+pd=$(sed -n 's/^PICOCLI_SHA256=\([0-9a-f]\{64\}\)$/\1/p' "$root/tests/pack.sh")
+picocli="$work/picocli-$pv.jar"
+if [ ! -f "$picocli" ]; then
+  curl -fsSL -o "$picocli" \
+    "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" 2>/dev/null || true
+fi
+if [ -f "$picocli" ]; then
+  got=$($sum "$picocli" | cut -d' ' -f1)
+  if [ "$got" = "$pd" ]; then
+    say "ok    picocli $pv matches the digest tests/pack.sh pins"
+  else
+    bad "picocli $pv digest mismatch: tests/pack.sh pins $pd, Maven Central served $got"
+  fi
+else
+  bad "cannot fetch picocli $pv; src/flixw-help.java cannot be checked"
+fi
+
 # --- 1. Java ---------------------------------------------------------------
 # auxiliaryclass is off for this one compile, not project-wide: src/flixw-completion.java
 # is deliberately a same-package companion file rather than a class merged into flixw.java
@@ -37,9 +66,10 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 # a valid Java identifier), and tests/UnitCheck.java deliberately calls its package-private
 # render() directly rather than through a subprocess -- exactly the pattern this warning
 # exists to flag by default, and exactly what this repository's own multi-file layout is.
-if javac -Xlint:all,-auxiliaryclass -Werror -d "$work/classes" \
+if javac -Xlint:all,-auxiliaryclass -Werror -cp "$picocli" -d "$work/classes" \
         "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
         "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" \
+        "$root/src/flixw-help.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
@@ -70,11 +100,13 @@ fi
 fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/flixw.java" "$root/src/flixw-completion.java" "$root/src/flixw-jdk.java" \
-   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$fixture/"
+   "$root/src/flixw-setup.java" "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
+   "$fixture/"
+[ -f "$picocli" ] && cp "$picocli" "$fixture/picocli-$pv.jar"
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 # shellcheck disable=SC2086  # $sum is a command name plus flags, deliberately split
 (cd "$fixture" && $sum flixw.java flixw-completion.java flixw-jdk.java flixw-setup.java \
-   flixw-inspect.java > SHA256SUMS)
+   flixw-inspect.java flixw-help.java "picocli-$pv.jar" > SHA256SUMS)
 export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
 
@@ -372,9 +404,10 @@ fi
 # this repository's conventions reject; the groups left on are about comments being
 # *wrong*, not about there being fewer of them than a tool would like.
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
-        -d "$work/javadoc" "$root/src/flixw.java" "$root/src/flixw-completion.java" \
+        -d "$work/javadoc" -cp "$picocli" "$root/src/flixw.java" \
+        "$root/src/flixw-completion.java" \
         "$root/src/flixw-jdk.java" "$root/src/flixw-setup.java" \
-        "$root/src/flixw-inspect.java" \
+        "$root/src/flixw-inspect.java" "$root/src/flixw-help.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
@@ -473,9 +506,9 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3000          # `help` adds a new capability; target: 2900 -- see AGENTS.md
+MAX_CODE_LINES=3050          # `help` adds a new capability; target: 2900 -- see AGENTS.md
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 27
-MAX_BYTES=260392             # `help` adds a new capability; target: 225000, derived from the two numbers above
+MAX_BYTES=268567             # `help` adds a new capability; target: 225000, derived from the two numbers above
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

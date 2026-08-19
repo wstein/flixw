@@ -265,6 +265,7 @@ requires a resolvable project root, and both of these have to answer without one
 | `src/flixw-completion.java` | `wrapper --completion <shell>` | answered before `findRoot`, same as `--schema`/`--version` |
 | `src/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 | `src/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
+| `src/flixw-help.java` | `help [<topic>]` | renders a tree stage 0 gathered; see the picocli note below |
 
 `ensureAsset(name, version)` fetches, verifies and caches any of them; see "Completion is
 data, not a generated script" below for the shape, which is now shared. The version is a
@@ -375,6 +376,55 @@ back to a verb table, while a bad splice puts broken bash in someone's shell sta
 5,221, its generator describes `flix` rather than `./flixw`, and its output is static where
 flixw's verb set is not.
 
+### picocli is a verified release asset, and only the help renderer sees it
+
+That prohibition is about *vendoring source* to generate completions, and it stands. A
+separate decision was taken deliberately and is recorded here because it changes the "zero
+dependencies" claim: `./flixw help` renders through **picocli, republished as a flixw
+release asset**, and `src/flixw-help.java` is the only file that links against it.
+
+The boundary is what makes it acceptable, so it is stated as a rule rather than a habit:
+
+- **Stage 0 never loads it.** No `import`, no classpath entry, no argument parsed by it.
+  flixw's own dispatch stays readable without reading anyone else's code, which is the
+  property this project exists to have. Stage 0 knows one string, `PICOCLI_ASSET`.
+- **It is republished, not fetched from Maven Central at run time.** A second download
+  origin would be a second trust story — outside the release's `SHA256SUMS`, outside
+  `FLIXW_ASSET_SOURCE`, unwarmed by `wrapper --upgrade`, unreachable from a mirror — for a
+  wrapper whose whole argument is that everything it runs came from one manifest. Going
+  through `ensureAsset` means the renderer's dependency is verified, mirrored, warmed and
+  purged exactly like stage 0. picocli is Apache-2.0.
+- **The version pin lives in `tests/pack.sh`, not stage 0**, with the upstream digest beside
+  it. That is a release-time claim: `pack.sh` refuses to publish a picocli whose bytes have
+  changed, and `tests/lint.sh` checks the pin against what Maven Central actually serves. A
+  constant in stage 0 would be dead weight on every invocation for a check made once.
+- **`help` degrades rather than depending on it.** If the asset or picocli cannot be fetched,
+  stage 0 prints its own routing table *and* the compiler's captured help, offline and with
+  no compiler launch — which is more than `help` could do before the renderer existed.
+
+What it buys is the one thing a hand-rolled renderer does badly: one command tree with
+aligned, wrapped descriptions across four sources — compiler, wrapper, plugins, tasks — so
+they read as one help system instead of four screens the reader has to reconcile.
+
+### Generated fish completion, and why not a generic generator
+
+`./flixw help completion fish` emits a completion built from the compiler's captured help:
+verbs *with their descriptions*, and the compiler's options, with `-r` on the ones that take
+a value. It complements `wrapper --completion fish`, which stays static and project-
+independent — that one reads `.flixw/local/verbs` at TAB time so it cannot go stale at the
+next `pin`, and the price of that is that it carries no descriptions and no options.
+
+Deriving completions by scanning `--help` is what [`gencomp`][gencomp] does, and its
+*output shape* is right — `__fish_use_subcommand` for the verb slot,
+`__fish_seen_subcommand_from` past it, `-f` to keep filenames out. Its *parser* is not:
+measured against a real Flix 0.75.3, gencomp emits zero correct verbs. Its generic
+`commands?` section detector matches the line `Command: init` itself and skips it, so every
+entry it produces is the first word of the description on the next line — `creates`,
+`checks`, `builds` five times over. That is why the parse here is layout-specific, and why
+the picocli layout is handled properly rather than accidentally.
+
+[gencomp]: https://github.com/ryotako/fish-completion-generator
+
 Only bash delegates. zsh and fish cannot load a bash completion script — zsh not without
 `bashcompinit` and a compatibility shim, fish not at all — and picocli generates neither a
 fish nor a PowerShell completer, so those three complete verbs and hand the rest to the
@@ -468,9 +518,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/flixw.java` | 3000 | 2900 |
+| code lines in `src/flixw.java` | 3050 | 2900 |
 | comment density | 32% | ≥25% floor |
-| bytes | 260392 | 225000 |
+| bytes | 268567 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
