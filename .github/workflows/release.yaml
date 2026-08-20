@@ -102,17 +102,20 @@ jobs:
             printf "repository's README, which is a different artifact with its own history "
             printf '%s\n' '-- a second opinion rather than an echo.'
           } > "$notes"
-          # Every 0.x is a pre-release. The paper calls this an experiment and the README
-          # says so on its first line; publishing them as finished releases would say
-          # otherwise in the one place people look. Drop the flag at 1.0.
+          # A pre-release is one that says so in its version -- 0.26.0-rc.1 -- and nothing
+          # else is.
           #
-          # It has a functional consequence worth knowing: GitHub's `latest` pointer skips
-          # pre-releases, and FLIXW_LATEST is releases/latest/download/ -- so
-          # `wrapper --upgrade` does not offer a pre-release, and an adopter has to ask for
-          # it by URL. That is the right default for an experiment, and it is why the
-          # install instructions in the notes name the tag rather than `latest`.
+          # Every 0.x used to be flagged, on the grounds that the README calls this an
+          # experiment and shipping "releases" would say otherwise. The reasoning was
+          # sound and the consequence was not: GitHub's `latest` pointer skips
+          # pre-releases, and FLIXW_LATEST is releases/latest/download/, so
+          # `wrapper --upgrade` could not offer any release at all while the version
+          # started with a 0. A wrapper whose own upgrade path cannot reach its own
+          # newest release -- including the one fixing a bug in the upgrade path --
+          # fails at something load-bearing to avoid overstating maturity, which the
+          # README's first line already handles.
           case $version in
-            0.*) pre=--prerelease ;;
+            *-*) pre=--prerelease ;;
             *)   pre= ;;
           esac
           if gh release view "$TAG" >/dev/null 2>&1; then
