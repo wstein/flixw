@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -2407,9 +2409,75 @@ public final class flixw {
         // The class name is the file name without its extension or hyphens, which is how every
         // asset is written -- flixw-help.java declares `flixwhelp`. A source launch needs the
         // path instead, and takes it when there is nothing compiled to point at.
-        cmd.add(classes == null ? asset.toString()
-              : asset.getFileName().toString().replace("-", "").replace(".java", ""));
+        cmd.add(classes == null ? asset.toString() : assetMainClass(asset));
         return cmd;
+    }
+
+    /**
+     * Runs a companion asset, in this JVM when it can be and in its own when it cannot.
+     *
+     * <p>Spawning a JVM from a JVM to run a Java program is a smell, and the numbers never
+     * justified it: the fork is 29ms of a 402ms launch. The reasons that did hold were about the
+     * asset ending in {@code System.exit} -- which would take the wrapper down mid-command -- and
+     * about what its class path drags in. The first is fixed at the source: every asset returns
+     * its exit code now. The second is what the loader below is for.
+     *
+     * <p>Each asset gets its own {@link URLClassLoader}, parented to the <em>platform</em> loader
+     * rather than the application one. Stage 0's classes are therefore invisible to it and its to
+     * stage 0: picocli loaded for {@code help} cannot be reached from the wrapper's own code, and
+     * an asset cannot accidentally resolve a stage 0 class instead of its own. The loader is
+     * closed when the asset returns, so nothing it loaded outlives the command.
+     *
+     * <p>The fork stays as the fallback, but <em>not</em> for the reason it first looked like.
+     * "No javac, so source-launch it instead" is wrong: a JEP 330 source launch compiles the file
+     * too, and on a runtime without {@code jdk.compiler} it fails with {@code Module jdk.compiler
+     * not in boot Layer}. Measured against a {@code jlink}ed java.base-only runtime, not assumed.
+     * Without a compiler neither path runs, and the diagnostic is the same either way.
+     *
+     * <p>What the fallback actually covers is narrower and real: a cache that cannot be written,
+     * where compiling in memory still works; an asset published before {@code run} existed, since
+     * {@code wrapper --upgrade} warms assets of the release it upgrades *to* and an older one may
+     * still be cached; and any failure to link the class in this JVM.
+     *
+     * @return the asset's exit code
+     */
+    static int runAsset(Path asset, Path classpath, List<String> args) {
+        Path classes = compileAsset(asset, classpath);
+        String main = assetMainClass(asset);
+        if (classes != null) {
+            List<URL> urls = new ArrayList<>();
+            try {
+                urls.add(classes.toUri().toURL());
+                if (classpath != null) urls.add(classpath.toUri().toURL());
+                try (URLClassLoader loader = new URLClassLoader("flixw-asset",
+                        urls.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
+                    Object rc = loader.loadClass(main).getMethod("run", String[].class)
+                        .invoke(null, (Object) args.toArray(new String[0]));
+                    return rc instanceof Integer i ? i : 0;
+                }
+            } catch (ReflectiveOperationException | IOException | LinkageError e) {
+                // An asset published before `run` existed, or one this JVM cannot link. Falling
+                // through to the fork keeps an older asset working rather than failing the
+                // command over an optimisation.
+                tr("cannot run " + main + " in process: " + e);
+            }
+        }
+        List<String> cmd = new ArrayList<>(
+            assetCommand(exeIn(System.getProperty("java.home")), asset, classpath));
+        cmd.addAll(args);
+        try {
+            return awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
+        } catch (IOException e) {
+            throw w005("cannot run " + asset + ": " + why(e));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return 130;
+        }
+    }
+
+    /** {@code flixw-help.java} declares {@code flixwhelp}; that is the whole convention. */
+    static String assetMainClass(Path asset) {
+        return asset.getFileName().toString().replace("-", "").replace(".java", "");
     }
 
     /** {@code <cache>/assets/<sha256 of source>/}, content-keyed exactly like stage 0's own. */
@@ -2429,8 +2497,7 @@ public final class flixw {
         byte[] bytes;
         try { bytes = Files.readAllBytes(asset); } catch (IOException e) { return null; }
         Path dir = compiledAssetDir(sha256(bytes));
-        String main = asset.getFileName().toString().replace("-", "").replace(".java", "");
-        if (Files.isRegularFile(dir.resolve(main + ".class"))) return dir;
+        if (Files.isRegularFile(dir.resolve(assetMainClass(asset) + ".class"))) return dir;
         javax.tools.JavaCompiler jc = javax.tools.ToolProvider.getSystemJavaCompiler();
         if (jc == null) { tr("no javac in this runtime; source-launching " + asset); return null; }
         Path tmp = null;
@@ -2981,18 +3048,13 @@ public final class flixw {
             ctx = Files.createTempFile("flixw-inspect-", ".txt");
             Files.writeString(ctx, inspectContext(lock, jvm), StandardCharsets.UTF_8);
             Path asset = ensureAsset(INSPECT_ASSET);
-            List<String> cmd = new ArrayList<>(
-                assetCommand(exeIn(System.getProperty("java.home")), asset, null));
-            cmd.add(ctx.toString());
-            awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
+            runAsset(asset, null, List.of(ctx.toString()));
         } catch (IOException | RuntimeException e) {
             System.out.println();
             System.out.println("the cache inventory needs " + INSPECT_ASSET + ", which could not"
                              + " be fetched:");
             System.out.println("  " + (e.getMessage() == null ? e.toString() : e.getMessage()));
             System.out.println("  everything above came from this wrapper and is unaffected.");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } finally {
             if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
         }
@@ -3016,18 +3078,11 @@ public final class flixw {
             // lock while silently deleting another project's equally old cache entry.
             Files.writeString(ctx, inspectContext(null, null), StandardCharsets.UTF_8);
             Path asset = ensureAsset(INSPECT_ASSET);
-            List<String> cmd = new ArrayList<>(
-                assetCommand(exeIn(System.getProperty("java.home")), asset, null));
-            cmd.addAll(List.of(ctx.toString(), "--purge", String.valueOf(days),
-                               yes ? "--yes" : "--ask"));
-            ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
-            int rc = awaitWithReaper(pb.start());
+            int rc = runAsset(asset, null, List.of(ctx.toString(), "--purge",
+                String.valueOf(days), yes ? "--yes" : "--ask"));
             if (rc != 0) throw w009("cache purge failed (exit " + rc + ")");
         } catch (IOException e) {
             throw w005("cannot purge the cache: " + why(e));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw w009("cache purge interrupted");
         } finally {
             if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
         }
@@ -4226,17 +4281,13 @@ public final class flixw {
             ctx = Files.createTempFile("flixw-help-", ".txt");
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity),
                               StandardCharsets.UTF_8);
-            List<String> cmd = new ArrayList<>(
-                assetCommand(exeIn(System.getProperty("java.home")), asset, picocli));
-            cmd.add(ctx.toString());
-            cmd.addAll(rest.subList(0, Math.min(3, rest.size())));
-            rc = awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
+            List<String> a = new ArrayList<>(List.of(ctx.toString()));
+            a.addAll(rest.subList(0, Math.min(3, rest.size())));
+            rc = runAsset(asset, picocli, a);
         } catch (IOException | RuntimeException e) {
             if (!degrade) throw e instanceof RuntimeException r ? r
                                 : w005("cannot run the completion generator: " + why((IOException) e));
             offlineHelp(identity, e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } finally {
             if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
         }

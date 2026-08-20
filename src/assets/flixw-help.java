@@ -47,11 +47,52 @@ final class flixwhelp {
     static final long PROBE_SECONDS = 30;
     static final int PROBE_CAP = 1 << 20;
 
+    /**
+     * Standalone entry: the code {@link #run} returns becomes the process's.
+     *
+     * <p>Kept so the asset still works when launched as a program -- which for the installer is
+     * the documented bootstrap, and for the others is how a source launch runs them.
+     */
     public static void main(String[] args) throws Exception {
+        System.exit(run(args));
+    }
+
+    /**
+     * The real entry point, returning what it would have exited with.
+     *
+     * <p>An asset used to end by calling {@code System.exit}, which is correct for a program and
+     * fatal for a library: the wrapper now loads these in its own JVM, where an exit would take
+     * the wrapper down mid-command and skip whatever it still had to clean up. So the exits
+     * became a control-flow signal that stops at this boundary, and the code travels back as a
+     * value the way any other result does.
+     */
+    public static int run(String[] args) throws Exception {
+        try {
+            body(args);
+            return 0;
+        } catch (Exit e) {
+            return e.code;
+        }
+    }
+
+    /** What {@code System.exit} used to do, scoped to this asset. */
+    static final class Exit extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final int code;
+
+        Exit(int code) {
+            // No message, no stack: it is a jump, not a failure, and filling one in for every
+            // usage error would cost more than the check that raised it.
+            super(null, null, false, false);
+            this.code = code;
+        }
+    }
+
+    private static void body(String[] args) throws Exception {
         if (args.length < 1) {
             System.err.println("usage: java -cp picocli.jar flixw-help.java"
                              + " <context-file> [<topic> [<name>]]");
-            System.exit(87);
+            throw new Exit(87);
         }
         Ctx c = Ctx.read(Paths.get(args[0]));
         String topic = args.length > 1 ? args[1] : null;
@@ -67,7 +108,7 @@ final class flixwhelp {
             default -> {
                 System.err.println("flixw: no help topic " + q(topic));
                 System.err.println("       topics: flix wrapper plugin task");
-                System.exit(89);
+                throw new Exit(89);
             }
         }
     }
@@ -323,7 +364,7 @@ final class flixwhelp {
         if (path.isEmpty()) {
             System.err.println("flixw: no compiler help has been captured for this project");
             System.err.println("       run: ./flixw pin <version>   (then any compiler verb once)");
-            System.exit(89);
+            throw new Exit(89);
         }
         String help = readOrEmpty(path);
         String version = c.get("compilerVersion");
@@ -350,7 +391,7 @@ final class flixwhelp {
                 ? "       flixw does not recognise this compiler's help layout;"
                 + "\n       run: ./flixw help flix   (to see it unedited)"
                 : "       known commands: " + String.join(" ", known.keySet()));
-            System.exit(89);
+            throw new Exit(89);
         }
 
         CommandSpec s = base("./flixw " + name,
@@ -474,7 +515,7 @@ final class flixwhelp {
         }
         System.err.println("flixw: no plugin " + q(name) + " in this project's lock");
         System.err.println("       run: ./flixw plugin list");
-        System.exit(89);
+        throw new Exit(89);
     }
 
     /**
@@ -506,7 +547,7 @@ final class flixwhelp {
         }
         System.err.println("flixw: no task " + q(name) + " in .flixw/tasks.toml");
         System.err.println("       run: ./flixw task   (to list them)");
-        System.exit(89);
+        throw new Exit(89);
     }
 
     // ---- the completers ------------------------------------------------------
@@ -544,7 +585,7 @@ final class flixwhelp {
             case "pwsh" -> pwsh(spec);
             default -> {
                 System.err.println("flixw: unknown shell " + q(shell));
-                System.exit(89);
+                throw new Exit(89);
             }
         }
     }

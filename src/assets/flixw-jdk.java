@@ -60,18 +60,58 @@ final class flixwjdk {
      * the three per-platform defaults are stage 0's to resolve, and a second copy of that
      * rule here could disagree with the one the shims and {@code doctor} already read.
      */
-    public static void main(String[] args) {
+    /**
+     * Standalone entry: the code {@link #run} returns becomes the process's.
+     *
+     * <p>Kept so the asset still works when launched as a program -- which for the installer is
+     * the documented bootstrap, and for the others is how a source launch runs them.
+     */
+    public static void main(String[] args)  {
+        System.exit(run(args));
+    }
+
+    /**
+     * The real entry point, returning what it would have exited with.
+     *
+     * <p>An asset used to end by calling {@code System.exit}, which is correct for a program and
+     * fatal for a library: the wrapper now loads these in its own JVM, where an exit would take
+     * the wrapper down mid-command and skip whatever it still had to clean up. So the exits
+     * became a control-flow signal that stops at this boundary, and the code travels back as a
+     * value the way any other result does.
+     */
+    public static int run(String[] args)  {
+        try {
+            body(args);
+            return 0;
+        } catch (Exit e) {
+            return e.code;
+        }
+    }
+
+    /** What {@code System.exit} used to do, scoped to this asset. */
+    static final class Exit extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final int code;
+
+        Exit(int code) {
+            // No message, no stack: it is a jump, not a failure, and filling one in for every
+            // usage error would cost more than the check that raised it.
+            super(null, null, false, false);
+            this.code = code;
+        }
+    }
+
+    private static void body(String[] args)  {
         if (args.length != 2) {
             System.err.println("usage: java flixw-jdk.java <feature> <cache-dir>");
-            System.exit(87);
+            throw new Exit(87);
         }
         int feature;
         try {
             feature = Integer.parseInt(args[0]);
         } catch (NumberFormatException e) {
             System.err.println("FLIXW008: not a Java feature release: " + args[0]);
-            System.exit(87);
-            return;
+            throw new Exit(87);
         }
         Path cache = Paths.get(args[1]).toAbsolutePath().normalize();
         try {
@@ -81,7 +121,7 @@ final class flixwjdk {
             System.out.println(exe);
         } catch (Fail f) {
             System.err.println(f.getMessage());
-            System.exit(f.exit);
+            throw new Exit(f.exit);
         }
     }
 

@@ -262,7 +262,48 @@ final class flixwsetup {
      * {@code ./flixw doctor --fix}: it rewrites the files this one wrote, without
      * fetching a stage 0, because the project already has one.
      */
-    public static void main(String[] args) {
+    /**
+     * Standalone entry: the code {@link #run} returns becomes the process's.
+     *
+     * <p>Kept so the asset still works when launched as a program -- which for the installer is
+     * the documented bootstrap, and for the others is how a source launch runs them.
+     */
+    public static void main(String[] args)  {
+        System.exit(run(args));
+    }
+
+    /**
+     * The real entry point, returning what it would have exited with.
+     *
+     * <p>An asset used to end by calling {@code System.exit}, which is correct for a program and
+     * fatal for a library: the wrapper now loads these in its own JVM, where an exit would take
+     * the wrapper down mid-command and skip whatever it still had to clean up. So the exits
+     * became a control-flow signal that stops at this boundary, and the code travels back as a
+     * value the way any other result does.
+     */
+    public static int run(String[] args)  {
+        try {
+            body(args);
+            return 0;
+        } catch (Exit e) {
+            return e.code;
+        }
+    }
+
+    /** What {@code System.exit} used to do, scoped to this asset. */
+    static final class Exit extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final int code;
+
+        Exit(int code) {
+            // No message, no stack: it is a jump, not a failure, and filling one in for every
+            // usage error would cost more than the check that raised it.
+            super(null, null, false, false);
+            this.code = code;
+        }
+    }
+
+    private static void body(String[] args)  {
         // No arguments is the documented bootstrap and means "set this directory up".
         // With arguments the verb is required, which is stricter than it looks and is the
         // point: treating an unrecognised first word as a directory turned
@@ -274,7 +315,7 @@ final class flixwsetup {
             System.err.println("usage: java flixw-setup.java                 (set up ./)"
                              + "\n       java flixw-setup.java setup [dir]"
                              + "\n       java flixw-setup.java update <dir>");
-            System.exit(87);
+            throw new Exit(87);
         }
         Path target = Paths.get(rest.isEmpty() ? "." : rest.get(0)).toAbsolutePath().normalize();
         try {
@@ -305,7 +346,7 @@ final class flixwsetup {
             }
         } catch (Fail f) {
             System.err.println(f.getMessage());
-            System.exit(f.exit);
+            throw new Exit(f.exit);
         }
     }
 

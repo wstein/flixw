@@ -36,16 +36,57 @@ import java.util.regex.Pattern;
 final class flixwinspect {
     private flixwinspect() {}
 
+    /**
+     * Standalone entry: the code {@link #run} returns becomes the process's.
+     *
+     * <p>Kept so the asset still works when launched as a program -- which for the installer is
+     * the documented bootstrap, and for the others is how a source launch runs them.
+     */
     public static void main(String[] args) throws IOException {
+        System.exit(run(args));
+    }
+
+    /**
+     * The real entry point, returning what it would have exited with.
+     *
+     * <p>An asset used to end by calling {@code System.exit}, which is correct for a program and
+     * fatal for a library: the wrapper now loads these in its own JVM, where an exit would take
+     * the wrapper down mid-command and skip whatever it still had to clean up. So the exits
+     * became a control-flow signal that stops at this boundary, and the code travels back as a
+     * value the way any other result does.
+     */
+    public static int run(String[] args) throws IOException {
+        try {
+            body(args);
+            return 0;
+        } catch (Exit e) {
+            return e.code;
+        }
+    }
+
+    /** What {@code System.exit} used to do, scoped to this asset. */
+    static final class Exit extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final int code;
+
+        Exit(int code) {
+            // No message, no stack: it is a jump, not a failure, and filling one in for every
+            // usage error would cost more than the check that raised it.
+            super(null, null, false, false);
+            this.code = code;
+        }
+    }
+
+    private static void body(String[] args) throws IOException {
         if (args.length != 1 && args.length != 4) {
             System.err.println("usage: java flixw-inspect.java <context-file> [--purge <days> <--ask|--yes>]");
-            System.exit(87);
+            throw new Exit(87);
         }
         Ctx c = read(Paths.get(args[0]));
         if (args.length == 4) {
             if (!args[1].equals("--purge")) {
                 System.err.println("usage: java flixw-inspect.java <context-file> [--purge <days> <--ask|--yes>]");
-                System.exit(87);
+                throw new Exit(87);
             }
             int days;
             try { days = Integer.parseInt(args[2]); }

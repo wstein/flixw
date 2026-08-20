@@ -60,7 +60,7 @@ sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
 It must print exactly this, and if it does not, stop:
 
 ```
-ac7983cb9f1189e0cfcd7fdfe11d628b2d151bdc3df3c5a15391d63fe7a66caa  flixw-setup.java
+ebff8596668c6141cc45956c50c8becee3f15740d420732ab9907e12b1c8c311  flixw-setup.java
 ```
 
 **The digest comes from this page, not from the download.** That is the whole point of the
@@ -78,7 +78,7 @@ every machine, which is why both are given.
 Comparing by eye is fine for a one-off. A pipeline wants an exit status:
 
 ```console
-echo "ac7983cb9f1189e0cfcd7fdfe11d628b2d151bdc3df3c5a15391d63fe7a66caa  flixw-setup.java" \
+echo "ebff8596668c6141cc45956c50c8becee3f15740d420732ab9907e12b1c8c311  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
