@@ -143,6 +143,53 @@ in `src/stage0/flixw.java`, which is what `install` actually writes out (`CMD` w
 sides or they drift.** In the Java text block, backslashes are escaped (`\\`); on disk they
 are literal.
 
+### Two JVM forks, only one of which was a smell
+
+Stage 0 used to start a second JVM to run its own companion assets, and now loads them
+in-process through an isolated class loader. Stage 0 still starts a second JVM to run the
+compiler, and always will. **These are not the same decision, and the second is not the
+first left half-done.**
+
+An asset is flixw's own code, from flixw's own release, under flixw's own digest — and
+stage 0 is already a JVM, so a second one bought nothing a class loader did not give for
+free (see the figures above).
+
+`flix.jar` is somebody else's program, and the invariant below says it stays opaque: never
+patched, wrapped, or linked against. In-processing it would merge flixw with the compiler —
+one heap and one set of GC flags, shared shutdown hooks, a `System.exit` on either side
+killing both, and a compiler crash surfacing as a flixw stack trace. "Stock compiler only"
+would stop being a claim a reader could check.
+
+So the fork stays, and `awaitWithReaper` with it: Java has no `exec(2)`, so stage 0 cannot
+replace itself with the compiler and must stay resident for the child's whole life.
+
+#### Moving the trampoline into the shims
+
+The shims already `exec` stage 0, and `exec` is exactly what Java lacks — so a shim could
+instead exec the *compiler*, on a plan stage 0 hands back, and stage 0 would not stay
+resident at all. Measured on a real `./flixw build` rather than assumed:
+
+| | RSS |
+|---|---:|
+| resident stage 0, waiting | 22.6 MB |
+| the compiler it waits on | 825.1 MB |
+
+**Memory is not the argument.** Stage 0 is 2.7% of that pair, and whoever minds 848 MB does
+not mind the 22. The argument is signals: after a true `exec` there is no parent left to
+orphan the compiler — the one failure `awaitWithReaper` documents and cannot fix, since
+`SIGKILL` to stage 0 leaves the compiler running and no Java code can prevent it.
+
+The cost lands where this repository least wants it. Handing argv back to a shell means
+either a quoted string the shim `eval`s — stage 0 emitting shell code, where a filename
+containing a quote becomes execution — or a plan file, and POSIX `sh` has no arrays and
+cannot `read` NUL-delimited input. Either way it is a new shim/stage-0 protocol, written
+twice, in the two files that own one decision each and that nothing can unit-test on the
+`cmd.exe` side. `cmd.exe` has no `exec` either, so Windows keeps a parent regardless.
+
+Not rejected and not scheduled: it buys correct signal semantics in a rare case, at the
+boundary this file most wants kept dumb. Whoever picks it up should start from the quoting,
+not from the memory.
+
 ### Cache layout is a versioned interface
 
 The shim must know where the compiled stage 0 lives, so these paths are contract, not detail:
@@ -285,9 +332,9 @@ whose whole argument is that it fetches only what a lock named and a digest conf
 Provisioning still exists, explicitly, as `./flixw wrapper --install-jdk`.
 
 `src/assets/flixw-jdk.java` carries a constraint the completion asset does not, and it is the
-reason the two are separate files rather than one. Stage 0 source-launches a companion
-asset **with the JVM it is itself running on**, and the provisioner exists precisely for
-the machine whose only JVM is below `MIN_JAVA` — so it must compile and run at
+reason the two are separate files rather than one. Stage 0 runs a companion asset
+**in the JVM it is itself running on**, through an isolated class loader, and the
+provisioner exists precisely for the machine whose only JVM is below `MIN_JAVA` — so it must compile and run at
 `SOURCE_FLOOR`, not `MIN_JAVA`. A Java 21 construct in it would make the provisioner
 unrunnable in the one case it is for, silently. `tests/lint.sh` compiles it at
 `--release SOURCE_FLOOR` for exactly that reason.
