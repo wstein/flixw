@@ -33,14 +33,14 @@ strings, digests and paths will differ on your machine.
 ### 1. Download the setup program, and check it
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.8/flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.9/flixw-setup.java
 sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
 ```
 
 It must print exactly this, and if it does not, stop:
 
 ```
-3e731bdd80c9239ddce5ceb55a1b10df690ab867040eb7a6497c218bbbbb0ee1  flixw-setup.java
+536ee3ed5448b1ff186ec6117e7909c53e5da152ebe5d15b114051406ed1744c  flixw-setup.java
 ```
 
 **The digest comes from this page, not from the download.** That is the whole point of the
@@ -58,7 +58,7 @@ every machine, which is why both are given.
 Comparing by eye is fine for a one-off. A pipeline wants an exit status:
 
 ```console
-echo "3e731bdd80c9239ddce5ceb55a1b10df690ab867040eb7a6497c218bbbbb0ee1  flixw-setup.java" \
+echo "536ee3ed5448b1ff186ec6117e7909c53e5da152ebe5d15b114051406ed1744c  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -68,7 +68,7 @@ Verifying against the release's own manifest instead is one line shorter and one
 weaker — it catches a corrupted or intercepted download, not a replaced release:
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.8/SHA256SUMS
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.9/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS    # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
 ```
 
@@ -81,7 +81,7 @@ sha256sum --ignore-missing -c SHA256SUMS    # macOS: shasum -a 256 --ignore-miss
 Windows 10 and later:
 
 ```bat
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.8/flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.9/flixw-setup.java
 certutil -hashfile flixw-setup.java SHA256
 java .\flixw-setup.java
 del flixw-setup.java
@@ -100,7 +100,7 @@ so the POSIX `flixw` is there too and is what Git Bash and WSL use.
 
 ```powershell
 Invoke-WebRequest -OutFile flixw-setup.java `
-  https://github.com/wstein/flixw/releases/download/v0.25.8/flixw-setup.java
+  https://github.com/wstein/flixw/releases/download/v0.25.9/flixw-setup.java
 (Get-FileHash -Algorithm SHA256 flixw-setup.java).Hash.ToLower()
 # compare with the digest printed above before running the next line
 java .\flixw-setup.java
@@ -360,7 +360,7 @@ published here, on a different path, and can be compared against something the r
 not serve:
 
 ```console
-base=https://github.com/wstein/flixw/releases/download/v0.25.8
+base=https://github.com/wstein/flixw/releases/download/v0.25.9
 curl -fsSLO $base/flixw-0.25.3.tar.gz
 curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.3.tar.gz | sha256sum -c -
 tar -xzf flixw-0.25.3.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
