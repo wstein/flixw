@@ -14,8 +14,10 @@ import java.util.regex.Pattern;
 import picocli.AutoComplete;
 import picocli.CommandLine;
 import picocli.CommandLine.Help.Ansi;
+import picocli.CommandLine.Help.ColorScheme;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.OptionSpec;
+import picocli.CommandLine.Model.UsageMessageSpec;
 
 /**
  * Renders {@code ./flixw help}: a wrapper-owned companion asset, not a plugin.
@@ -259,6 +261,111 @@ final class flixwhelp {
                              .usage(System.out);
     }
 
+    /**
+     * Renders the overview with its command list grouped by who answers each word.
+     *
+     * <p>Only the overview: every other topic has a single provider, so a heading there would
+     * label a group of one and a colour would style the whole screen.
+     */
+    static void renderGrouped(CommandSpec spec, Ctx c) {
+        CommandLine cl = new CommandLine(spec)
+            .setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.AUTO));
+        cl.getHelpSectionMap().put(UsageMessageSpec.SECTION_KEY_COMMAND_LIST,
+                                   help -> commandList(help, c));
+        // Our groups carry their own headings, so picocli's single "Commands:"
+        // would announce the first of them and then be contradicted by the rest.
+        cl.getHelpSectionMap().put(UsageMessageSpec.SECTION_KEY_COMMAND_LIST_HEADING,
+                                   help -> "");
+        cl.usage(System.out);
+    }
+
+    /**
+     * The command list, grouped by provider, with the minority coloured.
+     *
+     * <p>picocli emits one flat list under a single style, and flat is what hides the routing
+     * model: {@code run} is the compiler's for good, {@code doctor} is the wrapper's only until
+     * Flix implements the word. The headings say which is which, and they say it on a monochrome
+     * terminal too -- colour reinforces the grouping, it never carries it alone. That also
+     * retires the {@code (wrapper)} prefix each of those descriptions used to open with, since
+     * the heading now states what the prefix was repeating.
+     *
+     * <p>Compiler verbs are left unstyled deliberately. They are most of the screen, so
+     * colouring them would be colouring the background; what a reader picks out is the
+     * wrapper's own words, this project's plugins and its tasks. Cyan, magenta and faint stay
+     * clear of a red/green pairing, which is the one distinction that disappears for the
+     * commonest colour-vision deficiency.
+     *
+     * <p>Styles are applied through the scheme rather than {@code @|...|@} markup, because a
+     * task name comes from {@code .flixw/tasks.toml} and markup in one would be parsed as
+     * markup. {@link ColorScheme#apply} takes the text as text.
+     */
+    static String commandList(CommandLine.Help help, Ctx c) {
+        List<String> compilerVerbs = c.words("compilerVerbs");
+        List<String[]> compiler = new ArrayList<>(), wrapper = new ArrayList<>();
+        for (Map.Entry<String, CommandLine> e : help.commandSpec().subcommands().entrySet()) {
+            String[] d = e.getValue().getCommandSpec().usageMessage().description();
+            // tree() prefixes wrapper descriptions; the heading replaces it.
+            String text = d.length == 0 ? "" : d[0].replaceFirst("^\\(wrapper\\) ", "");
+            (compilerVerbs.contains(e.getKey()) ? compiler : wrapper)
+                .add(new String[] { e.getKey(), text });
+        }
+        List<String[]> plugins = new ArrayList<>(), tasks = new ArrayList<>();
+        for (String[] r : c.rows("plugins"))
+            plugins.add(new String[] { "plugin " + r[0], r.length > 1 ? "version " + r[1] : "" });
+        for (String[] r : c.rows("tasks"))
+            tasks.add(new String[] { "task " + r[0], r.length > 1 ? r[1] : "" });
+
+        // One column width across every group, so the groups read as one table that happens
+        // to have headings rather than four tables that happen to be adjacent.
+        int w = 0;
+        for (List<String[]> g : List.of(compiler, wrapper, plugins, tasks))
+            for (String[] r : g) w = Math.max(w, r[0].length());
+
+        ColorScheme cs = help.colorScheme();
+        int width = help.commandSpec().usageMessage().width();
+        StringBuilder out = new StringBuilder();
+        group(out, cs, width, w, "Compiler commands:", compiler, null);
+        group(out, cs, width, w, "Wrapper commands:", wrapper, Ansi.Style.fg_cyan);
+        group(out, cs, width, w, "Plugins:", plugins, Ansi.Style.fg_magenta);
+        group(out, cs, width, w, "Tasks:", tasks, Ansi.Style.faint);
+        return out.toString();
+    }
+
+    /** One heading and its rows; nothing at all when the group is empty. */
+    static void group(StringBuilder out, ColorScheme cs, int width, int w,
+                      String heading, List<String[]> rows, Ansi.Style style) {
+        if (rows.isEmpty()) return;
+        out.append(heading).append('\n');
+        for (String[] r : rows) {
+            String name = style == null ? r[0] : cs.apply(r[0], List.of(style)).toString();
+            String pad = " ".repeat(w - r[0].length());   // pad on the plain length, not the
+            String head = "  " + name + pad + "  ";       // styled one, which carries escapes
+            for (String line : wrap(r[1], Math.max(20, width - w - 4))) {
+                out.append(head).append(line).append('\n');
+                head = "  " + " ".repeat(w) + "  ";       // continuation lines hang under it
+            }
+            if (r[1].isEmpty()) out.append(head).append('\n');
+        }
+        out.append('\n');
+    }
+
+    /** Greedy word wrap; a description is a sentence and the terminal decides how wide. */
+    static List<String> wrap(String text, int width) {
+        List<String> lines = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String word : text.trim().split("\\s+")) {
+            if (word.isEmpty()) continue;
+            if (line.length() > 0 && line.length() + 1 + word.length() > width) {
+                lines.add(line.toString());
+                line.setLength(0);
+            }
+            if (line.length() > 0) line.append(' ');
+            line.append(word);
+        }
+        if (line.length() > 0) lines.add(line.toString());
+        return lines;
+    }
+
     static CommandSpec base(String name, String... description) {
         CommandSpec s = CommandSpec.create().name(name);
         s.usageMessage().description(description).abbreviateSynopsis(true);
@@ -282,7 +389,7 @@ final class flixwhelp {
      * work out which of them is currently winning.
      */
     static void overview(Ctx c) {
-        render(tree(c, "./flixw"));
+        renderGrouped(tree(c, "./flixw"), c);
 
         System.out.println();
         System.out.println("  ./flixw help flix [<command>]    the pinned compiler's own help");

@@ -1406,10 +1406,30 @@ t 0  "a nested project runs once it has its own lock"           sh -c 'cd nested
 
 # --- help ------------------------------------------------------------------
 echo "help"
-g 0 'Commands:'  "help renders the merged command tree"        ./flixw help
+g 0 'Compiler commands:' "help renders the merged command tree" ./flixw help
 g 0 'checks the current project for errors' \
                  "compiler verbs carry the compiler's own descriptions"  ./flixw help
-g 0 '(wrapper)'  "wrapper verbs are marked as the wrapper's"    ./flixw help
+# The wrapper's verbs used to be marked by a `(wrapper)` prefix on each description; the
+# group heading states it once instead.  The requirement is unchanged -- a reader must be
+# able to tell who answers a word -- so this asserts the heading, not the prefix.  The
+# prefix does survive in the generated completions, which have no headings to carry it.
+g 0 'Wrapper commands:' "wrapper verbs are marked as the wrapper's"  ./flixw help
+
+# Colour is a second channel over the headings, never the only one, so the three ways it
+# can be wrong are all worth pinning: leaking escapes into a pipe, styling the compiler's
+# verbs (which are most of the screen, so styling them says nothing), and ignoring
+# NO_COLOR.  None of these can be checked from a terminal-less CI run without forcing.
+t 0 "help emits no ANSI when stdout is not a terminal" sh -c '
+  esc=$(printf "\033")
+  ! ./flixw help 2>/dev/null | grep -q "$esc"'
+t 0 "forced colour styles the wrapper group, not the compiler's" sh -c '
+  out=$(CLICOLOR_FORCE=1 ./flixw help 2>/dev/null)
+  printf "%s" "$out" | grep -q "\[36mpin" &&
+  printf "%s" "$out" | grep -q "  init " &&
+  printf "%s" "$out" | grep "  init " | { ! grep -q "\[3"; }'
+t 0 "NO_COLOR beats a forced colour setting" sh -c '
+  esc=$(printf "\033")
+  ! NO_COLOR=1 CLICOLOR_FORCE=1 ./flixw help 2>/dev/null | grep -q "$esc"'
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check
 # Flix 0.75 answers `check --help` with the *top-level* help and exit 0. Saying so is the
