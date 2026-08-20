@@ -50,6 +50,7 @@ export FLIX_CACHE_HOME="$cache_native"
 # is legitimate input, and Java selection is one of the things under test.
 unset FLIX_JAR FLIX_DIST_URL FLIX_BACKEND FLIX_JVM_OPTS
 unset FLIXW_STRICT_JAVA FLIXW_TRACE FLIXW_UNSAFE_JVM_OPTS FLIXW_RELAUNCHED FLIXW_ASSET_SOURCE
+unset FLIXW_RELEASE_SOURCE FLIXW_PLUGIN_CACHE
 
 # A release, stood up in a directory. Everything flixw fetches at run time now comes from
 # a companion asset -- the installer among them -- so this has to exist before the first
@@ -1725,6 +1726,18 @@ g 0 '0.25.3 -> 9.9.9' "upgrade moves the project to a newer release"  sh -c '
     ./flixw wrapper --upgrade 2>&1' sh "$upgproj" "$(fileurl "$newrel")"
 t 0 "...and the project now carries that stage 0"                sh -c '
   grep -q "WRAPPER_VERSION = \"9.9.9\"" "$1/.flixw/flixw.java"' sh "$upgproj"
+# The override is normalised rather than concatenated blindly: asset names are appended to it,
+# so a source given with a trailing slash -- or three, which is what a copied URL and a shell
+# variable produce between them -- must not become `...//flixw.java`. Asserted through a real
+# upgrade because that is the only way the joined URL is ever exercised.
+upgslash=$work/upgraded-slashes
+rm -rf "$upgslash" && mkdir -p "$upgslash"
+java "$root/src/assets/flixw-setup.java" setup "$upgslash" "$root/src/stage0/flixw.java" >/dev/null 2>&1
+t 0 "a release source with trailing slashes still resolves"      sh -c '
+  cd "$1" && FLIXW_RELEASE_SOURCE="$2///" FLIXW_ASSET_SOURCE="$2/" \
+    ./flixw wrapper --upgrade >/dev/null 2>&1
+  grep -q "WRAPPER_VERSION = \"9.9.9\"" "$1/.flixw/flixw.java"' sh "$upgslash" "$(fileurl "$newrel")"
+
 t 0 "...and its shims were rewritten by the new release"         sh -c '
   test -x "$1/flixw" && test -f "$1/flixw.cmd"' sh "$upgproj"
 # The assets are version-keyed, so an upgrade that did not warm them would leave every

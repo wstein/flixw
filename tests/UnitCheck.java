@@ -404,6 +404,37 @@ public final class UnitCheck {
         System.out.println("  ok   provisioning: metadata parsing and platform coordinates");
     }
 
+    // ---- 13: which release `--upgrade` offers -----------------------------
+
+    /**
+     * `wrapper --upgrade` must not offer a pre-release, and the whole of that policy is one
+     * URL.
+     *
+     * <p>Every 0.x flixw is published as a GitHub pre-release, and GitHub's `releases/latest`
+     * excludes those -- so an adopter running `--upgrade` is never moved onto one, and asks for
+     * a pre-release by tag through `FLIXW_RELEASE_SOURCE` instead. That is a deliberate product
+     * decision explained at length in {@code latestBase}'s own comment, and until now nothing
+     * checked it: changing this URL to any other spelling of "newest" would have started
+     * shipping pre-releases to everyone with a green suite.
+     *
+     * <p>The override branch is not asserted here, because `env` reads the real environment and
+     * a test cannot set one for its own JVM. tests/run.sh covers it end to end instead, which is
+     * the better test anyway -- it upgrades an actual project through an actual fixture release.
+     */
+    static void releaseChannel() {
+        String base = flixw.latestBase();
+        eq("upgrade: the default release source is GitHub's latest",
+           "https://github.com/wstein/flixw/releases/latest/download/", base);
+        // Named separately from the equality above: if someone rewrites that URL, this is the
+        // assertion whose failure says *why* it mattered.
+        if (base.contains("/releases/latest/")) ok();
+        else bad("upgrade: the default must be `releases/latest`, which skips pre-releases",
+                 "got " + base);
+        if (base.endsWith("/")) ok();
+        else bad("upgrade: the base must end in a slash, since asset names are appended to it",
+                 "got " + base);
+    }
+
     // ---- 13: the asset set a release publishes ----------------------------
 
     /**
@@ -938,6 +969,7 @@ public final class UnitCheck {
         bounded();
         completion();
         overrideContainment();
+        releaseChannel();
         releaseAssets();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
