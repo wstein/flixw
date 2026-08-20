@@ -250,6 +250,22 @@ else
   for m in $missing; do say "      $m"; done
 fi
 
+# --- 3c3. the README downloads the release its digest describes --------------
+# The digest check below compares README against local source, which says nothing about
+# which release the reader is told to fetch. Those drifted: the page carried a digest for
+# 0.25.8 beside five `releases/download/v0.25.3/` URLs, so anyone following it downloaded
+# one file and compared it against another's digest -- and, doing exactly as instructed,
+# stopped. A quickstart that fails safe is still a quickstart that fails.
+readme_ver=$(sed -n 's|.*releases/download/v\([0-9][0-9.]*\)/.*|\1|p' "$root/README.md" \
+             | sort -u)
+want_ver=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java" \
+           | head -1)
+if [ "$readme_ver" = "$want_ver" ]; then
+  say "ok    README downloads v$want_ver, the release it prints a digest for"
+else
+  bad "README's download URLs name $(echo "$readme_ver" | tr '\n' ' ')but WRAPPER_VERSION is $want_ver"
+fi
+
 # --- 3d. the digest README tells people to compare against ------------------
 # README prints the setup asset's SHA-256 so an adopter can check it against something
 # other than the file's own download. That is only a second opinion while it is right, and
