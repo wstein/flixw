@@ -160,35 +160,69 @@ one heap and one set of GC flags, shared shutdown hooks, a `System.exit` on eith
 killing both, and a compiler crash surfacing as a flixw stack trace. "Stock compiler only"
 would stop being a claim a reader could check.
 
-So the fork stays, and `awaitWithReaper` with it: Java has no `exec(2)`, so stage 0 cannot
-replace itself with the compiler and must stay resident for the child's whole life.
+So the fork stays for now, and `awaitWithReaper` with it: stage 0 cannot replace itself
+with the compiler, and must stay resident for the child's whole life.
 
-#### Moving the trampoline into the shims
+#### One process, postponed until Java 22 is ordinary for Flix
 
-The shims already `exec` stage 0, and `exec` is exactly what Java lacks — so a shim could
-instead exec the *compiler*, on a plan stage 0 hands back, and stage 0 would not stay
-resident at all. Measured on a real `./flixw build` rather than assumed:
+The goal is **behavioural, not about memory**: `./flixw <verb>` should *be* the compiler or
+the plugin, so that signals, job control, exit status and what `ps` and `pkill` see all
+describe the thing actually running. The resident stage 0 costs 22.6 MB against a compiler's
+825 — a plugin run stacks three JVMs at 23.9 + 24.1 + 776.8 — and that ratio is not the
+case for changing anything. `SIGKILL` to stage 0 orphaning the compiler is, since it is the
+one failure `awaitWithReaper` documents and cannot fix.
 
-| | RSS |
-|---|---:|
-| resident stage 0, waiting | 22.6 MB |
-| the compiler it waits on | 825.1 MB |
+"Java has no `exec(2)`" stopped being true in Java 22. `java.lang.foreign` reaches `execv`,
+and it genuinely replaces the image — same pid, arguments delivered verbatim with no shell
+requoting anywhere:
 
-**Memory is not the argument.** Stage 0 is 2.7% of that pair, and whoever minds 848 MB does
-not mind the 22. The argument is signals: after a true `exec` there is no parent left to
-orphan the compiler — the one failure `awaitWithReaper` documents and cannot fix, since
-`SIGKILL` to stage 0 leaves the compiler running and no Java code can prevent it.
+```
+[java]   pid=88596 about to execv
+[execed] pid=88596 argv=sh-arg0 extra!arg
+```
 
-The cost lands where this repository least wants it. Handing argv back to a shell means
-either a quoted string the shim `eval`s — stage 0 emitting shell code, where a filename
-containing a quote becomes execution — or a plan file, and POSIX `sh` has no arrays and
-cannot `read` NUL-delimited input. Either way it is a new shim/stage-0 protocol, written
-twice, in the two files that own one decision each and that nothing can unit-test on the
-`cmd.exe` side. `cmd.exe` has no `exec` either, so Windows keeps a parent regardless.
+**Decided: postponed until Java 22+ is standard for Flix.** Not rejected, and not blocked on
+anything unknown — the trigger is that Flix's own floor moves, at which point this is worth
+doing. What follows is the working out, so the next person does not repeat it.
 
-Not rejected and not scheduled: it buys correct signal semantics in a rare case, at the
-boundary this file most wants kept dumb. Whoever picks it up should start from the quoting,
-not from the memory.
+The obstacle is *not* which JVM runs stage 0. flixw already steers that: `.flixw/local/java`
+takes precedence over `PATH`, and `wrapper --install-jdk <feature>` can provision any
+release. The obstacle is that `src/stage0/flixw.java` must go on **compiling** at
+`--release MIN_JAVA`, because it must still run on a user's own Java 21, and `Linker` is a
+preview API there. So the FFM code cannot live in stage 0 at all. It belongs in a companion
+asset compiled at 22+, loaded in-process by the class loader assets already use — verified
+to work, replacing the whole process including stage 0.
+
+Provisioning a JDK to obtain this was considered and declined as a default. It reverses a
+decision recorded above (an automatic fetch is the wrong answer to a missing dependency),
+and it inverts the shims' precedence, where a flixw-installed JDK is deliberately the last
+resort rather than the first choice. Worse, it would make *semantics* depend on whether a
+JDK happened to be provisioned — one machine where Ctrl-C behaves and one where it does
+not — which is a poor trade in a change whose entire purpose is behaviour. Gate it on the
+running JVM's feature version instead; `--install-jdk 25` is then one way to get there
+rather than the mechanism.
+
+Three things are prerequisites, none of them optional:
+
+- **Both shims must pass `--enable-native-access=ALL-UNNAMED`.** Without it every run prints
+  four `WARNING:` lines to stderr -- flixw's diagnostic channel -- ending with "will be
+  blocked in a future release". Java 21 accepts the flag silently, so it can be passed
+  unconditionally rather than gated on a version the shim would have to work out.
+- **The plugin context file must be deleted before the exec, not by a shutdown hook.** The
+  hook is correct *today*, because `System.exit` runs hooks; `execv` runs nothing.
+- **stdout and stderr must be flushed first**, since buffered output dies with the image.
+
+Windows never gets this: there is no `execv`, and `cmd.exe` has no `exec` either. So the
+fork path and `awaitWithReaper` survive regardless, and this is **additive** -- a second
+path, not a replacement. That is the strongest argument against ever doing it, and it is
+the one the Java version moving does not weaken.
+
+The earlier proposal here -- have the *shim* exec the compiler on a plan stage 0 hands back
+-- is **superseded**. It required handing argv to a shell, as either a string the shim
+`eval`s (stage 0 emitting shell code, where a filename containing a quote becomes
+execution) or a plan file POSIX `sh` cannot read, having no arrays and no NUL-delimited
+`read`; and it put a new protocol in the two files that own one decision each. Doing it
+inside the JVM needs none of that.
 
 ### Cache layout is a versioned interface
 
