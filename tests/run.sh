@@ -410,14 +410,19 @@ t 87 "wrapper --install-jdk takes no arguments"                 ./flixw wrapper 
 # explicit version or the newest Flix if none is named. The scripted `setup <dir>` spelling
 # deliberately does not pin -- `wrapper --upgrade` and every case here use it, and a script
 # that asked for files must not also get a compiler download and a lock it never mentioned.
-t 0  "the bare bootstrap pins the version it was given"          sh -c '
-  d=$1/bootpin; rm -rf "$d"; mkdir -p "$d"
-  cd "$d" && java "$2/src/assets/flixw-setup.java" '"$version"' >/dev/null 2>&1
-  grep -q "version = \"'"$version"'\"" .flixw/lock.toml' sh "$work" "$root"
-t 0  "a tag spelling is accepted there too"                      sh -c '
-  d=$1/boottag; rm -rf "$d"; mkdir -p "$d"
-  cd "$d" && java "$2/src/assets/flixw-setup.java" v'"$version"' >/dev/null 2>&1
-  grep -q "version = \"'"$version"'\"" .flixw/lock.toml' sh "$work" "$root"
+t 0  "the bootstrap pins the version --pin names"              sh -c '
+  d=$1/bootpin; rm -rf "$d"
+  java "$2/src/assets/flixw-setup.java" "$d" --pin '"$version"' >/dev/null 2>&1
+  grep -q "version = \"'"$version"'\"" "$d/.flixw/lock.toml"' sh "$work" "$root"
+t 87 "--pin with no version is a usage error"                    sh -c '
+  d=$1/bootbad; rm -rf "$d"
+  java "$2/src/assets/flixw-setup.java" "$d" --pin' sh "$work" "$root"
+# `setup` cannot be delegated to a project wrapper: it exists to create the project there is
+# none of, and the launcher used to answer it with "run setup in a project first".
+t 0  "the global launcher answers setup with no project anywhere" sh -c '
+  d=$1/bootglobal; rm -rf "$d"; mkdir -p "$d"
+  cd "$d" && "$FLIX_CACHE_HOME/bin/flixw" setup . --pin '"$version"' >/dev/null 2>&1
+  test -x ./flixw && grep -q "version = \"'"$version"'\"" .flixw/lock.toml' sh "$work"
 t 0  "the scripted setup form writes no lock"                    sh -c '
   d=$1/bootnopin; rm -rf "$d"
   java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1

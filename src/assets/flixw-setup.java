@@ -142,13 +142,13 @@ final class flixwsetup {
      * where the trust root is created, and there should be exactly one implementation of it
      * for the same reason there is exactly one lock writer.
      */
-    static boolean willPin(boolean bare, Path target, String wanted) {
-        return bare && (wanted != null
-                        || !Files.isRegularFile(target.resolve(WRAPPER_DIR).resolve("lock.toml")));
+    static boolean willPin(boolean pinning, Path target, String wanted) {
+        return pinning && (wanted != null
+                           || !Files.isRegularFile(target.resolve(WRAPPER_DIR).resolve("lock.toml")));
     }
 
-    static void pinAfterSetup(boolean bare, Path target, String wanted) {
-        if (!willPin(bare, target, wanted)) return;
+    static void pinAfterSetup(boolean pinning, Path target, String wanted) {
+        if (!willPin(pinning, target, wanted)) return;
         String version = wanted != null ? wanted : latestFlix();
         if (version == null) {
             System.err.println("flixw: could not reach github.com to find the newest Flix");
@@ -381,26 +381,44 @@ final class flixwsetup {
         // `flixw-setup.java install .` -- the spelling a reader of any older instruction
         // would try -- into an attempt to set up a directory named "install".
         List<String> rest = new java.util.ArrayList<>(List.of(args));
-        // A bare version is the common case and reads as one command: `flixw-setup 0.75.3`
-        // sets this directory up and pins that compiler. It is recognised by shape rather
-        // than by position so the two verbs keep working unambiguously -- no version can
-        // spell `setup` or `update`.
+        // `--pin` says which compiler, not whether to pin: naming a version is the only part
+        // a caller can get wrong, and a flag says so where a bare `0.75.3` among the
+        // positionals would have to be recognised by its shape and could never be told from
+        // a directory that happened to look like one.
         String wanted = null;
-        if (!rest.isEmpty() && rest.get(0).matches("v?[0-9]+\\.[0-9]+\\.[0-9]+([-+].*)?"))
-            wanted = rest.remove(0);
-        // Pinning follows only the spelling a person types. `setup <dir>` is the scripted
-        // form -- `wrapper --upgrade` uses it, and so does every test -- and a script that
-        // asked for files must not get a compiler download and a lock it never mentioned.
-        boolean bare = rest.isEmpty();
-        String verb = bare ? "setup" : rest.remove(0);
-        if ((!verb.equals("setup") && !verb.equals("update")) || rest.size() > 2
-            || (wanted != null && !verb.equals("setup"))) {
-            System.err.println("usage: java flixw-setup.java                 (set up ./, pin the"
-                             + " newest Flix)"
-                             + "\n       java flixw-setup.java <version>     (set up ./, pin that"
-                             + " version)"
-                             + "\n       java flixw-setup.java setup [dir]"
-                             + "\n       java flixw-setup.java update <dir>");
+        for (int i = 0; i < rest.size(); i++) {
+            if (!"--pin".equals(rest.get(i))) continue;
+            if (i + 1 >= rest.size()) {
+                System.err.println("usage: --pin <version>");
+                throw new Exit(87);
+            }
+            rest.remove(i);
+            wanted = rest.remove(i);
+            break;
+        }
+        // Pinning follows the spelling a person types. `setup <dir>` is the scripted form --
+        // `wrapper --upgrade` uses it, and so does every case in the suite -- and a script
+        // that asked for files must not also get a compiler download and a lock it never
+        // mentioned. Asking for `--pin` outright is always honoured.
+        // A directory positional means an unknown first word is a path, so the one spelling
+        // an older instruction would use has to be refused by name. `install` was the verb
+        // before the bootstrap moved out of stage 0, and silently setting up a directory
+        // called "install" is the failure this catches.
+        if (!rest.isEmpty() && rest.get(0).equals("install")) {
+            System.err.println("flixw-setup: `install` was renamed; the bootstrap is"
+                             + "\n       java flixw-setup.java [dir] [--pin <version>]");
+            throw new Exit(87);
+        }
+        boolean scripted = !rest.isEmpty()
+                           && (rest.get(0).equals("setup") || rest.get(0).equals("update"));
+        String verb = scripted ? rest.remove(0) : "setup";
+        boolean pinning = wanted != null || !scripted;
+        if (rest.size() > 2 || (wanted != null && verb.equals("update"))) {
+            System.err.println("usage: java flixw-setup.java [dir] [--pin <version>]"
+                             + "\n       java flixw-setup.java setup [dir] [--pin <version>]"
+                             + "\n       java flixw-setup.java update <dir>"
+                             + "\n\n       with no --pin, the newest Flix release is pinned;"
+                             + "\n       `setup` is the scripted form and pins only when asked");
             throw new Exit(87);
         }
         Path target = Paths.get(rest.isEmpty() ? "." : rest.get(0)).toAbsolutePath().normalize();
@@ -415,8 +433,8 @@ final class flixwsetup {
                     Path source = rest.size() == 2 ? Paths.get(rest.get(1))
                                                    : (fetched = fetchStage0(tempDir()));
                     try {
-                        install(target, source, willPin(bare, target, wanted));
-                        pinAfterSetup(bare, target, wanted);
+                        install(target, source, willPin(pinning, target, wanted));
+                        pinAfterSetup(pinning, target, wanted);
                     } finally {
                         if (fetched != null) {
                             try { Files.deleteIfExists(fetched); } catch (IOException ignored) { }
@@ -776,7 +794,21 @@ final class flixwsetup {
           [ "$parent" = "$here" ] && break
           here=$parent
         done
-        echo "flixw: no checked-in flixw wrapper found above $(pwd -P); run setup in a project first" >&2
+        # `setup` is the one word that cannot be delegated: it exists to create the project
+        # there is none of. Answered from the setup program this launcher was installed
+        # alongside, so `flixw setup newproj --pin 0.75.3` works in an empty directory --
+        # which is the only place anyone would type it.
+        if [ "${1-}" = setup ]; then
+          shift
+          cache=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
+          asset=$(ls -1d "$cache"/wrapper/assets/*/flixw-setup.java 2>/dev/null | sort | tail -1)
+          if [ -n "$asset" ]; then exec java "$asset" "$@"; fi
+          echo "flixw: no setup program cached in $cache/wrapper/assets" >&2
+          echo "       download one: https://github.com/wstein/flixw/releases/latest" >&2
+          exit 87
+        fi
+        echo "flixw: no checked-in flixw wrapper found above $(pwd -P)" >&2
+        echo "       to create one here:  flixw setup . [--pin <version>]" >&2
         exit 87
         """;
 
@@ -804,7 +836,38 @@ final class flixwsetup {
         Path launcher = bin.resolve("flixw");
         Files.writeString(launcher, GLOBAL_SHIM, StandardCharsets.UTF_8);
         launcher.toFile().setExecutable(true, false);
+        cacheSelf();
         return launcher;
+    }
+
+    /**
+     * Leaves a copy of this program where the launcher can find it.
+     *
+     * <p>`flixw setup` has to run something, and the only thing that can set a project up is
+     * this file -- which the user downloaded to wherever they happened to be standing and is
+     * told to delete on the next line of the instructions. So it is copied into the same
+     * version-keyed directory stage 0 caches companion assets in, beside the launcher that
+     * will look for it.
+     *
+     * <p>The source path comes from the launcher protocol rather than from a guess. Absent
+     * when this class was loaded from bytecode instead of source -- which is how stage 0
+     * runs it for `doctor --fix`, and in that case the cache already has the asset.
+     *
+     * <p>Best-effort throughout: failing to leave a convenience copy is not a reason to fail
+     * an install that has otherwise written every file it promised.
+     */
+    static void cacheSelf() {
+        String src = System.getProperty("jdk.launcher.sourcefile");
+        if (src == null || src.isBlank()) return;
+        try {
+            Path from = Paths.get(src);
+            Path dir = globalBin().getParent().resolve("wrapper").resolve("assets")
+                                  .resolve(WRAPPER_VERSION);
+            Path to = dir.resolve("flixw-setup.java");
+            if (Files.isRegularFile(to)) return;
+            Files.createDirectories(dir);
+            Files.copy(from, to, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException | RuntimeException ignored) { }
     }
 
     static void install(Path target, Path source) { install(target, source, false); }

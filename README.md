@@ -40,7 +40,7 @@ sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
 It must print exactly this, and if it does not, stop:
 
 ```
-001abdbb4ad534b9e932b4f956a3f0fec9f92327d65940e1b8bc29fd7b360a16  flixw-setup.java
+b6634ba7364c1a74ed3efb5b66e754ee54c8f527c9f2a804e32042c01ee3e9e8  flixw-setup.java
 ```
 
 **The digest comes from this page, not from the download.** That is the whole point of the
@@ -58,7 +58,7 @@ every machine, which is why both are given.
 Comparing by eye is fine for a one-off. A pipeline wants an exit status:
 
 ```console
-echo "001abdbb4ad534b9e932b4f956a3f0fec9f92327d65940e1b8bc29fd7b360a16  flixw-setup.java" \
+echo "b6634ba7364c1a74ed3efb5b66e754ee54c8f527c9f2a804e32042c01ee3e9e8  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -120,13 +120,25 @@ pinned project touches the network not at all.
 ### 2. Run it, in the project root
 
 ```console
-java ./flixw-setup.java            # or: java ./flixw-setup.java 0.75.3
+java ./flixw-setup.java                      # here, newest Flix
+java ./flixw-setup.java --pin 0.75.3         # here, a version you choose
+java ./flixw-setup.java myproject            # a directory, creating it if needed
 rm flixw-setup.java
 ```
 
 That is the whole adoption: it installs the wrapper **and pins a compiler**, taking the
-version you name or the newest Flix release if you name none. Steps 3 to 5 below explain
-what it did and what to commit.
+version `--pin` names or the newest Flix release if you name none. Steps 3 to 5 below
+explain what it did and what to commit.
+
+Afterwards the same thing is one word, because setup leaves a launcher on your machine:
+
+```console
+flixw setup [<dir>] [--pin <version>]
+```
+
+That is the only flixw command that works with no project around it — it is the one that
+creates one. Everything else delegates to the `./flixw` checked into the project you are
+standing in.
 
 In your project it writes the wrapper files and nothing else — it merges its block into an
 existing `.gitattributes` rather than replacing it, and never touches `flix.toml` or
