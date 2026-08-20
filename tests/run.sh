@@ -703,11 +703,16 @@ t 0  "a trailing comment on the version is ignored"              sh -c '
 # that does not parse used to throw before routing ever reached pin.
 t 0  "pin repairs a lock that does not parse"                    sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
+  restore_lock() { cp "$1/lock.keep" .flixw/lock.toml; }
+  trap restore_lock EXIT HUP INT TERM
   sed "s/^sha256.*/sha256  = \"not-a-digest\"/" "$1/lock.keep" > .flixw/lock.toml
-  ./flixw pin '"$version"' >/dev/null 2>&1
-  # The digest, not merely the key: this case once passed against the corrupted line it
-  # was supposed to have replaced, and every test after it inherited a broken lock.
-  grep -qE "^sha256  = \"[0-9a-f]{64}\"" .flixw/lock.toml' sh "$work"
+  ./flixw pin '"$version"' >/dev/null 2>&1 || exit 1
+  # Check the digest, not merely the key: this case once passed against the corrupted
+  # line it was supposed to have replaced. Avoid an interval regex here: Git Bash has
+  # shipped grep builds with different interval-expression defaults.
+  digest=$(sed -n "s/^sha256  = \"\([0-9a-f]*\)\"/\1/p" .flixw/lock.toml)
+  [ "${#digest}" -eq 64 ] || exit 1
+  case "$digest" in *[!0123456789abcdef]*|"") exit 1;; esac' sh "$work"
 t 81 "a lock that does not parse still blocks the compiler"      sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
   sed "s/^sha256.*/sha256  = \"not-a-digest\"/" "$1/lock.keep" > .flixw/lock.toml
