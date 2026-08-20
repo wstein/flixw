@@ -1975,6 +1975,16 @@ t 0  "a refused claim leaves nothing in the cache" sh -c '
 # "removed plugin <name>" -- which reads like the one version this project pins.
 # A .java plugin, because the .jar fixture declares a verb another plugin already holds --
 # which the guard above correctly refuses, and which is not what this case is about.
+# Upgrading is one word, the way `brew upgrade` is: the URL the lock already records says
+# where the project lives, and only the tag moves between releases. No network here -- what
+# is asserted is that a non-github source is declined by name rather than guessed at, and
+# that `list` says which build the lock actually runs once two are installed.
+g 0  'not on github' "upgrade declines a source it cannot derive from" sh -c '
+  cd "$1" && ./flixw plugin upgrade echoer 2>&1' sh "$pp"
+g 0  '<= this project' "plugin list marks the build the lock runs" sh -c '
+  cd "$1" && ./flixw plugin list' sh "$pp"
+t 88 "upgrade rejects a plugin the lock does not declare" sh -c '
+  cd "$1" && ./flixw plugin upgrade nosuchplugin' sh "$pp"
 g 0  'all versions, machine-wide' "remove says how far it reaches" sh -c '
   cd "$1" && ./flixw plugin install goner 1.0.0 "$2/pluginjava/plugin.java" >/dev/null 2>&1
   ./flixw plugin remove goner 2>&1' sh "$pp" "$(fileurl "$work")"

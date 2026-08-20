@@ -511,7 +511,7 @@ final class flixwhelp {
             case "doctor" -> "info plus every check, with a verdict; --fix repairs.";
             case "validate" -> "the checks alone, for CI.";
             case "help" -> "this table.";
-            case "plugin" -> "install, list, remove and run verified third-party commands.";
+            case "plugin" -> "install, upgrade, list, remove and run verified third-party commands.";
             case "task" -> ".flixw/tasks.toml's aliases.";
             case "wrapper" -> "--version, --upgrade, --install-jdk, --purge, --schema.";
             case "completion" -> "a TAB-completion script for bash, zsh, fish or pwsh.";
@@ -677,6 +677,8 @@ final class flixwhelp {
                 sub(s, r[0], r.length > 1 ? "version " + r[1] : "");
             s.addOption(OptionSpec.builder("install").description(
                 "plugin install <name> <version> <url> [--sha256 <digest>]").build());
+            s.addOption(OptionSpec.builder("upgrade")
+                        .description("plugin upgrade [<name>] -- move to the newest release").build());
             s.addOption(OptionSpec.builder("list").description("installed plugins").build());
             s.addOption(OptionSpec.builder("remove").description("remove one").build());
             render(s);

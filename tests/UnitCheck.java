@@ -450,6 +450,28 @@ public final class UnitCheck {
     // ---- 13: the asset set a release publishes ----------------------------
 
     /**
+     * Rewriting a release asset URL for a newer tag, which is how upgrade finds one.
+     *
+     * <p>Derived from the URL the lock already records rather than from a naming scheme:
+     * that URL worked once, and between two releases of one project only the tag moves.
+     * Anything not a github release asset has to be declined rather than guessed at.
+     */
+    static void upgradeUrls() {
+        String gh = "https://github.com/o/r/releases/download/v1.2.3/plugin.jar";
+        eq("upgrade: a github asset is recognised", "true",
+           String.valueOf(flixw.GH_ASSET.matcher(gh).matches()));
+        eq("upgrade: a file url is not", "false",
+           String.valueOf(flixw.GH_ASSET.matcher("file:///tmp/p.jar").matches()));
+        // A tag names one release whichever way it is spelled; the lock records the
+        // version, so the two have to compare equal or every run looks like an upgrade.
+        eq("upgrade: v-prefix is not a different version", "1.2.3", flixw.strip("v1.2.3"));
+        eq("upgrade: a bare version survives", "1.2.3", flixw.strip("1.2.3"));
+        eq("upgrade: no source, nothing to derive", null, flixw.newerAsset(null, "1.0.0"));
+        eq("upgrade: a non-github source is declined", null,
+           flixw.newerAsset("https://example.invalid/p.jar", "1.0.0"));
+    }
+
+    /**
      * Declared verbs: the shape rule, and what sanitising a manifest value means.
      *
      * <p>A manifest attribute is third-party text headed for a terminal and for a
@@ -1088,6 +1110,7 @@ public final class UnitCheck {
         optionRows();
         pluginDescription();
         declaredVerbs();
+        upgradeUrls();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }

@@ -2650,7 +2650,8 @@ public final class flixw {
                 List<String> args = rest.subList(1, rest.size());
                 switch (sub) {
                     case "install" -> pluginInstall(root, args);
-                    case "list" -> pluginList();
+                    case "upgrade" -> pluginUpgrade(root, args);
+                    case "list" -> pluginList(lock);
                     case "remove" -> pluginRemove(args);
                     default -> {
                         ResolvedPlugin p = resolvePlugin(sub, lock);
@@ -2691,8 +2692,93 @@ public final class flixw {
 
     // ---- plugins ------------------------------------------------------------
 
+    /** A GitHub release asset URL, split so only the tag has to change to find a newer one. */
+    static final Pattern GH_ASSET = Pattern.compile(
+        "(https://github\\.com/[^/]+/[^/]+)/releases/download/([^/]+)/(.+)");
+
+    /**
+     * The same asset in that repository's newest release, or null if there is no newer one.
+     *
+     * <p>Derived from the URL the lock already records rather than from anything the plugin
+     * declares. That URL is known to have worked, and between two releases of one project
+     * only the tag changes -- so substituting the tag asks for the file that corresponds to
+     * the one already installed, rather than guessing at a naming scheme.
+     *
+     * <p>Only github.com release assets. A plugin hosted anywhere else gets a diagnostic
+     * naming the install command, because inventing a URL for an unknown layout is how an
+     * upgrade quietly fetches the wrong artifact.
+     */
+    static String newerAsset(String source, String have) {
+        if (source == null) return null;
+        Matcher m = GH_ASSET.matcher(source);
+        if (!m.matches()) return null;
+        String tag = latestTag(m.group(1));
+        if (tag == null || canonical(strip(tag)).equals(canonical(have))) return null;
+        return m.group(1) + "/releases/download/" + tag + "/" + m.group(3);
+    }
+
+    /** The tag {@code /releases/latest} redirects to, which needs no API token or quota. */
+    static String latestTag(String repo) {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(repo + "/releases/latest"))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                .timeout(Duration.ofSeconds(60))
+                .header("User-Agent", "flixw/" + WRAPPER_VERSION).build();
+        try {
+            HttpResponse<Void> res = httpClient().send(req, HttpResponse.BodyHandlers.discarding());
+            String u = res.uri().toString();
+            return res.statusCode() == 200 && u.contains("/releases/tag/")
+                   ? u.substring(u.lastIndexOf('/') + 1) : null;
+        } catch (IOException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /** {@code v1.2.3} and {@code 1.2.3} name one release; the lock records the second. */
+    static String strip(String tag) { return tag.startsWith("v") ? tag.substring(1) : tag; }
+
+    /**
+     * Moves every plugin this project declares, or one named, to its newest release.
+     *
+     * <p>Goes through `plugin install`, so an upgrade is not a second implementation of
+     * installing: the digest is taken and recorded, a newly declared verb is checked against
+     * the compiler's and the wrapper's, and the unaudited-code warning is printed by the same
+     * code that prints it on a first install.
+     */
+    static void pluginUpgrade(Path root, List<String> args) {
+        if (root == null) throw w001("no flixw project here; plugins are declared in a lock");
+        Lock lock = readLock(lockPath(root));
+        if (lock.plugins().isEmpty()) { System.out.println("(no plugins declared)"); return; }
+        String only = args.isEmpty() ? null : args.get(0);
+        if (only != null && !lock.plugins().containsKey(only))
+            throw w009("plugin " + q(only) + " is not declared in " + lockPath(root));
+        boolean moved = false;
+        for (Map.Entry<String, PluginDep> e : new LinkedHashMap<>(lock.plugins()).entrySet()) {
+            if (only != null && !only.equals(e.getKey())) continue;
+            String url = newerAsset(e.getValue().source(), e.getValue().version());
+            if (url == null) {
+                System.err.println("flixw: " + e.getKey() + " " + e.getValue().version()
+                                 + (e.getValue().source() == null
+                                    || GH_ASSET.matcher(e.getValue().source()).matches()
+                                    ? " is the newest release"
+                                    : " is not on github; upgrade it with ./flixw plugin install"));
+                continue;
+            }
+            Matcher m = GH_ASSET.matcher(url);
+            String to = m.matches() ? strip(m.group(2)) : null;
+            pluginInstall(root, List.of(e.getKey(), to, url));
+            moved = true;
+        }
+        if (!moved) return;
+        System.err.println("       upgraded without a digest you supplied; check what changed"
+                         + " and re-record it with ./flixw plugin install ... --sha256 <digest>");
+    }
+
     static final String PLUGIN_USAGE =
           "usage: ./flixw plugin install <name> <version> <url> [--sha256 <digest>]"
+        + "\n          ./flixw plugin upgrade [<name>]"
         + "\n          ./flixw plugin list"
         + "\n          ./flixw plugin remove <name>"
         + "\n          ./flixw plugin <name> [args...]";
@@ -2915,7 +3001,10 @@ public final class flixw {
         catch (IOException e) { tr("cannot record plugin in " + lf + ": " + e.getMessage()); }
     }
 
-    static void pluginList() {
+    static void pluginList(Lock lock) {
+        Map<String, String> want = new LinkedHashMap<>();
+        if (lock != null) lock.plugins().forEach((n, d) ->
+            want.put(n, d.version() + "-" + d.sha256()));
         Path dir = pluginsDir();
         List<Path> names = List.of();
         try (var s = Files.isDirectory(dir) ? Files.list(dir) : null) {
@@ -2926,7 +3015,12 @@ public final class flixw {
             List<Path> versions = List.of();
             try (var s = Files.list(nameDir)) { versions = s.filter(Files::isDirectory).sorted().toList(); }
             catch (IOException ignored) { }
-            for (Path v : versions) System.out.println(nameDir.getFileName() + "  " + v.getFileName());
+            // Which one the lock runs, because after an upgrade this lists every build ever
+            // installed and two lines that differ only in a digest say nothing about that.
+            for (Path v : versions)
+                System.out.println(nameDir.getFileName() + "  " + v.getFileName()
+                                 + (v.getFileName().toString().equals(want.get(nameDir.getFileName()
+                                     .toString())) ? "  <= this project" : ""));
         }
     }
 
