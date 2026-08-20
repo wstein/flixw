@@ -2446,7 +2446,9 @@ public final class flixw {
 
     /** {@code <cache>/assets/<sha256 of source>/}, content-keyed exactly like stage 0's own. */
     static Path compiledAssetDir(String srcHash) {
-        return cacheHome().resolve("assets").resolve(srcHash);
+        // Keyed by the class file version as well as the source, so an entry compiled before
+        // the --release below existed is a miss rather than a class this JVM cannot load.
+        return cacheHome().resolve("assets").resolve(srcHash + "-" + SOURCE_FLOOR);
     }
 
     /**
@@ -2478,7 +2480,12 @@ public final class flixw {
                 cacheable = false;
                 tmp = Files.createTempDirectory("flixw-asset-");
             }
-            List<String> args = new ArrayList<>(List.of("-d", tmp.toString()));
+            // --release, for the reason the self-compile has it: keyed by source alone, an
+            // asset compiled by whichever javac ran first lands where an older JVM will load
+            // it and die. A flixw-installed JDK 24 beside a Java 21 does exactly that, and
+            // degrades help to the offline text silently. SOURCE_FLOOR, not MIN_JAVA: the
+            // provisioner runs on a JVM below MIN_JAVA by definition.
+            List<String> args = new ArrayList<>(List.of("-d", tmp.toString(), "--release", String.valueOf(SOURCE_FLOOR)));
             if (classpath != null) { args.add("-cp"); args.add(classpath.toString()); }
             args.add(asset.toString());
             if (jc.run(null, java.io.OutputStream.nullOutputStream(),

@@ -542,7 +542,7 @@ commit:
 |---|---:|---:|
 | code lines in `src/stage0/flixw.java` | 3094 | 2900 |
 | comment density | 33% | ≥25% floor |
-| bytes | 278733 | 225000 |
+| bytes | 279422 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the

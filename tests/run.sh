@@ -1073,6 +1073,19 @@ t 0  "a cold cache fetches and verifies the generator"          sh -c '
   rm -rf "$1/wrapper"
   ./flixw completion bash >/dev/null 2>&1 || exit 1
   find "$1/wrapper/assets" -name "flixw-help.java.sha256" | grep -q .' sh "$cache"
+
+# A compiled asset must load on every JVM flixw supports, not just the one that compiled
+# it. The cache is keyed by source, so an asset built by a newer javac used to land where
+# an older JVM would load it and die on the class file version -- a machine with a
+# flixw-installed JDK 24 beside a Java 21 poisons its own help renderer that way, and the
+# failure is a silent degrade to the offline text. Asserted on the emitted bytes rather
+# than on the flag, since the flag is what was missing.
+t 0 "a compiled asset targets the source floor, whatever compiled it" sh -c '
+  c=$(find "$1/assets" -name "*.class" | head -1)
+  [ -n "$c" ] || exit 1
+  case ${c%/*} in *-16) ;; *) exit 1 ;; esac      # keyed by the target, so old entries miss
+  command -v od >/dev/null 2>&1 || exit 0         # bytes 6-7 are the major version
+  [ "$(od -An -tu1 -j6 -N2 "$c" | head -1 | awk "{print \$1*256+\$2}")" = 60 ]' sh "$cache"
 t 0  "a warm cache needs no source at all"                      sh -c '
   FLIXW_ASSET_SOURCE="file:///nonexistent/" ./flixw completion bash \
     | grep -q "_complete_flixw"'
