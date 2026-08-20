@@ -197,10 +197,20 @@ final class flixwhelp {
     /** picocli: an indented two-column row inside the {@code Commands:} block. */
     static final Pattern PICOCLI_ENTRY = Pattern.compile("^ {2}([a-z][a-z0-9_-]*)(?:\\s\\s+(.*))?$");
 
-    /** An option row in either layout: a short form, a long form, or both, then prose. */
+    /**
+     * An option row in either layout: a short form, a long form, or both, then prose.
+     *
+     * <p>Two things here are for picocli's layout rather than scopt's, and both were found by
+     * running a fork's real help through it. Its parameter is attached with {@code =} instead
+     * of a space, and requiring the space dropped every value-taking option on the floor --
+     * from the help screen and from the generated completions with it, which is where a
+     * value-taking option matters most. And its prose is optional, because a name long enough
+     * to fill the column pushes the description onto the next line entirely; that row is an
+     * option with its description still to come, not a non-match.
+     */
     static final Pattern OPTION_ENTRY = Pattern.compile(
-        "^\\s*(?:-([A-Za-z0-9])(?:[, ]\\s*)?)?(--[A-Za-z][A-Za-z0-9-]*)?"
-      + "(?:\\s+<([^>]*)>)?\\s\\s+(\\S.*)$");
+        "^(\\s*)(?:-([A-Za-z0-9])(?:[, ]\\s*)?)?(--[A-Za-z][A-Za-z0-9-]*)?"
+      + "(?:[\\s=]+<([^>]*)>)?(?:\\s\\s+(\\S.*))?$");
 
     /**
      * Command name to description, in the order the compiler listed them.
@@ -234,20 +244,50 @@ final class flixwhelp {
     /** An option's spelling to its description, for both layouts alike. */
     static Map<String, String[]> options(String help) {
         Map<String, String[]> out = new LinkedHashMap<>();
-        for (String line : help.split("\n", -1)) {
-            if (line.startsWith("Command:") || line.isBlank()) continue;
-            Matcher m = OPTION_ENTRY.matcher(line.replace('\t', ' '));
-            if (!m.matches()) continue;
-            String shortOpt = m.group(1), longOpt = m.group(2);
-            if (shortOpt == null && longOpt == null) continue;
-            String key = longOpt != null ? longOpt : "-" + shortOpt;
-            out.put(key, new String[] {
-                shortOpt == null ? "" : "-" + shortOpt,
-                longOpt == null ? "" : longOpt,
-                m.group(3) == null ? "" : m.group(3),
-                collapse(m.group(4)) });
+        String key = null;                  // the row still open for continuation lines
+        String[] row = null;
+        StringBuilder prose = new StringBuilder();
+        int indent = 0;
+        for (String raw : help.split("\n", -1)) {
+            String line = raw.replace('\t', ' ');
+            Matcher m = OPTION_ENTRY.matcher(line);
+            boolean isOption = m.matches() && (m.group(2) != null || m.group(3) != null);
+            if (isOption) {
+                if (key != null) out.put(key, finish(row, prose));
+                indent = m.group(1).length();
+                String shortOpt = m.group(2), longOpt = m.group(3);
+                key = longOpt != null ? longOpt : "-" + shortOpt;
+                row = new String[] { shortOpt == null ? "" : "-" + shortOpt,
+                                     longOpt == null ? "" : longOpt,
+                                     m.group(4) == null ? "" : m.group(4), "" };
+                prose = new StringBuilder(m.group(5) == null ? "" : m.group(5));
+            } else if (key != null && !line.isBlank() && leading(line) > indent
+                       && !line.startsWith("Command:")) {
+                // Wrapped prose, which picocli indents past the description column. Anything
+                // at or left of the option's own indent has left the block -- a `Commands:`
+                // heading, the next section -- and swallowing it would append a command list
+                // to whichever option happened to be last.
+                prose.append(' ').append(line.trim());
+            } else if (key != null && !line.isBlank()) {
+                out.put(key, finish(row, prose));
+                key = null;
+            }
         }
+        if (key != null) out.put(key, finish(row, prose));
         return out;
+    }
+
+    /** Seals a row with its prose collapsed onto one line. */
+    static String[] finish(String[] row, StringBuilder prose) {
+        row[3] = collapse(prose.toString());
+        return row;
+    }
+
+    /** Leading spaces, which is how a continuation line is told from a new section. */
+    static int leading(String s) {
+        int i = 0;
+        while (i < s.length() && s.charAt(i) == ' ') i++;
+        return i;
     }
 
     /** Wrapped prose onto one line; a description is a sentence, not a layout. */
