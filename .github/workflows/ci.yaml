@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  FLIXW_TEST_VERSION: "0.75.2"
+  FLIXW_TEST_VERSION: "0.75.3"
 
 jobs:
   lint:

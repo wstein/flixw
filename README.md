@@ -90,7 +90,7 @@ del flixw-setup.java
 `certutil` prints the digest on a line of its own between two lines of chatter. Older
 Windows builds space the bytes in pairs; compare it without the spaces.
 
-Then read `.\flixw.cmd` wherever the five steps write `./flixw`: `.\flixw.cmd pin 0.75.2`,
+Then read `.\flixw.cmd` wherever the five steps write `./flixw`: `.\flixw.cmd pin 0.75.3`,
 `.\flixw.cmd check`, `.\flixw.cmd validate`. `setup` writes both shims on every platform,
 so the POSIX `flixw` is there too and is what Git Bash and WSL use.
 </details>
@@ -107,7 +107,7 @@ java .\flixw-setup.java
 Remove-Item flixw-setup.java
 ```
 
-Then read `.\flixw.cmd` wherever the five steps write `./flixw`: `.\flixw.cmd pin 0.75.2`,
+Then read `.\flixw.cmd` wherever the five steps write `./flixw`: `.\flixw.cmd pin 0.75.3`,
 `.\flixw.cmd check`, `.\flixw.cmd validate`. Git Bash and WSL run the POSIX shim, so
 there the commands work as written.
 </details>
@@ -162,8 +162,8 @@ The project has no lock yet. Continue with step 3.
 ### 3. Pin a compiler
 
 ```console
-$ ./flixw pin 0.75.2
-flixw: pinned Flix 0.75.2 from flix/flix (a2697d875725a0dd...)
+$ ./flixw pin 0.75.3
+flixw: pinned Flix 0.75.3 from flix/flix (bf123cdb6494d6e0...)
 ```
 
 This is the trust root: it fetches that exact release, hashes it, and records the digest in
@@ -347,7 +347,7 @@ curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.3.tar.gz | sha256sum -c -
 tar -xzf flixw-0.25.3.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
 rm flixw-0.25.3.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
-                                    # 0.75.2 or v0.75.2 -- the release tag works too
+                                    # 0.75.3 or v0.75.3 -- the release tag works too
 ./flixw doctor --fix                # merges the .gitattributes block
 git add flixw flixw.cmd .flixw .gitattributes
 ```

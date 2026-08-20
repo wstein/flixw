@@ -41,7 +41,7 @@ Exercising it end to end means installing into a scratch project:
 
 ```sh
 java src/assets/flixw-setup.java setup /tmp/proj src/stage0/flixw.java   # the four project files
-cd /tmp/proj && ./flixw pin 0.75.2         # writes .flixw/lock.toml, downloads the JAR
+cd /tmp/proj && ./flixw pin 0.75.3         # writes .flixw/lock.toml, downloads the JAR
 ./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flixw pin --refresh                      # rewrite the lock in this release's shape; offline
 ./flixw info                               # java, compiler, cache, mirror, proxy, routing state

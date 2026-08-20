@@ -18,7 +18,7 @@ set -eu
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 work=$root/tests/.work/run
-version=${FLIXW_TEST_VERSION:-0.75.2}
+version=${FLIXW_TEST_VERSION:-0.75.3}
 
 # A previous run may have left a read-only directory behind; make it removable.
 # Spelled as an if rather than `A && B || true`: older shellcheck reads that idiom as a
