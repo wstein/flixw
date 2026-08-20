@@ -19,26 +19,6 @@ compiles with the same bytes you did.
 > reading before trusting this with a download. This is an **experimental, third-party,
 > opt-in** tool, not affiliated with or endorsed by the Flix project.
 
-## Start here
-
-| you have | go to |
-|---|---|
-| an existing Flix project | [the five steps below](#quickstart) — the default |
-| an empty directory | [the five steps below](#quickstart), then `./flixw init` |
-| Windows | the same steps — PowerShell and cmd.exe are collapsed inside [step 1](#1-download-the-setup-program-and-check-it) |
-| a preference for not running downloaded programs | [manual installation](#manual-installation-without-running-a-downloaded-program) |
-
-**Java.** flixw is itself a Java program, so it cannot be the thing that gets you your
-first JDK.
-
-| `java -version` says | what works | do this |
-|---|---|---|
-| nothing — no `java` | neither | install any JDK; flixw cannot bootstrap itself |
-| Java 16–20 | flixw yes, Flix no | start below; then `./flixw wrapper --install-jdk` |
-| Java 21+ | both | start below |
-
-See [what if my Java is older](#what-if-my-java-is-older) for why the two floors differ.
-
 ## Quickstart
 
 Install the committed wrapper, pin one Flix compiler version, commit the lock, then use
