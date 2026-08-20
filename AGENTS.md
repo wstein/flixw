@@ -323,10 +323,30 @@ project that cannot reach a compiler, so it cannot be routed by asking a compile
 Two separate mechanisms, chosen deliberately over adding more builtin verbs: `./flixw
 plugin <name>` runs machine-wide, digest-verified, explicitly-installed third-party code
 (`.jar`, `.java` or `.flix`); `.flixw/tasks.toml` aliases a shell string the project already
-trusts, the way `npm run` does, and is never fetched. Both are namespaced —
-`plugin <name>` / `task <name>`, never a bare top-level verb — so a plugin can never
-collide with a compiler verb, another plugin, or a future wrapper verb; only the words
-`plugin` and `task` occupy the namespace stage 0 owns.
+trusts, the way `npm run` does, and is never fetched. `plugin <name>` and `task <name>`
+always work and are always unambiguous.
+
+**A plugin may also claim one bare verb**, which reverses the rule this paragraph used to
+state absolutely. It declares it in its jar manifest as `Flixw-Plugin-Command`, read as
+data at install time, and the claim is recorded in `lock.toml` — so it arrives in a diff
+rather than as a surprise, and a reviewer sees which word a plugin took. `./flixw metrics`
+beats `./flixw plugin flixw-metrics` for the same reason `git foo` and `cargo fmt` beat any
+namespaced spelling: it is what people type.
+
+The old absolute is not what kept collisions away; **dispatch order is**, and it is
+unchanged. A declared verb is consulted only after the compiler's own verb set and after
+`WRAPPER_VERBS`, so a plugin can never take a word from either — it fills gaps. On top of
+that, three claims are refused at install, before anything is cached: a verb the wrapper
+owns, a verb another installed plugin already declared, and anything that is not
+`[a-z][a-z0-9-]*`. The compiler is deliberately *not* consulted at install — its verb set
+changes with every `pin`, so a refusal there would fail for a reason the next pin could
+erase. Dispatch says it instead, at the moment it is true, and the plugin stays reachable
+as `./flixw plugin <name>` throughout.
+
+A manifest value is third-party text bound for a terminal and for a committed file, so both
+`Flixw-Plugin-Command` and `Flixw-Plugin-Description` are stripped of control characters and
+length-capped on the way in. An ESC in a description is a terminal escape sequence in every
+help screen that renders it.
 
 **`pin`, `info`, `doctor`, `validate` and `help` stay in stage 0 permanently — this is a
 decided product boundary, not a temporary gap.** They are the trust-gate verbs a fresh
@@ -540,9 +560,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/stage0/flixw.java` | 3094 | 2900 |
+| code lines in `src/stage0/flixw.java` | 3167 | 2900 |
 | comment density | 33% | ≥25% floor |
-| bytes | 279422 | 225000 |
+| bytes | 286432 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the

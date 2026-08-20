@@ -441,6 +441,13 @@ public final class flixw {
              + i5 + "\"type\": \"string\",\n"
              + i5 + "\"description\": \"what the plugin is for, as it declared itself"
                        + " in its jar manifest at install time; shown by `flixw help`\"\n"
+             + i4 + "},\n"
+             + i4 + "\"command\": {\n"
+             + i5 + "\"type\": \"string\",\n"
+             + i5 + "\"description\": \"the bare verb this plugin answers, as it declared"
+                       + " in its jar manifest; the compiler and the wrapper both win over"
+                       + " it, and it is recorded here so the claim is reviewable\",\n"
+             + i5 + "\"pattern\": " + jsonString("^" + PLUGIN_NAME_PATTERN + "$") + "\n"
              + i4 + "}\n"
              + i3 + "}\n"
              + i2 + "}\n"
@@ -486,7 +493,8 @@ public final class flixw {
      * is informational, the way a fork's {@code repo} field already is -- {@code pin}
      * never reads it to download anything.
      */
-    record PluginDep(String version, String sha256, String source, String description) {}
+    record PluginDep(String version, String sha256, String source, String description,
+                     String command) {}
 
     /**
      * One `key = value` occurrence, the table it was found in, and the line it sits on.
@@ -810,9 +818,11 @@ public final class flixw {
      */
     static Map<String, PluginDep> readPlugins(String text, String where) {
         Map<String, String> version = new LinkedHashMap<>(), sha = new LinkedHashMap<>(),
-                            source = new LinkedHashMap<>(), description = new LinkedHashMap<>();
+                            source = new LinkedHashMap<>(), description = new LinkedHashMap<>(),
+                            command = new LinkedHashMap<>();
         Set<String> seenKeys = new LinkedHashSet<>();
-        Set<String> knownKeys = Set.of("version", "sha256", "source", "description");
+        Set<String> knownKeys = Set.of("version", "sha256", "source", "description",
+                                       "command");
         for (TomlEntry e : tomlScan(text, where).entries()) {
             if (!e.table().startsWith("plugins.")) continue;
             String name = e.table().substring("plugins.".length());
@@ -839,6 +849,7 @@ public final class flixw {
                 case "sha256" -> sha.put(name, v);
                 case "source" -> source.put(name, v);
                 case "description" -> description.put(name, v);
+                case "command" -> command.put(name, v);
             }
         }
         Map<String, PluginDep> out = new LinkedHashMap<>();
@@ -860,7 +871,8 @@ public final class flixw {
                 throw w002(where + ": [plugins." + name + "] sha256 is " + q(d)
                          + "\n       expected 64 lowercase hex digits");
             out.put(name, new PluginDep(v, d, source.get(name),
-                                        description.getOrDefault(name, "")));
+                                        description.getOrDefault(name, ""),
+                                        command.getOrDefault(name, "")));
         }
         return out;
     }
@@ -934,7 +946,7 @@ public final class flixw {
             // [plugins.<name>] is a dynamic table LOCK_SCHEMA cannot enumerate by name;
             // readPlugins() is the authority on which of its keys it actually reads.
             boolean known = e.table().startsWith("plugins.")
-                          && List.of("version", "sha256", "source", "description")
+                          && List.of("version", "sha256", "source", "description", "command")
                                  .contains(e.key());
             if (!known)
                 for (LockField f : LOCK_SCHEMA)
@@ -2757,6 +2769,13 @@ public final class flixw {
             if (wantSha != null && !got.equals(wantSha))
                 throw w006("digest mismatch for " + q(url) + "\n       expected " + wantSha
                          + "\n       actual   " + got);
+            // Read and vetted off the download, before anything is cached or announced. Doing
+            // it after the move said "installed plugin g9" and then refused it, leaving an
+            // artifact in the cache that no lock mentions and no message admitted to.
+            String desc = pluginAttribute(tmp, "Flixw-Plugin-Description", 120, format);
+            String verb = pluginAttribute(tmp, "Flixw-Plugin-Command", 32, format);
+            if (!verb.isEmpty()) verb = acceptPluginCommand(name, verb, root);
+
             Path dest = pluginDir(name, version, got);
             Files.createDirectories(dest);
             Path artifact = dest.resolve("plugin." + format);
@@ -2768,7 +2787,7 @@ public final class flixw {
             // same bytes as last time, not that the bytes are safe. Third-party code a
             // user explicitly asked to install gets no gentler a badge than that.
             System.err.println("       this is 3rd-party code, not audited by flixw");
-            recordPluginInLock(root, name, version, got, url, pluginDescription(artifact));
+            recordPluginInLock(root, name, version, got, url, desc, verb);
         } catch (IOException e) {
             throw w009("plugin install failed: " + why(e));
         } finally {
@@ -2795,27 +2814,101 @@ public final class flixw {
      * attribute that is not its own source, and inventing a magic comment for them would be a
      * second format to specify, parse and get wrong.
      */
-    static String pluginDescription(Path artifact) {
-        if (!artifact.getFileName().toString().endsWith(".jar")) return "";
+    /**
+     * Whether a plugin may answer the bare verb it asked for, and on whose terms.
+     *
+     * <p>A declared verb is the one place a plugin reaches outside its own namespace, so the
+     * checks are refusals rather than warnings where a refusal is possible. The shape is a
+     * plugin name's shape: it becomes a word people type. A wrapper verb is fatal because
+     * stage 0 owns those permanently and would simply shadow the plugin for ever. Another
+     * plugin's verb is fatal because whichever installed second would be unreachable with no
+     * way to tell from the outside.
+     *
+     * <p>The compiler is not consulted here at all. Dispatch is compiler-first, so it
+     * already wins; and its verb set changes with every pin, so an install that failed on
+     * today's set would be failing for a reason the next `pin` could erase. Dispatch says so
+     * instead, at the moment it is true.
+     */
+    /** Which plugin, if any, declared {@code verb} in this lock. */
+    static String commandOwner(Lock lock, String verb) {
+        for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
+            if (verb.equals(e.getValue().command())) return e.getKey();
+        return null;
+    }
+
+    /**
+     * Runs the plugin that declared this verb, saying which one answered.
+     *
+     * <p>Louder than {@code ./flixw plugin <name>} on purpose. There the caller named the plugin
+     * and knows what is running; here a bare word did, and the reader of a build log needs
+     * to be told that a third-party artifact -- not the compiler, not the wrapper -- is what
+     * answered it.
+     */
+    static void runDeclaredPlugin(String name, String verb, List<String> args,
+                                  Path root, Lock lock, Path jar, Jvm jvm) {
+        ResolvedPlugin p = resolvePlugin(name, lock);
+        System.err.println("flixw: " + q(verb) + " is plugin " + name + " " + p.version()
+                         + " (" + p.sha256().substring(0, 16) + "...)");
+        System.err.println("       this is 3rd-party code, not audited by flixw");
+        Jvm resolved = jvm != null ? jvm : selectJava(null);
+        runArtifact(p.artifact(), resolved.exe(), jar,
+                    args, pluginEnv(root, lock, resolved, jar, name, p, args));
+    }
+
+    static String acceptPluginCommand(String name, String verb, Path root) {
+        Lock lock = null;
+        if (root != null && Files.isRegularFile(lockPath(root)))
+            try { lock = readLock(lockPath(root)); } catch (Fail ignored) { }
+        if (!verb.matches(PLUGIN_NAME_PATTERN))
+            throw w009("plugin " + name + " declares an unusable command " + q(verb)
+                     + "\n       a command is " + PLUGIN_NAME_PATTERN);
+        if (WRAPPER_VERBS.contains(verb) || "wrapper".equals(verb) || "completion".equals(verb))
+            throw w009("plugin " + name + " declares " + q(verb) + ", which the wrapper owns"
+                     + "\n       run it as: ./flixw plugin " + name);
+        if (lock != null)
+            for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
+                if (!e.getKey().equals(name) && verb.equals(e.getValue().command()))
+                    throw w009("plugin " + name + " declares " + q(verb) + ", already claimed by "
+                             + e.getKey() + "\n       run it as: ./flixw plugin " + name);
+        return verb;
+    }
+
+    static String pluginAttribute(Path artifact, String attr, int max, String format) {
+        if (!"jar".equals(format)) return "";
         try (java.util.jar.JarFile jf = new java.util.jar.JarFile(artifact.toFile(), false)) {
             java.util.jar.Manifest mf = jf.getManifest();
-            if (mf == null) return "";
-            String d = mf.getMainAttributes().getValue("Flixw-Plugin-Description");
-            // Collapsed rather than escaped: it crosses into the help asset through a
-            // tab-separated line, and a description is a sentence, not a layout.
-            return d == null ? "" : d.replaceAll("\\s+", " ").trim();
+            return mf == null ? "" : sanitize(mf.getMainAttributes().getValue(attr), max);
         } catch (IOException | RuntimeException e) { return ""; }
     }
 
+    /**
+     * A manifest value made safe to print and to store.
+     *
+     * <p>It is third-party text on its way to a terminal and to a committed file, so control
+     * characters go first: an ESC in a description is a terminal escape sequence in every
+     * `flixw help` that renders it, and nothing legitimate needs one. Whitespace collapses
+     * because the value crosses into the help asset on a tab-separated line, and the length
+     * is capped because a manifest attribute has no bound and a lock file is read by people.
+     */
+    static String sanitize(String s, int max) {
+        if (s == null) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < s.length() && b.length() < max; i++) {
+            char c = s.charAt(i);
+            b.append(Character.isISOControl(c) ? ' ' : c);
+        }
+        return b.toString().replaceAll("\\s+", " ").trim();
+    }
+
     static void recordPluginInLock(Path root, String name, String version, String sha256,
-                                   String url, String description) {
+                                   String url, String description, String command) {
         Path lf = lockPath(root);
         if (!Files.isRegularFile(lf)) return;
         Lock have;
         try { have = readLock(lf); }
         catch (Fail ignored) { return; }   // a lock that does not parse is not this command's to fix
         Map<String, PluginDep> plugins = new LinkedHashMap<>(have.plugins());
-        plugins.put(name, new PluginDep(version, sha256, url, description));
+        plugins.put(name, new PluginDep(version, sha256, url, description, command));
         String rewritten = lockText(WRAPPER_VERSION, have.repo() == null ? UPSTREAM_REPO : have.repo(),
             have.version(), have.url(), have.sha256(), have.reportedVersion(), have.java(), plugins);
         try { writeAtomic(lf, rewritten); System.err.println("       recorded in " + lf); }
@@ -3695,7 +3788,9 @@ public final class flixw {
                   // Written only when the plugin declared one, so a lock for a plugin
                   // that says nothing about itself gains no empty key to explain.
                   + (p.description() == null || p.description().isEmpty() ? ""
-                     : "description = \"" + tomlEscape(p.description()) + "\"\n");
+                     : "description = \"" + tomlEscape(p.description()) + "\"\n")
+                  + (p.command() == null || p.command().isEmpty() ? ""
+                     : "command = \"" + p.command() + "\"\n");
         }
         return body;
     }
@@ -4257,6 +4352,8 @@ public final class flixw {
                  .append(e.getValue().sha256()).append('\t')
                  .append(e.getValue().source() == null ? "" : e.getValue().source()).append('\t')
                  .append(e.getValue().description() == null ? "" : e.getValue().description())
+                 .append('\t')
+                 .append(e.getValue().command() == null ? "" : e.getValue().command())
                  .append('\n');
         b.append('\n').append("tasks:").append('\n');
         if (root != null)
@@ -4676,6 +4773,12 @@ public final class flixw {
 
         // ---- dispatch ----------------------------------------------------
         boolean toCompiler; List<String> forward = argv;
+        // A verb a plugin declared for itself, consulted only after the compiler's own set
+        // and the wrapper's have had their say -- so an installed plugin can never take a
+        // word away from either. Read from the lock, which is committed, so a plugin
+        // claiming a word shows up in a diff rather than in a surprise.
+        String pluginOwner = first == null || lock == null || compilerVerbs.contains(first)
+                             || WRAPPER_VERBS.contains(first) ? null : commandOwner(lock, first);
         if (forcedCompiler) {
             toCompiler = true;
             if ("--".equals(first)) forward = argv.subList(1, argv.size());
@@ -4687,6 +4790,8 @@ public final class flixw {
             toCompiler = true;
         } else if (first != null && WRAPPER_VERBS.contains(first)) {
             toCompiler = false;
+        } else if (pluginOwner != null) {
+            toCompiler = false;                      // a plugin claimed this word in the lock
         } else {
             toCompiler = true;                       // unknown verbs, and no verb at all
         }
@@ -4711,6 +4816,11 @@ public final class flixw {
             return;                                  // helpTopic exits; this is for the reader
         }
 
+        if (!toCompiler && pluginOwner != null && !WRAPPER_VERBS.contains(first)) {
+            runDeclaredPlugin(pluginOwner, first, forward.subList(1, forward.size()),
+                              root, lock, jar, jvm);
+            return;                                  // runDeclaredPlugin exits
+        }
         if (!toCompiler) {
             if (forcedWrapper && compilerVerbs.contains(first) && trace())
                 System.err.println("flixw: " + q(first) + " \u2192 wrapper " + WRAPPER_VERSION
@@ -4720,6 +4830,12 @@ public final class flixw {
             wrapperVerb(first, forward.subList(1, forward.size()), root, lock, jar, jvm, compilerVerbs);
             return;
         }
+        if (first != null && lock != null && compilerVerbs.contains(first)
+            && commandOwner(lock, first) != null)
+            System.err.println("flixw: note: compiler " + lock.version() + " implements "
+                             + q(first) + "; plugin " + commandOwner(lock, first)
+                             + " no longer answers it -- run: ./flixw plugin "
+                             + commandOwner(lock, first));
         if (first != null && WRAPPER_VERBS.contains(first) && compilerVerbs.contains(first))
             System.err.println("flixw: note: compiler " + lock.version() + " now implements "
                              + q(first) + "; the wrapper implementation is deprecated"

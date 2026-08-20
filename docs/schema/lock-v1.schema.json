@@ -81,6 +81,11 @@
             "description": {
               "type": "string",
               "description": "what the plugin is for, as it declared itself in its jar manifest at install time; shown by `flixw help`"
+            },
+            "command": {
+              "type": "string",
+              "description": "the bare verb this plugin answers, as it declared in its jar manifest; the compiler and the wrapper both win over it, and it is recorded here so the claim is reviewable",
+              "pattern": "^[a-z][a-z0-9-]*$"
             }
           }
         }

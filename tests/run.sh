@@ -291,7 +291,7 @@ public final class EchoPlugin {
 }
 EOF
 javac -d "$work/pluginjar" "$work/pluginjar/EchoPlugin.java"
-printf 'Main-Class: EchoPlugin\nFlixw-Plugin-Description: echoes its ABI environment\n' \
+printf 'Main-Class: EchoPlugin\nFlixw-Plugin-Description: echoes its ABI environment\nFlixw-Plugin-Command: echoit\n' \
   > "$work/pluginjar/mf"
 (cd "$work/pluginjar" && jar cfm plugin.jar mf EchoPlugin.class)
 
@@ -1920,8 +1920,35 @@ g 0  'echoer  1.0.0-'     "plugin list shows the installed build" sh -c 'cd "$1"
 # unaudited third-party code to render a help screen, which `help plugin` refuses to do.
 g 0  'description = "echoes its ABI environment"' \
      "the declared description is recorded too" sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
-g 0  'plugin echoer *echoes its ABI environment' \
-     "help shows it as a plugin command" sh -c 'cd "$1" && ./flixw help' sh "$pp"
+# Listed as the verb it declared, not as the long form: that is what a reader would type.
+# A plugin that declares nothing keeps `plugin <name>`, which always works.
+g 0  'echoit *echoes its ABI environment' \
+     "help shows a declared verb as that verb" sh -c 'cd "$1" && ./flixw help' sh "$pp"
+# A plugin may claim a bare verb, after the compiler's set and the wrapper's have had
+# their say. The claim lives in the lock, so it is reviewable in a diff rather than a
+# surprise, and the three ways it can go wrong are all refusals at install time.
+g 0  'command = "echoit"' "a declared verb is recorded in the lock" \
+     sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
+g 0  'ARGS=--flag' "the declared verb reaches the plugin with its arguments" sh -c '
+  cd "$1" && ./flixw echoit --flag' sh "$pp"
+g 0  "is plugin echoer" "and says which plugin answered a bare word" sh -c '
+  cd "$1" && ./flixw echoit' sh "$pp"
+t 88 "a plugin may not claim a wrapper verb" sh -c '
+  d=$2/claimwrapper; rm -rf "$d"; mkdir -p "$d"
+  printf "Main-Class: EchoPlugin\nFlixw-Plugin-Command: doctor\n" > "$d/mf"
+  cp "$2/pluginjar/EchoPlugin.class" "$d/"
+  (cd "$d" && jar cfm c.jar mf EchoPlugin.class) >/dev/null 2>&1
+  cd "$1" && ./flixw plugin install claimw 1.0.0 "file://$d/c.jar" 2>&1' sh "$pp" "$work"
+t 88 "a plugin may not claim a verb another plugin has" sh -c '
+  d=$2/claimtaken; rm -rf "$d"; mkdir -p "$d"
+  printf "Main-Class: EchoPlugin\nFlixw-Plugin-Command: echoit\n" > "$d/mf"
+  cp "$2/pluginjar/EchoPlugin.class" "$d/"
+  (cd "$d" && jar cfm c.jar mf EchoPlugin.class) >/dev/null 2>&1
+  cd "$1" && ./flixw plugin install claimt 1.0.0 "file://$d/c.jar" 2>&1' sh "$pp" "$work"
+# Refused before anything is cached: it used to say "installed" and then refuse, leaving an
+# artifact no lock mentioned and no message admitted to.
+t 0  "a refused claim leaves nothing in the cache" sh -c '
+  ! test -d "$FLIX_CACHE_HOME/plugins/claimw"'
 g 0  'not audited by flixw' "invoking warns it is unaudited 3rd-party code" sh -c '
   cd "$1" && ./flixw plugin echoer' sh "$pp"
 

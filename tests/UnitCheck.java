@@ -450,6 +450,29 @@ public final class UnitCheck {
     // ---- 13: the asset set a release publishes ----------------------------
 
     /**
+     * Declared verbs: the shape rule, and what sanitising a manifest value means.
+     *
+     * <p>A manifest attribute is third-party text headed for a terminal and for a
+     * committed file, so an escape character in one is a terminal control sequence in
+     * every help screen that renders it. Stripped rather than escaped: nothing
+     * legitimate in a one-line description needs one.
+     */
+    static void declaredVerbs() {
+        String esc = String.valueOf((char) 27);
+        eq("verb: control characters do not survive", "a [31m b",
+           flixw.sanitize("a " + esc + "[31m\tb", 100));
+        eq("verb: length is bounded", "8",
+           String.valueOf(flixw.sanitize("abcdefghijklmnop", 8).length()));
+        eq("verb: null is not a value", "", flixw.sanitize(null, 10));
+        // The owner lookup dispatch uses: a lock is the only place a claim is recorded.
+        flixw.Lock l = new flixw.Lock("0.75.3", "https://x/f.jar", "a".repeat(64),
+            "flix/flix", null, null, java.util.Map.of("m",
+                new flixw.PluginDep("1.0.0", "b".repeat(64), null, "", "metrics")));
+        eq("verb: the lock names the owner", "m", flixw.commandOwner(l, "metrics"));
+        eq("verb: an unclaimed word has none", null, flixw.commandOwner(l, "nosuch"));
+    }
+
+    /**
      * A plugin's declared description, through the lock reader and writer.
      *
      * <p>It is the one free-text value in the format -- every other is pattern-checked into a
@@ -460,13 +483,13 @@ public final class UnitCheck {
         String lock = flixw.lockText("0.25.5", "flix/flix", "0.75.3", "https://x/flix.jar",
             "a".repeat(64), "0.75.3", null,
             java.util.Map.of("demo", new flixw.PluginDep("1.0.0", "b".repeat(64),
-                                                         "https://x/p.jar", "does a thing")));
+                                                         "https://x/p.jar", "does a thing", "")));
         eq("plugin desc: written into the lock", "true",
            String.valueOf(lock.contains("description = \"does a thing\"")));
         // A plugin that declares nothing gains no empty key to explain.
         String bare = flixw.lockText("0.25.5", "flix/flix", "0.75.3", "https://x/flix.jar",
             "a".repeat(64), "0.75.3", null,
-            java.util.Map.of("demo", new flixw.PluginDep("1.0.0", "b".repeat(64), null, "")));
+            java.util.Map.of("demo", new flixw.PluginDep("1.0.0", "b".repeat(64), null, "", "")));
         eq("plugin desc: absent when undeclared", "false",
            String.valueOf(bare.contains("description")));
         // The two escapes a TOML basic string needs, on the only value that can carry them.
@@ -1064,6 +1087,7 @@ public final class UnitCheck {
         releaseAssets();
         optionRows();
         pluginDescription();
+        declaredVerbs();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }

@@ -350,8 +350,12 @@ final class flixwhelp {
         // reports it. The text is the plugin's own, read from its jar manifest at install
         // time and recorded in the lock -- so a plugin that declares nothing simply has no
         // description, rather than flixw inventing one or running the plugin to ask.
-        for (String[] r : c.rows("plugins"))
-            plugins.add(new String[] { "plugin " + r[0], r.length > 4 ? r[4] : "" });
+        // A plugin that declared a verb is listed as that verb, because that is what a
+        // reader would type; one that did not keeps the long form, which always works.
+        for (String[] r : c.rows("plugins")) {
+            String verb = r.length > 5 && !r[5].isEmpty() ? r[5] : "plugin " + r[0];
+            plugins.add(new String[] { verb, r.length > 4 ? r[4] : "" });
+        }
         for (String[] r : c.rows("tasks"))
             tasks.add(new String[] { "task " + r[0], r.length > 1 ? r[1] : "" });
 
