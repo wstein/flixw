@@ -291,7 +291,8 @@ public final class EchoPlugin {
 }
 EOF
 javac -d "$work/pluginjar" "$work/pluginjar/EchoPlugin.java"
-printf 'Main-Class: EchoPlugin\n' > "$work/pluginjar/mf"
+printf 'Main-Class: EchoPlugin\nFlixw-Plugin-Description: echoes its ABI environment\n' \
+  > "$work/pluginjar/mf"
 (cd "$work/pluginjar" && jar cfm plugin.jar mf EchoPlugin.class)
 
 # Same echo, source-launched via JEP 330 instead of packaged -- the `.java` plugin format.
@@ -1901,6 +1902,13 @@ t 0  "plugin install accepts a .jar via file://"                 sh -c '
   sh "$pp" "$(fileurl "$work")"
 g 0  '\[plugins.echoer\]' "the install is recorded in lock.toml"  sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
 g 0  'echoer  1.0.0-'     "plugin list shows the installed build" sh -c 'cd "$1" && ./flixw plugin list' sh "$pp"
+# A plugin says what it is for in its jar manifest, and install records that in the lock.
+# Read as data -- the zip's central directory -- because the alternative is running
+# unaudited third-party code to render a help screen, which `help plugin` refuses to do.
+g 0  'description = "echoes its ABI environment"' \
+     "the declared description is recorded too" sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
+g 0  'plugin echoer *echoes its ABI environment' \
+     "help shows it as a plugin command" sh -c 'cd "$1" && ./flixw help' sh "$pp"
 g 0  'not audited by flixw' "invoking warns it is unaudited 3rd-party code" sh -c '
   cd "$1" && ./flixw plugin echoer' sh "$pp"
 

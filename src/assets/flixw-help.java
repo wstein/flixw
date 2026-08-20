@@ -346,8 +346,12 @@ final class flixwhelp {
                 .add(new String[] { e.getKey(), text });
         }
         List<String[]> plugins = new ArrayList<>(), tasks = new ArrayList<>();
+        // What it is for, not which version it is: a version is state and `./flixw info -v`
+        // reports it. The text is the plugin's own, read from its jar manifest at install
+        // time and recorded in the lock -- so a plugin that declares nothing simply has no
+        // description, rather than flixw inventing one or running the plugin to ask.
         for (String[] r : c.rows("plugins"))
-            plugins.add(new String[] { "plugin " + r[0], r.length > 1 ? "version " + r[1] : "" });
+            plugins.add(new String[] { "plugin " + r[0], r.length > 4 ? r[4] : "" });
         for (String[] r : c.rows("tasks"))
             tasks.add(new String[] { "task " + r[0], r.length > 1 ? r[1] : "" });
 
@@ -361,8 +365,8 @@ final class flixwhelp {
         StringBuilder out = new StringBuilder();
         group(out, width, w, "Compiler commands:", compiler);
         group(out, width, w, "Wrapper commands:", wrapper);
-        group(out, width, w, "Plugins:", plugins);
-        group(out, width, w, "Tasks:", tasks);
+        group(out, width, w, "Plugin commands:", plugins);
+        group(out, width, w, "Task commands:", tasks);
         return out.toString();
     }
 

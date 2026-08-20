@@ -77,6 +77,10 @@
             "source": {
               "type": "string",
               "description": "where this plugin came from; informational, never fetched from automatically"
+            },
+            "description": {
+              "type": "string",
+              "description": "what the plugin is for, as it declared itself in its jar manifest at install time; shown by `flixw help`"
             }
           }
         }

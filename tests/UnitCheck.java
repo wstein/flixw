@@ -450,6 +450,31 @@ public final class UnitCheck {
     // ---- 13: the asset set a release publishes ----------------------------
 
     /**
+     * A plugin's declared description, through the lock reader and writer.
+     *
+     * <p>It is the one free-text value in the format -- every other is pattern-checked into a
+     * shape that cannot contain a quote or a backslash -- so the round trip is what says the
+     * escaping is right rather than merely present.
+     */
+    static void pluginDescription() {
+        String lock = flixw.lockText("0.25.5", "flix/flix", "0.75.3", "https://x/flix.jar",
+            "a".repeat(64), "0.75.3", null,
+            java.util.Map.of("demo", new flixw.PluginDep("1.0.0", "b".repeat(64),
+                                                         "https://x/p.jar", "does a thing")));
+        eq("plugin desc: written into the lock", "true",
+           String.valueOf(lock.contains("description = \"does a thing\"")));
+        // A plugin that declares nothing gains no empty key to explain.
+        String bare = flixw.lockText("0.25.5", "flix/flix", "0.75.3", "https://x/flix.jar",
+            "a".repeat(64), "0.75.3", null,
+            java.util.Map.of("demo", new flixw.PluginDep("1.0.0", "b".repeat(64), null, "")));
+        eq("plugin desc: absent when undeclared", "false",
+           String.valueOf(bare.contains("description")));
+        // The two escapes a TOML basic string needs, on the only value that can carry them.
+        eq("plugin desc: a quote is escaped", "a \\\"b\\\"", flixw.tomlEscape("a \"b\""));
+        eq("plugin desc: a backslash is escaped", "a\\\\b", flixw.tomlEscape("a\\b"));
+    }
+
+    /**
      * Option rows in both help layouts, which is where two defects lived undetected.
      *
      * <p>Split from the subprocess for the same reason verb capture is: a fork's layout can be
@@ -1038,6 +1063,7 @@ public final class UnitCheck {
         releaseChannel();
         releaseAssets();
         optionRows();
+        pluginDescription();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }

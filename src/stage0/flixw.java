@@ -436,6 +436,11 @@ public final class flixw {
              + i5 + "\"type\": \"string\",\n"
              + i5 + "\"description\": \"where this plugin came from;"
                        + " informational, never fetched from automatically\"\n"
+             + i4 + "},\n"
+             + i4 + "\"description\": {\n"
+             + i5 + "\"type\": \"string\",\n"
+             + i5 + "\"description\": \"what the plugin is for, as it declared itself"
+                       + " in its jar manifest at install time; shown by `flixw help`\"\n"
              + i4 + "}\n"
              + i3 + "}\n"
              + i2 + "}\n"
@@ -481,7 +486,7 @@ public final class flixw {
      * is informational, the way a fork's {@code repo} field already is -- {@code pin}
      * never reads it to download anything.
      */
-    record PluginDep(String version, String sha256, String source) {}
+    record PluginDep(String version, String sha256, String source, String description) {}
 
     /**
      * One `key = value` occurrence, the table it was found in, and the line it sits on.
@@ -805,9 +810,9 @@ public final class flixw {
      */
     static Map<String, PluginDep> readPlugins(String text, String where) {
         Map<String, String> version = new LinkedHashMap<>(), sha = new LinkedHashMap<>(),
-                            source = new LinkedHashMap<>();
+                            source = new LinkedHashMap<>(), description = new LinkedHashMap<>();
         Set<String> seenKeys = new LinkedHashSet<>();
-        Set<String> knownKeys = Set.of("version", "sha256", "source");
+        Set<String> knownKeys = Set.of("version", "sha256", "source", "description");
         for (TomlEntry e : tomlScan(text, where).entries()) {
             if (!e.table().startsWith("plugins.")) continue;
             String name = e.table().substring("plugins.".length());
@@ -833,6 +838,7 @@ public final class flixw {
                 case "version" -> version.put(name, v);
                 case "sha256" -> sha.put(name, v);
                 case "source" -> source.put(name, v);
+                case "description" -> description.put(name, v);
             }
         }
         Map<String, PluginDep> out = new LinkedHashMap<>();
@@ -853,7 +859,8 @@ public final class flixw {
             if (!d.matches("[0-9a-f]{64}"))
                 throw w002(where + ": [plugins." + name + "] sha256 is " + q(d)
                          + "\n       expected 64 lowercase hex digits");
-            out.put(name, new PluginDep(v, d, source.get(name)));
+            out.put(name, new PluginDep(v, d, source.get(name),
+                                        description.getOrDefault(name, "")));
         }
         return out;
     }
@@ -927,7 +934,8 @@ public final class flixw {
             // [plugins.<name>] is a dynamic table LOCK_SCHEMA cannot enumerate by name;
             // readPlugins() is the authority on which of its keys it actually reads.
             boolean known = e.table().startsWith("plugins.")
-                          && List.of("version", "sha256", "source").contains(e.key());
+                          && List.of("version", "sha256", "source", "description")
+                                 .contains(e.key());
             if (!known)
                 for (LockField f : LOCK_SCHEMA)
                     if (isKey(e, f.table(), f.key())) { known = true; break; }
@@ -2753,7 +2761,7 @@ public final class flixw {
             // same bytes as last time, not that the bytes are safe. Third-party code a
             // user explicitly asked to install gets no gentler a badge than that.
             System.err.println("       this is 3rd-party code, not audited by flixw");
-            recordPluginInLock(root, name, version, got, url);
+            recordPluginInLock(root, name, version, got, url, pluginDescription(artifact));
         } catch (IOException e) {
             throw w009("plugin install failed: " + why(e));
         } finally {
@@ -2767,14 +2775,40 @@ public final class flixw {
      * is not needed here -- a plugin table failing to write leaves the plugin installed
      * and usable, just not yet recorded, which `doctor` already reports.
      */
-    static void recordPluginInLock(Path root, String name, String version, String sha256, String url) {
+    /**
+     * A plugin's one-line description, read out of a jar's manifest and nowhere else.
+     *
+     * <p>The help screen wants to say what a plugin is for, and the only honest source is the
+     * plugin itself -- but asking it means running unaudited third-party code to render a help
+     * screen, which is exactly what {@code help plugin} refuses to do. A manifest is data: this
+     * reads the zip's central directory and never loads a class. Verification is off because a
+     * signature is not what is being established here; the digest already did that.
+     *
+     * <p>Only {@code .jar}. A {@code .java} or {@code .flix} plugin has nowhere to put an
+     * attribute that is not its own source, and inventing a magic comment for them would be a
+     * second format to specify, parse and get wrong.
+     */
+    static String pluginDescription(Path artifact) {
+        if (!artifact.getFileName().toString().endsWith(".jar")) return "";
+        try (java.util.jar.JarFile jf = new java.util.jar.JarFile(artifact.toFile(), false)) {
+            java.util.jar.Manifest mf = jf.getManifest();
+            if (mf == null) return "";
+            String d = mf.getMainAttributes().getValue("Flixw-Plugin-Description");
+            // Collapsed rather than escaped: it crosses into the help asset through a
+            // tab-separated line, and a description is a sentence, not a layout.
+            return d == null ? "" : d.replaceAll("\\s+", " ").trim();
+        } catch (IOException | RuntimeException e) { return ""; }
+    }
+
+    static void recordPluginInLock(Path root, String name, String version, String sha256,
+                                   String url, String description) {
         Path lf = lockPath(root);
         if (!Files.isRegularFile(lf)) return;
         Lock have;
         try { have = readLock(lf); }
         catch (Fail ignored) { return; }   // a lock that does not parse is not this command's to fix
         Map<String, PluginDep> plugins = new LinkedHashMap<>(have.plugins());
-        plugins.put(name, new PluginDep(version, sha256, url));
+        plugins.put(name, new PluginDep(version, sha256, url, description));
         String rewritten = lockText(WRAPPER_VERSION, have.repo() == null ? UPSTREAM_REPO : have.repo(),
             have.version(), have.url(), have.sha256(), have.reportedVersion(), have.java(), plugins);
         try { writeAtomic(lf, rewritten); System.err.println("       recorded in " + lf); }
@@ -3605,6 +3639,15 @@ public final class flixw {
      * versioned schema rather than a floating one, for the reason the compiler pin names
      * an exact version -- a lock is a pin, including of what it means.
      */
+    /**
+     * The two escapes a TOML basic string needs. Every other lock value is pattern-checked
+     * into a shape that cannot contain either, so this exists for the one free-text key:
+     * a description comes from a plugin's manifest and is only whitespace-collapsed.
+     */
+    static String tomlEscape(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
     static String lockText(String wrapper, String repo, String version, String url,
                            String sha256, String reportedVersion, String java,
                            Map<String, PluginDep> plugins) {
@@ -3641,7 +3684,11 @@ public final class flixw {
             body += "\n[plugins." + name + "]\n"
                   + "version = \"" + p.version() + "\"\n"
                   + "sha256  = \"" + p.sha256() + "\"\n"
-                  + (p.source() == null ? "" : "source  = \"" + p.source() + "\"\n");
+                  + (p.source() == null ? "" : "source  = \"" + p.source() + "\"\n")
+                  // Written only when the plugin declared one, so a lock for a plugin
+                  // that says nothing about itself gains no empty key to explain.
+                  + (p.description() == null || p.description().isEmpty() ? ""
+                     : "description = \"" + tomlEscape(p.description()) + "\"\n");
         }
         return body;
     }
@@ -4201,7 +4248,9 @@ public final class flixw {
             for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
                 b.append(e.getKey()).append('\t').append(e.getValue().version()).append('\t')
                  .append(e.getValue().sha256()).append('\t')
-                 .append(e.getValue().source() == null ? "" : e.getValue().source()).append('\n');
+                 .append(e.getValue().source() == null ? "" : e.getValue().source()).append('\t')
+                 .append(e.getValue().description() == null ? "" : e.getValue().description())
+                 .append('\n');
         b.append('\n').append("tasks:").append('\n');
         if (root != null)
             for (Map.Entry<String, String> e : readTasks(root).entrySet())
