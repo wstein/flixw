@@ -1912,8 +1912,10 @@ public final class flixw {
     static Path runJdkAsset(int feature) {
         Path asset = ensureAsset(JDK_ASSET);
         Path javaExe = exeIn(System.getProperty("java.home"));
-        ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), asset.toString(),
-                Integer.toString(feature), cacheHome().toString());
+        List<String> jdkCmd = new ArrayList<>(assetCommand(javaExe, asset, null));
+        jdkCmd.add(Integer.toString(feature));
+        jdkCmd.add(cacheHome().toString());
+        ProcessBuilder pb = new ProcessBuilder(jdkCmd);
         pb.redirectError(ProcessBuilder.Redirect.INHERIT);
         pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
         try {
@@ -2377,6 +2379,79 @@ public final class flixw {
 
     static Path stage0Dir(String srcHash) {
         return cacheHome().resolve("stage0").resolve(srcHash);
+    }
+
+    /**
+     * How to launch a companion asset: its compiled classes when they are cached, else its source.
+     *
+     * <p>The same trade the shim already makes for stage 0, applied to the assets. A source
+     * launch compiles the file on every run: measured, 392ms for {@code flixw-inspect.java}
+     * against 36ms for the same program precompiled, on a JVM that starts in 29ms. So ~91% of an
+     * asset launch is javac doing again what it did last time.
+     *
+     * <p>This is deliberately <em>not</em> the in-process class loading that was proposed for the
+     * same problem. That removes the {@code ProcessBuilder} fork -- 29ms of 392 -- and takes on
+     * the compiler's {@code System.exit}, a shared heap with verified-but-third-party code, and
+     * for the help asset it would put picocli inside stage 0's own JVM, which the third-party
+     * notices promise it never enters. Compiling once buys eleven times more and gives up none
+     * of that: every asset still runs in its own process, still verified, still isolated.
+     *
+     * @param classpath extra entries the asset needs, or null. Only the help asset has any.
+     */
+    static List<String> assetCommand(Path javaExe, Path asset, Path classpath) {
+        List<String> cmd = new ArrayList<>(List.of(javaExe.toString()));
+        Path classes = compileAsset(asset, classpath);
+        String cp = (classes == null ? "" : classes.toString())
+                  + (classpath == null ? "" : (classes == null ? "" : java.io.File.pathSeparator) + classpath);
+        if (!cp.isEmpty()) { cmd.add("-cp"); cmd.add(cp); }
+        // The class name is the file name without its extension or hyphens, which is how every
+        // asset is written -- flixw-help.java declares `flixwhelp`. A source launch needs the
+        // path instead, and takes it when there is nothing compiled to point at.
+        cmd.add(classes == null ? asset.toString()
+              : asset.getFileName().toString().replace("-", "").replace(".java", ""));
+        return cmd;
+    }
+
+    /** {@code <cache>/assets/<sha256 of source>/}, content-keyed exactly like stage 0's own. */
+    static Path compiledAssetDir(String srcHash) {
+        return cacheHome().resolve("assets").resolve(srcHash);
+    }
+
+    /**
+     * Compiles an asset once per content hash, or returns null to source-launch it.
+     *
+     * <p>Null on every failure, which is the same bargain {@link #selfCompile} makes: no javac in
+     * this runtime, an unwritable cache, or a compile error all cost the slower path and never
+     * the command. The bytes were digest-verified before they got here, so what is compiled is
+     * what was published.
+     */
+    static Path compileAsset(Path asset, Path classpath) {
+        byte[] bytes;
+        try { bytes = Files.readAllBytes(asset); } catch (IOException e) { return null; }
+        Path dir = compiledAssetDir(sha256(bytes));
+        String main = asset.getFileName().toString().replace("-", "").replace(".java", "");
+        if (Files.isRegularFile(dir.resolve(main + ".class"))) return dir;
+        javax.tools.JavaCompiler jc = javax.tools.ToolProvider.getSystemJavaCompiler();
+        if (jc == null) { tr("no javac in this runtime; source-launching " + asset); return null; }
+        Path tmp = null;
+        try {
+            Files.createDirectories(dir.getParent());
+            tmp = Files.createTempDirectory(dir.getParent(), ".asset-");
+            List<String> args = new ArrayList<>(List.of("-d", tmp.toString()));
+            if (classpath != null) { args.add("-cp"); args.add(classpath.toString()); }
+            args.add(asset.toString());
+            if (jc.run(null, java.io.OutputStream.nullOutputStream(),
+                       java.io.OutputStream.nullOutputStream(),
+                       args.toArray(new String[0])) != 0) return null;
+            try { Files.move(tmp, dir, StandardCopyOption.ATOMIC_MOVE); tmp = null; }
+            catch (IOException e) { if (!Files.isDirectory(dir)) return null; }
+            return dir;
+        } catch (IOException e) {
+            tr("cannot compile " + asset + ": " + e.getMessage());
+            return null;
+        } finally {
+            if (tmp != null) deleteTree(tmp);
+        }
     }
 
     /**
@@ -2906,9 +2981,10 @@ public final class flixw {
             ctx = Files.createTempFile("flixw-inspect-", ".txt");
             Files.writeString(ctx, inspectContext(lock, jvm), StandardCharsets.UTF_8);
             Path asset = ensureAsset(INSPECT_ASSET);
-            ProcessBuilder pb = new ProcessBuilder(exeIn(System.getProperty("java.home")).toString(),
-                                                   asset.toString(), ctx.toString()).inheritIO();
-            awaitWithReaper(pb.start());
+            List<String> cmd = new ArrayList<>(
+                assetCommand(exeIn(System.getProperty("java.home")), asset, null));
+            cmd.add(ctx.toString());
+            awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
         } catch (IOException | RuntimeException e) {
             System.out.println();
             System.out.println("the cache inventory needs " + INSPECT_ASSET + ", which could not"
@@ -2940,10 +3016,11 @@ public final class flixw {
             // lock while silently deleting another project's equally old cache entry.
             Files.writeString(ctx, inspectContext(null, null), StandardCharsets.UTF_8);
             Path asset = ensureAsset(INSPECT_ASSET);
-            ProcessBuilder pb = new ProcessBuilder(exeIn(System.getProperty("java.home")).toString(),
-                                                   asset.toString(), ctx.toString(),
-                                                   "--purge", String.valueOf(days),
-                                                   yes ? "--yes" : "--ask").inheritIO();
+            List<String> cmd = new ArrayList<>(
+                assetCommand(exeIn(System.getProperty("java.home")), asset, null));
+            cmd.addAll(List.of(ctx.toString(), "--purge", String.valueOf(days),
+                               yes ? "--yes" : "--ask"));
+            ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
             int rc = awaitWithReaper(pb.start());
             if (rc != 0) throw w009("cache purge failed (exit " + rc + ")");
         } catch (IOException e) {
@@ -4149,9 +4226,9 @@ public final class flixw {
             ctx = Files.createTempFile("flixw-help-", ".txt");
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity),
                               StandardCharsets.UTF_8);
-            List<String> cmd = new ArrayList<>(List.of(
-                exeIn(System.getProperty("java.home")).toString(),
-                "-cp", picocli.toString(), asset.toString(), ctx.toString()));
+            List<String> cmd = new ArrayList<>(
+                assetCommand(exeIn(System.getProperty("java.home")), asset, picocli));
+            cmd.add(ctx.toString());
             cmd.addAll(rest.subList(0, Math.min(3, rest.size())));
             rc = awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
         } catch (IOException | RuntimeException e) {
@@ -4221,7 +4298,7 @@ public final class flixw {
     static void runSetupAsset(List<String> args) {
         Path asset = ensureAsset(SETUP_ASSET);
         Path javaExe = exeIn(System.getProperty("java.home"));
-        List<String> cmd = new ArrayList<>(List.of(javaExe.toString(), asset.toString()));
+        List<String> cmd = new ArrayList<>(assetCommand(javaExe, asset, null));
         cmd.addAll(args);
         // All three streams inherited: what it writes is what the user came to read, and
         // capturing stdout to count something swallowed every line install prints.
