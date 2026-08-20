@@ -1122,20 +1122,29 @@ g 84 'flixw-jdk.java' "SHA256SUMS silent on the provisioner names it specificall
 # The asset stands alone -- it is a program, launched by a JVM that may predate this one --
 # so its own argument handling is asserted directly, with no stage 0 and no network.
 t 87 "the provisioner rejects a wrong argument count"           java "$root/src/assets/flixw-jdk.java"
-t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/assets/flixw-jdk.java" x "$work"
+t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/assets/flixw-jdk.java" x "$work" "$work/out"
 
-# The whole of runJdkAsset -- fetch, verify, cache, launch, read the one line it prints,
-# probe it -- with a stand-in provisioner that names the JVM already running. The real one
-# would download ~200MB from Adoptium at this point; the digest is the fixture's own, so
-# the trust path is exercised exactly as it is in production, only the payload differs.
+# The whole of runJdkAsset -- fetch, verify, cache, load, read the path it recorded, probe it
+# -- with a stand-in provisioner that names the JVM already running. The real one would
+# download ~200MB from Adoptium at this point; the digest is the fixture's own, so the trust
+# path is exercised exactly as in production, only the payload differs.
+#
+# The stub implements `run`, not `main`: stage 0 loads assets in its own JVM and calls that.
+# It writes the java it "installed" to the file named by the third argument rather than to
+# stdout, because in-process stdout is the user's terminal and shared with everything else
+# printed there.
 stub=$work/jdkstub
 rm -rf "$stub" && mkdir -p "$stub"
 cp "$root/src/assets/flixw-help.java" "$stub/"
 cat > "$stub/flixw-jdk.java" <<'STUB'
 final class flixwjdk {
-    public static void main(String[] a) {
+    public static void main(String[] a) throws Exception { System.exit(run(a)); }
+
+    public static int run(String[] a) throws Exception {
         System.err.println("stub: feature=" + a[0]);
-        System.out.println(System.getProperty("java.home") + "/bin/java");
+        java.nio.file.Files.writeString(java.nio.file.Paths.get(a[2]),
+            System.getProperty("java.home") + "/bin/java");
+        return 0;
     }
 }
 STUB

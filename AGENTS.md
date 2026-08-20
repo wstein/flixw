@@ -149,6 +149,7 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 
 ```
 <cache>/stage0/<sha256 of flixw.java>/flixw.class   # self-compiled stage 0 (~96ms vs ~739ms)
+<cache>/assets/<sha256 of asset source>/*.class    # compiled companion assets (~63ms vs ~402ms)
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 <cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
@@ -460,7 +461,7 @@ commit:
 |---|---:|---:|
 | code lines in `src/stage0/flixw.java` | 3023 | 2900 |
 | comment density | 32% | ≥25% floor |
-| bytes | 278032 | 225000 |
+| bytes | 275687 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the

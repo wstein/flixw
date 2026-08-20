@@ -102,8 +102,8 @@ final class flixwjdk {
     }
 
     private static void body(String[] args)  {
-        if (args.length != 2) {
-            System.err.println("usage: java flixw-jdk.java <feature> <cache-dir>");
+        if (args.length != 3) {
+            System.err.println("usage: java flixw-jdk.java <feature> <cache-dir> <result-file>");
             throw new Exit(87);
         }
         int feature;
@@ -116,9 +116,16 @@ final class flixwjdk {
         Path cache = Paths.get(args[1]).toAbsolutePath().normalize();
         try {
             Path exe = installJdk(cache, resolveTemurin(feature));
-            // stdout is the answer and nothing else, so a caller can read the path
-            // directly; every word of narration went to stderr on the way here.
-            System.out.println(exe);
+            // Written to the file the caller named rather than to stdout. The wrapper loads
+            // this asset in its own JVM now, where stdout is the user's terminal and shared
+            // with everything else printed there -- so a result that has to be read back
+            // cannot travel on it.
+            try {
+                Files.writeString(Paths.get(args[2]), exe.toString());
+            } catch (IOException e) {
+                System.err.println("FLIXW005: cannot record the installed java: " + e);
+                throw new Exit(85);
+            }
         } catch (Fail f) {
             System.err.println(f.getMessage());
             throw new Exit(f.exit);

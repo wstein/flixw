@@ -48,7 +48,9 @@ the unmodified upstream artifact is what ships — flixw does not repackage, sha
 
 ### What it is not allowed to become
 
-- Not a stage 0 dependency. Stage 0 knows the string `PICOCLI_ASSET` and never loads the jar.
+- Not a stage 0 dependency. Stage 0 knows the string `PICOCLI_ASSET`, never links against it,
+  and never puts it on its own class path. The help asset runs in stage 0's JVM through an
+  isolated class loader that can see picocli; the wrapper's own code cannot.
 - Not a project dependency. Nothing is committed into an adopting repository; it lives in
   the machine cache under `<cache>/wrapper/assets/<flixw-version>/`.
 - Not version-selectable by a project. The flixw release owns the version, the source URL,

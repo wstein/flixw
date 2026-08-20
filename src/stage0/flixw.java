@@ -1905,40 +1905,32 @@ public final class flixw {
      * Fetches, verifies and runs the JDK provisioner, and returns the {@code java} it
      * installed -- the one line the asset prints on stdout.
      *
-     * <p>Run as a child rather than source-launched in place because it is the only way
-     * to keep this JVM's exit status: the asset uses flixw's own {@code FLIXWnnn} codes
-     * and advisory exits, and a caller must not be able to tell that the work moved out
-     * of stage 0.  Its stderr is inherited so its progress lines land where every other
-     * flixw diagnostic does.
+     * <p>Its diagnostics go straight to this process's stderr, which is what the user is
+     * already reading: the asset uses flixw's own {@code FLIXWnnn} codes, and a caller must not
+     * be able to tell that the work happens outside stage 0's own file.
      */
     static Path runJdkAsset(int feature) {
         Path asset = ensureAsset(JDK_ASSET);
-        Path javaExe = exeIn(System.getProperty("java.home"));
-        List<String> jdkCmd = new ArrayList<>(assetCommand(javaExe, asset, null));
-        jdkCmd.add(Integer.toString(feature));
-        jdkCmd.add(cacheHome().toString());
-        ProcessBuilder pb = new ProcessBuilder(jdkCmd);
-        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-        pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+        Path result = null;
         try {
-            Process proc = pb.start();
-            String out;
-            try (InputStream in = proc.getInputStream()) {
-                out = new String(in.readAllBytes(), StandardCharsets.UTF_8).strip();
-            }
-            int rc = awaitWithReaper(proc);
+            // The asset writes the java it installed here. It used to print it on stdout and
+            // have stage 0 capture the child's output; in this JVM stdout is the user's own
+            // terminal, shared with every progress line the asset prints, so a value that has
+            // to be read back needs a channel of its own.
+            result = Files.createTempFile("flixw-jdk-", ".path");
+            int rc = runAsset(asset, null,
+                List.of(Integer.toString(feature), cacheHome().toString(), result.toString()));
             // The asset speaks flixw's own diagnostic language and has already printed a
-            // FLIXWnnn line to the inherited stderr. Adding a second code here would
-            // report one failure twice, and the outer one would be the less specific of
-            // the two -- so its status is propagated and nothing further is said.
+            // FLIXWnnn line. Adding a second code here would report one failure twice, and the
+            // outer one would be the less specific -- so its status is propagated as-is.
             if (rc != 0) System.exit(rc);
+            String out = Files.readString(result).strip();
             if (out.isEmpty()) throw w003("the JDK provisioner named no java");
             return Paths.get(out);
         } catch (IOException e) {
             throw w005("cannot run " + asset + ": " + why(e));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw w003("JDK install interrupted");
+        } finally {
+            if (result != null) { try { Files.deleteIfExists(result); } catch (IOException ignored) { } }
         }
     }
 
@@ -2384,36 +2376,6 @@ public final class flixw {
     }
 
     /**
-     * How to launch a companion asset: its compiled classes when they are cached, else its source.
-     *
-     * <p>The same trade the shim already makes for stage 0, applied to the assets. A source
-     * launch compiles the file on every run: measured, 392ms for {@code flixw-inspect.java}
-     * against 36ms for the same program precompiled, on a JVM that starts in 29ms. So ~91% of an
-     * asset launch is javac doing again what it did last time.
-     *
-     * <p>This is deliberately <em>not</em> the in-process class loading that was proposed for the
-     * same problem. That removes the {@code ProcessBuilder} fork -- 29ms of 392 -- and takes on
-     * the compiler's {@code System.exit}, a shared heap with verified-but-third-party code, and
-     * for the help asset it would put picocli inside stage 0's own JVM, which the third-party
-     * notices promise it never enters. Compiling once buys eleven times more and gives up none
-     * of that: every asset still runs in its own process, still verified, still isolated.
-     *
-     * @param classpath extra entries the asset needs, or null. Only the help asset has any.
-     */
-    static List<String> assetCommand(Path javaExe, Path asset, Path classpath) {
-        List<String> cmd = new ArrayList<>(List.of(javaExe.toString()));
-        Path classes = compileAsset(asset, classpath);
-        String cp = (classes == null ? "" : classes.toString())
-                  + (classpath == null ? "" : (classes == null ? "" : java.io.File.pathSeparator) + classpath);
-        if (!cp.isEmpty()) { cmd.add("-cp"); cmd.add(cp); }
-        // The class name is the file name without its extension or hyphens, which is how every
-        // asset is written -- flixw-help.java declares `flixwhelp`. A source launch needs the
-        // path instead, and takes it when there is nothing compiled to point at.
-        cmd.add(classes == null ? asset.toString() : assetMainClass(asset));
-        return cmd;
-    }
-
-    /**
      * Runs a companion asset, in this JVM when it can be and in its own when it cannot.
      *
      * <p>Spawning a JVM from a JVM to run a Java program is a smell, and the numbers never
@@ -2422,56 +2384,50 @@ public final class flixw {
      * about what its class path drags in. The first is fixed at the source: every asset returns
      * its exit code now. The second is what the loader below is for.
      *
+     * <p>There is no fork any more, and no fallback to one. The fallback existed for three
+     * cases and none survived: "no javac" is not one, because a JEP 330 source launch compiles
+     * too and fails identically without {@code jdk.compiler} (measured against a jlinked
+     * java.base-only runtime); an unwritable cache is handled by compiling to a temporary
+     * directory instead; and an asset older than {@code run} cannot be reached, since
+     * {@link #ensureAsset} only ever fetches this release's own. A fallback for situations that
+     * cannot arise is a second code path nothing exercises.
+     *
      * <p>Each asset gets its own {@link URLClassLoader}, parented to the <em>platform</em> loader
      * rather than the application one. Stage 0's classes are therefore invisible to it and its to
      * stage 0: picocli loaded for {@code help} cannot be reached from the wrapper's own code, and
      * an asset cannot accidentally resolve a stage 0 class instead of its own. The loader is
      * closed when the asset returns, so nothing it loaded outlives the command.
      *
-     * <p>The fork stays as the fallback, but <em>not</em> for the reason it first looked like.
-     * "No javac, so source-launch it instead" is wrong: a JEP 330 source launch compiles the file
-     * too, and on a runtime without {@code jdk.compiler} it fails with {@code Module jdk.compiler
-     * not in boot Layer}. Measured against a {@code jlink}ed java.base-only runtime, not assumed.
-     * Without a compiler neither path runs, and the diagnostic is the same either way.
-     *
-     * <p>What the fallback actually covers is narrower and real: a cache that cannot be written,
-     * where compiling in memory still works; an asset published before {@code run} existed, since
-     * {@code wrapper --upgrade} warms assets of the release it upgrades *to* and an older one may
-     * still be cached; and any failure to link the class in this JVM.
      *
      * @return the asset's exit code
      */
     static int runAsset(Path asset, Path classpath, List<String> args) {
         Path classes = compileAsset(asset, classpath);
-        String main = assetMainClass(asset);
-        if (classes != null) {
-            List<URL> urls = new ArrayList<>();
-            try {
-                urls.add(classes.toUri().toURL());
-                if (classpath != null) urls.add(classpath.toUri().toURL());
-                try (URLClassLoader loader = new URLClassLoader("flixw-asset",
-                        urls.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
-                    Object rc = loader.loadClass(main).getMethod("run", String[].class)
-                        .invoke(null, (Object) args.toArray(new String[0]));
-                    return rc instanceof Integer i ? i : 0;
-                }
-            } catch (ReflectiveOperationException | IOException | LinkageError e) {
-                // An asset published before `run` existed, or one this JVM cannot link. Falling
-                // through to the fork keeps an older asset working rather than failing the
-                // command over an optimisation.
-                tr("cannot run " + main + " in process: " + e);
-            }
-        }
-        List<String> cmd = new ArrayList<>(
-            assetCommand(exeIn(System.getProperty("java.home")), asset, classpath));
-        cmd.addAll(args);
+        if (classes == null)
+            throw w005("cannot compile " + asset.getFileName() + "\n"
+                     + "       this Java runtime has no compiler, so flixw cannot run its"
+                     + " companion assets\n"
+                     + "       run: ./flixw wrapper --install-jdk   (or use a JDK, not a JRE)");
+        List<URL> urls = new ArrayList<>();
         try {
-            return awaitWithReaper(new ProcessBuilder(cmd).inheritIO().start());
-        } catch (IOException e) {
-            throw w005("cannot run " + asset + ": " + why(e));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return 130;
+            urls.add(classes.toUri().toURL());
+            if (classpath != null) urls.add(classpath.toUri().toURL());
+            try (URLClassLoader loader = new URLClassLoader("flixw-asset",
+                    urls.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
+                java.lang.reflect.Method run = loader.loadClass(assetMainClass(asset))
+                    .getMethod("run", String[].class);
+                // The method is public; its class cannot be. A public Java class must live in a
+                // file named after it, and no asset's file name is a valid identifier --
+                // `flixw-inspect.java` cannot declare `public class flixw-inspect`. So the class
+                // is package-private, and a class loaded by another loader is in a different
+                // runtime package however identical the name looks. This is the one place that
+                // has to be said out loud rather than worked around by renaming the files.
+                run.setAccessible(true);
+                Object rc = run.invoke(null, (Object) args.toArray(new String[0]));
+                return rc instanceof Integer i ? i : 0;
+            }
+        } catch (ReflectiveOperationException | IOException | LinkageError e) {
+            throw w005("cannot run " + asset.getFileName() + ": " + e);
         }
     }
 
@@ -2488,10 +2444,13 @@ public final class flixw {
     /**
      * Compiles an asset once per content hash, or returns null to source-launch it.
      *
-     * <p>Null on every failure, which is the same bargain {@link #selfCompile} makes: no javac in
-     * this runtime, an unwritable cache, or a compile error all cost the slower path and never
-     * the command. The bytes were digest-verified before they got here, so what is compiled is
-     * what was published.
+     * <p>An unwritable cache is a correct configuration, not an error, so it compiles into a
+     * temporary directory instead and the classes simply do not survive the command. Null is
+     * reserved for the case where nothing can be compiled at all -- no compiler in this runtime,
+     * or source that does not build -- which the caller turns into a diagnostic.
+     *
+     * <p>The bytes were digest-verified before they got here, so what is compiled is what was
+     * published.
      */
     static Path compileAsset(Path asset, Path classpath) {
         byte[] bytes;
@@ -2501,15 +2460,28 @@ public final class flixw {
         javax.tools.JavaCompiler jc = javax.tools.ToolProvider.getSystemJavaCompiler();
         if (jc == null) { tr("no javac in this runtime; source-launching " + asset); return null; }
         Path tmp = null;
+        boolean cacheable = true;
         try {
-            Files.createDirectories(dir.getParent());
-            tmp = Files.createTempDirectory(dir.getParent(), ".asset-");
+            try {
+                Files.createDirectories(dir.getParent());
+                tmp = Files.createTempDirectory(dir.getParent(), ".asset-");
+            } catch (IOException e) {
+                // Read-only cache: compile somewhere ephemeral and run from there.
+                cacheable = false;
+                tmp = Files.createTempDirectory("flixw-asset-");
+            }
             List<String> args = new ArrayList<>(List.of("-d", tmp.toString()));
             if (classpath != null) { args.add("-cp"); args.add(classpath.toString()); }
             args.add(asset.toString());
             if (jc.run(null, java.io.OutputStream.nullOutputStream(),
                        java.io.OutputStream.nullOutputStream(),
                        args.toArray(new String[0])) != 0) return null;
+            if (!cacheable) {
+                Path ephemeral = tmp;
+                tmp = null;
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> deleteTree(ephemeral)));
+                return ephemeral;
+            }
             try { Files.move(tmp, dir, StandardCopyOption.ATOMIC_MOVE); tmp = null; }
             catch (IOException e) { if (!Files.isDirectory(dir)) return null; }
             return dir;
@@ -4342,30 +4314,14 @@ public final class flixw {
      *
      * <p>A child process rather than an in-process call, for the same reason the JDK
      * provisioner is one: it is a separate program with its own diagnostics, and its exit
-     * status is the answer. stderr and stdin are inherited so its messages land where
-     * every other flixw diagnostic does.
-     *
+     * status is the answer, and its messages go to this process's own streams.
      */
     static void runSetupAsset(List<String> args) {
-        Path asset = ensureAsset(SETUP_ASSET);
-        Path javaExe = exeIn(System.getProperty("java.home"));
-        List<String> cmd = new ArrayList<>(assetCommand(javaExe, asset, null));
-        cmd.addAll(args);
-        // All three streams inherited: what it writes is what the user came to read, and
-        // capturing stdout to count something swallowed every line install prints.
-        ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
-        try {
-            int rc = awaitWithReaper(pb.start());
-            // The asset speaks flixw's own diagnostic language and has already said what
-            // went wrong on the inherited stderr; a second code here would report one
-            // failure twice, the outer one less specifically.
-            if (rc != 0) System.exit(rc);
-        } catch (IOException e) {
-            throw w005("cannot run " + asset + ": " + why(e));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw w009("install interrupted");
-        }
+        int rc = runAsset(ensureAsset(SETUP_ASSET), null, args);
+        // The asset speaks flixw's own diagnostic language and has already said what went
+        // wrong; a second code here would report one failure twice, the outer one less
+        // specifically. So its status becomes this process's.
+        if (rc != 0) System.exit(rc);
     }
 
     static final String SHIM_SHA256 =
