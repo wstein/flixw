@@ -1436,6 +1436,17 @@ g 0 '^  completion  ' "completion is listed"                     ./flixw help
 g 0 "a 'wrapper'"   "completion offers the wrapper namespace"    ./flixw completion fish
 g 0 "a 'completion'" "completion offers itself"                  ./flixw completion fish
 
+# Offering the word is not the same as offering its arguments: both of these completed to
+# nothing after the word, because the generators walked the tree one level deep.
+g 0 '__fish_seen_subcommand_from wrapper' "completion scopes wrapper's own flags" \
+                 ./flixw completion fish
+g 0 'bash zsh fish pwsh' "completion offers the shell names"     ./flixw completion fish
+# `wrapper --completion` became `./flixw completion <shell>`, and this screen went on
+# advertising the flag that stage 0 answers with FLIXW008. Nothing noticed, because the
+# list was written twice and only one copy was changed.
+t 0 "help wrapper does not advertise the removed --completion" sh -c '
+  ! ./flixw help wrapper 2>/dev/null | grep -q -- "--completion"'
+
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check
 # Flix 0.75 answers `check --help` with the *top-level* help and exit 0. Saying so is the

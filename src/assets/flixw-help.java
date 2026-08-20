@@ -16,6 +16,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.OptionSpec;
+import picocli.CommandLine.Model.PositionalParamSpec;
 import picocli.CommandLine.Model.UsageMessageSpec;
 
 /**
@@ -405,11 +406,31 @@ final class flixwhelp {
         return s;
     }
 
-    static void sub(CommandSpec parent, String name, String description) {
+    static CommandSpec sub(CommandSpec parent, String name, String description) {
         CommandSpec child = CommandSpec.create().name(name);
         child.usageMessage().description(description == null || description.isEmpty()
                                          ? "" : description);
         parent.addSubcommand(name, new CommandLine(child));
+        return child;
+    }
+
+    /**
+     * The flags {@code ./flixw wrapper} answers, on whichever spec asked for them.
+     *
+     * <p>Shared by the {@code help wrapper} screen and by the entry in the command tree,
+     * because the tree is what the completions are generated from: listed in one and not
+     * the other means TAB offers a flag the help does not document, or the reverse.
+     */
+    static void wrapperOptions(CommandSpec s) {
+        s.addOption(OptionSpec.builder("--version").description("the wrapper version").build());
+        s.addOption(OptionSpec.builder("--upgrade")
+                    .description("move this project to the newest published flixw").build());
+        s.addOption(OptionSpec.builder("--install-jdk")
+                    .description("fetch a verified Temurin into the cache").build());
+        s.addOption(OptionSpec.builder("--purge")
+                    .description("delete cache entries unused for N days").build());
+        s.addOption(OptionSpec.builder("--schema")
+                    .description("the JSON Schema for .flixw/lock.toml").build());
     }
 
     /**
@@ -462,8 +483,15 @@ final class flixwhelp {
         // consulted at all. Both were therefore absent from this screen while the offline
         // fallback listed them, so the renderer with the whole model showed strictly less
         // than the one with none of it. Same compiler-first guard as any other word.
-        for (String v : new String[] { "wrapper", "completion" })
-            if (!compilerVerbs.contains(v)) sub(root, v, "(wrapper) " + wrapperDesc(v));
+        // Both carry their own arguments into the tree, because the tree is the model the
+        // completions come from: a word with no arguments completes to nothing after it.
+        if (!compilerVerbs.contains("wrapper"))
+            wrapperOptions(sub(root, "wrapper", "(wrapper) " + wrapperDesc("wrapper")));
+        if (!compilerVerbs.contains("completion"))
+            sub(root, "completion", "(wrapper) " + wrapperDesc("completion"))
+                .addPositional(PositionalParamSpec.builder().paramLabel("<shell>")
+                    .completionCandidates(List.of("bash", "zsh", "fish", "pwsh"))
+                    .description("the shell to emit a script for").build());
         if (!c.get("helpFile").isEmpty()) addOptions(root, readOrEmpty(c.get("helpFile")));
         return root;
     }
@@ -492,17 +520,14 @@ final class flixwhelp {
             "pin, info, doctor, validate and help stay in the wrapper permanently: they are"
           + " what a fresh clone needs before anything else can be trusted to run at all.");
         for (String v : c.words("wrapperVerbs")) sub(s, v, wrapperDesc(v));
-        s.addOption(OptionSpec.builder("--version").description("the wrapper version").build());
-        s.addOption(OptionSpec.builder("--upgrade")
-                    .description("move this project to the newest published flixw").build());
-        s.addOption(OptionSpec.builder("--install-jdk")
-                    .description("fetch a verified Temurin into the cache").build());
-        s.addOption(OptionSpec.builder("--purge")
-                    .description("delete cache entries unused for N days").build());
-        s.addOption(OptionSpec.builder("--schema")
-                    .description("the JSON Schema for .flixw/lock.toml").build());
-        s.addOption(OptionSpec.builder("--completion")
-                    .description("a TAB-completion script for bash, zsh, fish or pwsh").build());
+        // Shared with the command tree rather than repeated. This list said `--completion`
+        // for as long as it was repeated: the flag became `./flixw completion <shell>`, and
+        // this screen went on advertising an operation stage 0 answers with FLIXW008.
+        wrapperOptions(s);
+        sub(s, "completion", "a TAB-completion script for bash, zsh, fish or pwsh")
+            .addPositional(PositionalParamSpec.builder().paramLabel("<shell>")
+                .completionCandidates(List.of("bash", "zsh", "fish", "pwsh"))
+                .description("the shell to emit a script for").build());
         return s;
     }
 
@@ -757,16 +782,39 @@ final class flixwhelp {
             System.out.println("complete -f -c flixw -n __fish_use_subcommand -a "
                              + fq(e.getKey()) + " -d " + fq(describe(e.getValue().getCommandSpec())));
         System.out.println();
-        for (OptionSpec o : spec.options()) {
-            StringBuilder b = new StringBuilder("complete -c flixw");
-            for (String n : o.names()) {
-                if (n.startsWith("--")) b.append(" -l ").append(fq(n.substring(2)));
-                else if (n.length() == 2) b.append(" -s ").append(fq(n.substring(1)));
+        for (OptionSpec o : spec.options()) System.out.println(fishOption(o, null));
+        // A subcommand's own arguments, scoped to it. Without this the tree is walked one
+        // level deep and `./flixw wrapper <TAB>` offers nothing at all -- the word completes
+        // and then stops, which reads as "this takes no arguments" rather than "the
+        // generator did not look".
+        for (Map.Entry<String, CommandLine> e : spec.subcommands().entrySet()) {
+            CommandSpec child = e.getValue().getCommandSpec();
+            String seen = "__fish_seen_subcommand_from " + e.getKey();
+            for (OptionSpec o : child.options()) System.out.println(fishOption(o, seen));
+            for (PositionalParamSpec pp : child.positionalParameters()) {
+                if (pp.completionCandidates() == null) continue;
+                StringBuilder cand = new StringBuilder();
+                for (String v : pp.completionCandidates()) {
+                    if (cand.length() > 0) cand.append(' ');
+                    cand.append(v);
+                }
+                if (cand.length() > 0)
+                    System.out.println("complete -f -c flixw -n " + fq(seen) + " -a "
+                                     + fq(cand.toString()) + " -d " + fq(describe(pp)));
             }
-            if (o.arity().max() > 0) b.append(" -r");
-            b.append(" -d ").append(fq(describe(o)));
-            System.out.println(b);
         }
+    }
+
+    /** One fish `complete` line for an option, optionally scoped to a subcommand. */
+    static String fishOption(OptionSpec o, String seen) {
+        StringBuilder b = new StringBuilder("complete -c flixw");
+        if (seen != null) b.append(" -n ").append(fq(seen));
+        for (String n : o.names()) {
+            if (n.startsWith("--")) b.append(" -l ").append(fq(n.substring(2)));
+            else if (n.length() == 2) b.append(" -s ").append(fq(n.substring(1)));
+        }
+        if (o.arity().max() > 0) b.append(" -r");
+        return b.append(" -d ").append(fq(describe(o))).toString();
     }
 
     /**
@@ -807,6 +855,11 @@ final class flixwhelp {
 
     static String describe(OptionSpec o) {
         String[] d = o.description();
+        return d == null || d.length == 0 ? "" : collapse(d[0]);
+    }
+
+    static String describe(PositionalParamSpec p) {
+        String[] d = p.description();
         return d == null || d.length == 0 ? "" : collapse(d[0]);
     }
 
