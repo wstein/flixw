@@ -222,6 +222,29 @@ else
   printf '%s\n' "$stale" | sed 's/^/      /'
 fi
 
+# --- 3c2. the workflows name files that still exist -------------------------
+# 3c catches a *verb* that moved.  The src/ split moved the *files* instead, and the
+# Windows job went on naming `src\flixw-setup.java` -- caught by CI rather than here,
+# which is the same failure 3c was written for arriving through the other door.  So
+# check the paths too: every src/ or tests/ file a workflow names must exist.  Windows
+# steps spell them with backslashes, so both separators normalise to one.  That is
+# \134 -- tr's octal for a lone backslash -- rather than the literal two-character
+# form, which means the same to tr but reads to shellcheck as a mis-escaped quote.
+# A trailing separator is then dropped: a path written inside an escaped markdown
+# backtick (\`tests/upstream-cli.sh\`) otherwise carries that backslash into the name.
+missing=
+for tok in $(grep -rhoE '(src|tests)[\\/][A-Za-z0-9._\\/-]+' "$root/.github/workflows" 2>/dev/null \
+             | tr '\134' '/' | sed 's|/*$||' | sort -u); do
+  # Only files: a bare directory (tests/fixtures/smoke) is equally real and equally named.
+  [ -e "$root/$tok" ] || missing="$missing $tok"
+done
+if [ -z "$missing" ]; then
+  say "ok    every src/ and tests/ path a workflow names exists"
+else
+  bad "a workflow names a path that does not exist:"
+  for m in $missing; do say "      $m"; done
+fi
+
 # --- 3d. the digest README tells people to compare against ------------------
 # README prints the setup asset's SHA-256 so an adopter can check it against something
 # other than the file's own download. That is only a second opinion while it is right, and

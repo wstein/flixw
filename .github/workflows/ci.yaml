@@ -170,7 +170,7 @@ jobs:
           xcopy /E /I /Q tests\fixtures\smoke scratch || exit /b 1
           rem The bootstrap is the setup asset now; stage 0 has no install verb. Given an
           rem explicit stage 0 it fetches nothing, which is what keeps this step offline.
-          java src\flixw-setup.java setup scratch src\flixw.java || exit /b 1
+          java src\assets\flixw-setup.java setup scratch src\stage0\flixw.java || exit /b 1
 
       - name: pin, check and run through flixw.cmd
         shell: cmd
