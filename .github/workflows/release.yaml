@@ -46,6 +46,21 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_ENV"
 
+      # The suite above ran against the documented source. What a release publishes is that
+      # file with its commentary stripped, and the claim for the stripper is behavioural
+      # equivalence -- which compiling does not establish. CI's `shipped` job proves it for
+      # every commit on main, but a tag is its own ref and the release gate should not depend
+      # on another workflow having looked. Run in a scratch copy so the packing below still
+      # cuts from the real tree.
+      - name: the stripped stage 0 passes the suite too
+        run: |
+          cp src/stage0/flixw.java "$RUNNER_TEMP/flixw.java.orig"
+          java tests/strip.java src/stage0/flixw.java "$version" > "$RUNNER_TEMP/stripped.java"
+          mv "$RUNNER_TEMP/stripped.java" src/stage0/flixw.java
+          printf 'shipped stage 0 is %s lines\n' "$(wc -l < src/stage0/flixw.java)"
+          sh tests/run.sh
+          mv "$RUNNER_TEMP/flixw.java.orig" src/stage0/flixw.java
+
       - run: sh tests/pack.sh dist
 
       # softprops and friends are third-party actions with write scope on the repository;

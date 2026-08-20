@@ -1949,6 +1949,13 @@ t 88 "a plugin may not claim a verb another plugin has" sh -c '
 # artifact no lock mentioned and no message admitted to.
 t 0  "a refused claim leaves nothing in the cache" sh -c '
   ! test -d "$FLIX_CACHE_HOME/plugins/claimw"'
+# `plugin remove` is machine-wide and takes every version, and used to announce itself as
+# "removed plugin <name>" -- which reads like the one version this project pins.
+# A .java plugin, because the .jar fixture declares a verb another plugin already holds --
+# which the guard above correctly refuses, and which is not what this case is about.
+g 0  'all versions, machine-wide' "remove says how far it reaches" sh -c '
+  cd "$1" && ./flixw plugin install goner 1.0.0 "$2/pluginjava/plugin.java" >/dev/null 2>&1
+  ./flixw plugin remove goner 2>&1' sh "$pp" "$(fileurl "$work")"
 g 0  'not audited by flixw' "invoking warns it is unaudited 3rd-party code" sh -c '
   cd "$1" && ./flixw plugin echoer' sh "$pp"
 

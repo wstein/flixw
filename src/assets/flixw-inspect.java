@@ -273,6 +273,22 @@ final class flixwinspect {
         }
         System.out.println("cached companion assets");
         printAligned(rows);
+
+        // The classes compiled from them, which live under <cache>/assets rather than
+        // <cache>/wrapper/assets and were listed by nothing. Keyed by source digest and class
+        // file target, so the name says which source and which floor, and a second entry for
+        // one asset means a superseded compile rather than a second asset.
+        List<String[]> compiled = new ArrayList<>();
+        for (Path d : dirsIn(cache(c, "assets"))) {
+            String n = d.getFileName().toString();
+            compiled.add(new String[] { n.length() > 20 ? n.substring(0, 12) + "..."
+                                        + n.substring(n.lastIndexOf('-')) : n,
+                                        String.valueOf(filesIn(d).size()) + " class files" });
+        }
+        if (!compiled.isEmpty()) {
+            System.out.println("compiled companion assets");
+            printAligned(compiled);
+        }
     }
 
     // ---- cache lifecycle -------------------------------------------------
@@ -295,6 +311,7 @@ final class flixwinspect {
         purgeJdks(c, p);
         purgePlugins(c, p);
         purgeAssets(c, p);
+        purgeCompiledAssets(c, p);
         System.out.println("freed " + humanSize(p.bytes) + " from " + p.count + " entr"
                          + (p.count == 1 ? "y" : "ies"));
         if (p.unmarked > 0)
@@ -426,6 +443,24 @@ final class flixwinspect {
         for (Path version : dirsIn(cache(c, "wrapper", "assets")))
             if (!version.getFileName().toString().equals(c.wrapperVersion))
                 p.remove(c, version, "asset set", "asset/" + version.getFileName());
+    }
+
+    /**
+     * The classes stage 0 compiled from those assets, which live somewhere else entirely.
+     *
+     * <p>{@code <cache>/assets/} is not {@code <cache>/wrapper/assets/}: the second holds the
+     * downloaded sources, the first the classes compiled from them, keyed by source digest and
+     * class file target. Nothing enumerated either the compiled ones or collected them, so a
+     * machine accumulated a directory per asset version it had ever run, and per JDK that had
+     * ever compiled one, invisibly.
+     *
+     * <p>Keyed by content, so an entry is either current or superseded -- there is no version
+     * to compare against the way the asset sets above are compared. Age is the only signal,
+     * which is exactly what the ordinary rule uses.
+     */
+    static void purgeCompiledAssets(Ctx c, Purge p) {
+        for (Path dir : dirsIn(cache(c, "assets")))
+            p.remove(c, dir, "compiled asset", "compiled/" + dir.getFileName());
     }
 
     static List<Path> filesIn(Path dir) {

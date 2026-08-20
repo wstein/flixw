@@ -2947,7 +2947,7 @@ public final class flixw {
         // who removed a plugin has said what they think of its bytes.
         Path data = pluginCacheDir(name);
         if (Files.isDirectory(data)) deleteTree(data);
-        System.err.println("flixw: removed plugin " + name);
+        System.err.println("flixw: removed plugin " + name + " -- all versions, machine-wide");
     }
 
     /** One resolved, digest-verified plugin build, ready to launch. */
@@ -4598,11 +4598,16 @@ public final class flixw {
                     throw w006("digest mismatch for " + name
                              + "\n       expected " + want + "\n       actual   " + got);
                 try { Files.move(tmp, asset, StandardCopyOption.ATOMIC_MOVE); }
-                catch (IOException e) { if (!Files.isRegularFile(asset)) throw e; }
+                // Losing the race is fine; inheriting the winner's bytes unchecked is not.
+                // What was verified above is `tmp`, and `tmp` is not what stays.
+                catch (IOException e) { if (!Files.isRegularFile(asset)) throw e;
+                    if (!sha256(asset).equals(want)) throw w006(name + " lost a cache race to bytes that are not " + want); }
             } finally {
                 try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
             }
-            writeAtomic(marker, sha256(asset));
+            // The manifest's digest, not a rehash of whatever is on disk: a marker derived
+            // from the file it vouches for agrees with itself no matter what the file is.
+            writeAtomic(marker, want);
         } catch (IOException e) {
             throw w007("cannot cache " + name + ": " + why(e));
         }
