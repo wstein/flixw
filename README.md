@@ -40,7 +40,7 @@ sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
 It must print exactly this, and if it does not, stop:
 
 ```
-4e2d5edac9fae85d55b4dba46589a67f7c791d403a6fbbd584077f74aa390b9f  flixw-setup.java
+001abdbb4ad534b9e932b4f956a3f0fec9f92327d65940e1b8bc29fd7b360a16  flixw-setup.java
 ```
 
 **The digest comes from this page, not from the download.** That is the whole point of the
@@ -58,7 +58,7 @@ every machine, which is why both are given.
 Comparing by eye is fine for a one-off. A pipeline wants an exit status:
 
 ```console
-echo "4e2d5edac9fae85d55b4dba46589a67f7c791d403a6fbbd584077f74aa390b9f  flixw-setup.java" \
+echo "001abdbb4ad534b9e932b4f956a3f0fec9f92327d65940e1b8bc29fd7b360a16  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -120,9 +120,13 @@ pinned project touches the network not at all.
 ### 2. Run it, in the project root
 
 ```console
-java ./flixw-setup.java
+java ./flixw-setup.java            # or: java ./flixw-setup.java 0.75.3
 rm flixw-setup.java
 ```
+
+That is the whole adoption: it installs the wrapper **and pins a compiler**, taking the
+version you name or the newest Flix release if you name none. Steps 3 to 5 below explain
+what it did and what to commit.
 
 In your project it writes the wrapper files and nothing else — it merges its block into an
 existing `.gitattributes` rather than replacing it, and never touches `flix.toml` or
@@ -159,12 +163,15 @@ The project has no lock yet. Continue with step 3.
 </td></tr>
 </table>
 
-### 3. Pin a compiler
+### 3. The pin, which step 2 already made
 
 ```console
-$ ./flixw pin 0.75.3
 flixw: pinned Flix 0.75.3 from flix/flix (bf123cdb6494d6e0...)
 ```
+
+Run `./flixw pin <version>` yourself to move to another compiler, or if step 2 could not
+reach GitHub to find the newest one -- it says so and leaves the project usable rather than
+failing the install.
 
 This is the trust root: it fetches that exact release, hashes it, and records the digest in
 `.flixw/lock.toml`. Every later run re-checks it. `flix.toml` is untouched — that file is

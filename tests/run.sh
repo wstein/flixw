@@ -406,6 +406,23 @@ t 87 "an unknown wrapper operation"                                  ./flixw wra
 # handling is asserted here; the fetch/verify/launch path around it has its own section
 # further down, exercised offline against a stand-in provisioner.
 t 87 "wrapper --install-jdk takes no arguments"                 ./flixw wrapper --install-jdk temurin
+# Adopting flixw is one command: the bare bootstrap sets the directory up and pins, with an
+# explicit version or the newest Flix if none is named. The scripted `setup <dir>` spelling
+# deliberately does not pin -- `wrapper --upgrade` and every case here use it, and a script
+# that asked for files must not also get a compiler download and a lock it never mentioned.
+t 0  "the bare bootstrap pins the version it was given"          sh -c '
+  d=$1/bootpin; rm -rf "$d"; mkdir -p "$d"
+  cd "$d" && java "$2/src/assets/flixw-setup.java" '"$version"' >/dev/null 2>&1
+  grep -q "version = \"'"$version"'\"" .flixw/lock.toml' sh "$work" "$root"
+t 0  "a tag spelling is accepted there too"                      sh -c '
+  d=$1/boottag; rm -rf "$d"; mkdir -p "$d"
+  cd "$d" && java "$2/src/assets/flixw-setup.java" v'"$version"' >/dev/null 2>&1
+  grep -q "version = \"'"$version"'\"" .flixw/lock.toml' sh "$work" "$root"
+t 0  "the scripted setup form writes no lock"                    sh -c '
+  d=$1/bootnopin; rm -rf "$d"
+  java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
+  ! test -e "$d/.flixw/lock.toml"' sh "$work" "$root"
+
 # Stage 0 has no install verb at all now -- the bootstrap is `java flixw-setup.java`,
 # which is what somebody downloads and verifies. An unknown operation, not a missing one.
 g 87 'unknown operation' "wrapper has no --install"             ./flixw wrapper --install .

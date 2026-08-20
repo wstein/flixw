@@ -51,6 +51,8 @@ final class flixwsetup {
      * pass the value already baked in here.
      */
     static final String WRAPPER_DIR = ".flixw";
+    /** Where GitHub redirects to the newest Flix; the tag is in the target URL. */
+    static final String FLIX_LATEST = "https://github.com/flix/flix/releases/latest";
 
     /**
      * The release this installer belongs to, and therefore the stage 0 it installs.
@@ -128,6 +130,75 @@ final class flixwsetup {
      * Redirects are followed, but only ever onto https -- and the scheme of the *final*
      * URI is what is checked, because that is the one the bytes actually came from.
      */
+    /**
+     * Pins a compiler straight after setting up, so adopting flixw is one command.
+     *
+     * <p>Only when this project has no lock yet, unless a version was named outright. That
+     * rule is what keeps `wrapper --upgrade` -- which reaches this same code with an already
+     * verified stage 0 -- from re-pinning a project that has a perfectly good lock, and it is
+     * why upgrade does not have to say so.
+     *
+     * <p>Run through the stage 0 just installed rather than reimplemented here. Pinning is
+     * where the trust root is created, and there should be exactly one implementation of it
+     * for the same reason there is exactly one lock writer.
+     */
+    static boolean willPin(boolean bare, Path target, String wanted) {
+        return bare && (wanted != null
+                        || !Files.isRegularFile(target.resolve(WRAPPER_DIR).resolve("lock.toml")));
+    }
+
+    static void pinAfterSetup(boolean bare, Path target, String wanted) {
+        if (!willPin(bare, target, wanted)) return;
+        String version = wanted != null ? wanted : latestFlix();
+        if (version == null) {
+            System.err.println("flixw: could not reach github.com to find the newest Flix");
+            System.err.println("       set up; pin when you can:  ./flixw pin <version>");
+            return;
+        }
+        Path java = Paths.get(ProcessHandle.current().info().command().orElse(
+                        Paths.get(System.getProperty("java.home"), "bin", "java").toString()));
+        try {
+            int rc = new ProcessBuilder(java.toString(),
+                        target.resolve(WRAPPER_DIR).resolve("flixw.java").toString(),
+                        "pin", version)
+                    .directory(target.toFile()).inheritIO().start().waitFor();
+            // Not fatal: the files are written and the project is usable. A failed pin is a
+            // `./flixw pin` away, and undoing a good install because of it would be worse.
+            if (rc != 0) System.err.println("       set up; the pin did not complete"
+                                          + " -- run: ./flixw pin " + version);
+        } catch (IOException e) {
+            System.err.println("       set up; could not run pin: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * The newest Flix release, read from where GitHub redirects rather than from its API.
+     *
+     * <p>The API answers this in one field and rate-limits unauthenticated callers to sixty
+     * an hour per address, which a CI runner shares with everything else on that address.
+     * The redirect target of {@code /releases/latest} carries the tag and is not rate-limited.
+     */
+    static String latestFlix() {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(FLIX_LATEST))
+                .timeout(Duration.ofSeconds(30))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                .header("User-Agent", "flixw-setup/" + WRAPPER_VERSION).build();
+        try {
+            HttpResponse<Void> res = httpClient().send(req, HttpResponse.BodyHandlers.discarding());
+            String u = res.uri().toString();
+            if (res.statusCode() != 200 || !u.contains("/releases/tag/")) return null;
+            String tag = u.substring(u.lastIndexOf('/') + 1);
+            return tag.startsWith("v") ? tag.substring(1) : tag;
+        } catch (IOException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
     static HttpClient httpClient() {
         return HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -310,9 +381,24 @@ final class flixwsetup {
         // `flixw-setup.java install .` -- the spelling a reader of any older instruction
         // would try -- into an attempt to set up a directory named "install".
         List<String> rest = new java.util.ArrayList<>(List.of(args));
-        String verb = rest.isEmpty() ? "setup" : rest.remove(0);
-        if ((!verb.equals("setup") && !verb.equals("update")) || rest.size() > 2) {
-            System.err.println("usage: java flixw-setup.java                 (set up ./)"
+        // A bare version is the common case and reads as one command: `flixw-setup 0.75.3`
+        // sets this directory up and pins that compiler. It is recognised by shape rather
+        // than by position so the two verbs keep working unambiguously -- no version can
+        // spell `setup` or `update`.
+        String wanted = null;
+        if (!rest.isEmpty() && rest.get(0).matches("v?[0-9]+\\.[0-9]+\\.[0-9]+([-+].*)?"))
+            wanted = rest.remove(0);
+        // Pinning follows only the spelling a person types. `setup <dir>` is the scripted
+        // form -- `wrapper --upgrade` uses it, and so does every test -- and a script that
+        // asked for files must not get a compiler download and a lock it never mentioned.
+        boolean bare = rest.isEmpty();
+        String verb = bare ? "setup" : rest.remove(0);
+        if ((!verb.equals("setup") && !verb.equals("update")) || rest.size() > 2
+            || (wanted != null && !verb.equals("setup"))) {
+            System.err.println("usage: java flixw-setup.java                 (set up ./, pin the"
+                             + " newest Flix)"
+                             + "\n       java flixw-setup.java <version>     (set up ./, pin that"
+                             + " version)"
                              + "\n       java flixw-setup.java setup [dir]"
                              + "\n       java flixw-setup.java update <dir>");
             throw new Exit(87);
@@ -329,7 +415,8 @@ final class flixwsetup {
                     Path source = rest.size() == 2 ? Paths.get(rest.get(1))
                                                    : (fetched = fetchStage0(tempDir()));
                     try {
-                        install(target, source);
+                        install(target, source, willPin(bare, target, wanted));
+                        pinAfterSetup(bare, target, wanted);
                     } finally {
                         if (fetched != null) {
                             try { Files.deleteIfExists(fetched); } catch (IOException ignored) { }
@@ -720,7 +807,10 @@ final class flixwsetup {
         return launcher;
     }
 
-    static void install(Path target, Path source) {
+    static void install(Path target, Path source) { install(target, source, false); }
+
+    /** {@code pinning} suppresses the advice a pin is about to make wrong. */
+    static void install(Path target, Path source, boolean pinning) {
         try {
             Path fw = target.resolve(WRAPPER_DIR);
             Files.createDirectories(fw);
@@ -746,7 +836,7 @@ final class flixwsetup {
                 System.out.println("the compiler pin is untouched; commit the wrapper files"
                                  + " that changed:");
                 System.out.println("  git add flixw flixw.cmd " + WRAPPER_DIR);
-            } else {
+            } else if (!pinning) {
                 System.out.println("next: ./flixw pin <version>   then commit all five files");
             }
         } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
