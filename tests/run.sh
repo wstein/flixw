@@ -19,6 +19,12 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 work=$root/tests/.work/run
 version=${FLIXW_TEST_VERSION:-0.75.3}
+# This checkout's own wrapper version, read rather than written down. The upgrade
+# cases below assert what a project is on before and after, and spelling it as a
+# literal meant every release bump broke the suite in the commit that cut it --
+# which is the one commit where a red suite is least informative and most alarming.
+wrapper_version=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' \
+                  "$root/src/stage0/flixw.java" | head -1)
 
 # A previous run may have left a read-only directory behind; make it removable.
 # Spelled as an if rather than `A && B || true`: older shellcheck reads that idiom as a
@@ -1755,7 +1761,7 @@ fi
 upgproj=$work/upgraded-real
 rm -rf "$upgproj" && mkdir -p "$upgproj"
 java "$root/src/assets/flixw-setup.java" setup "$upgproj" "$root/src/stage0/flixw.java" >/dev/null 2>&1
-g 0 '0.25.3 -> 9.9.9' "upgrade moves the project to a newer release"  sh -c '
+g 0 "$wrapper_version -> 9.9.9" "upgrade moves the project to a newer release"  sh -c '
   cd "$1" && FLIXW_RELEASE_SOURCE="$2/" FLIXW_ASSET_SOURCE="$2/" \
     ./flixw wrapper --upgrade 2>&1' sh "$upgproj" "$(fileurl "$newrel")"
 t 0 "...and the project now carries that stage 0"                sh -c '
@@ -1795,7 +1801,7 @@ g 85 'digest mismatch' "upgrade refuses a release whose stage 0 was tampered wit
   cd "$1" && FLIXW_RELEASE_SOURCE="$u/" FLIXW_ASSET_SOURCE="$u/" \
     ./flixw wrapper --upgrade 2>&1' sh "$tamperproj" "$newrel"
 t 0 "...and left the project on the stage 0 it had"              sh -c '
-  grep -q "WRAPPER_VERSION = \"0.25.3\"" "$1/.flixw/flixw.java"' sh "$tamperproj"
+  grep -q "WRAPPER_VERSION = \"$2\"" "$1/.flixw/flixw.java"' sh "$tamperproj" "$wrapper_version"
 
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
 # that keeps it from walking backwards -- and it must hold whether this version is newer
