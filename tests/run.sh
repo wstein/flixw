@@ -1426,30 +1426,16 @@ g 0 'checks the current project for errors' \
 # prefix does survive in the generated completions, which have no headings to carry it.
 g 0 'Wrapper commands:' "wrapper verbs are marked as the wrapper's"  ./flixw help
 
-# Colour is a second channel over the headings, never the only one, so the three ways it
-# can be wrong are all worth pinning: leaking escapes into a pipe, styling the compiler's
-# verbs (which are most of the screen, so styling them says nothing), and ignoring
-# NO_COLOR.  None of these can be checked from a terminal-less CI run without forcing.
-# picocli cannot detect a real terminal on Windows, so it treats a Git Bash console as a
-# pseudo-TTY from TERM alone and styles output that is in fact piped. That is picocli's
-# heuristic, not a flixw decision, and NO_COLOR still overrides it -- which the case below
-# asserts on every platform. Asserting the pipe rule here would assert it for the wrong
-# reason, so this one is skipped rather than made to pass.
-if [ "$posix" != yes ]; then
-  s "help emits no ANSI when stdout is not a terminal" "picocli reads Git Bash as a pseudo-TTY"
-else
-t 0 "help emits no ANSI when stdout is not a terminal" sh -c '
-  esc=$(printf "\033")
-  ! ./flixw help 2>/dev/null | grep -q "$esc"'
-fi
-t 0 "forced colour styles the wrapper group, not the compiler's" sh -c '
-  out=$(CLICOLOR_FORCE=1 ./flixw help 2>/dev/null)
-  printf "%s" "$out" | grep -q "\[36mpin" &&
-  printf "%s" "$out" | grep -q "  init " &&
-  printf "%s" "$out" | grep "  init " | { ! grep -q "\[3"; }'
-t 0 "NO_COLOR beats a forced colour setting" sh -c '
-  esc=$(printf "\033")
-  ! NO_COLOR=1 CLICOLOR_FORCE=1 ./flixw help 2>/dev/null | grep -q "$esc"'
+# `wrapper` and `completion` are typed like any other word, and are in neither
+# WRAPPER_VERBS nor the compiler's verb set -- the first is a namespace of flags, the
+# second is answered before that table is read. So nothing else here asserts they are
+# offered, and they were missing from both the help screen and the generated completions
+# while the offline fallback listed them.
+g 0 '^  wrapper  ' "the wrapper flag namespace is listed"        ./flixw help
+g 0 '^  completion  ' "completion is listed"                     ./flixw help
+g 0 "a 'wrapper'"   "completion offers the wrapper namespace"    ./flixw completion fish
+g 0 "a 'completion'" "completion offers itself"                  ./flixw completion fish
+
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check
 # Flix 0.75 answers `check --help` with the *top-level* help and exit 0. Saying so is the

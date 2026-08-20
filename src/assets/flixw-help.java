@@ -14,7 +14,6 @@ import java.util.regex.Pattern;
 import picocli.AutoComplete;
 import picocli.CommandLine;
 import picocli.CommandLine.Help.Ansi;
-import picocli.CommandLine.Help.ColorScheme;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.OptionSpec;
 import picocli.CommandLine.Model.UsageMessageSpec;
@@ -329,15 +328,11 @@ final class flixwhelp {
      * retires the {@code (wrapper)} prefix each of those descriptions used to open with, since
      * the heading now states what the prefix was repeating.
      *
-     * <p>Compiler verbs are left unstyled deliberately. They are most of the screen, so
-     * colouring them would be colouring the background; what a reader picks out is the
-     * wrapper's own words, this project's plugins and its tasks. Cyan, magenta and faint stay
-     * clear of a red/green pairing, which is the one distinction that disappears for the
-     * commonest colour-vision deficiency.
-     *
-     * <p>Styles are applied through the scheme rather than {@code @|...|@} markup, because a
-     * task name comes from {@code .flixw/tasks.toml} and markup in one would be parsed as
-     * markup. {@link ColorScheme#apply} takes the text as text.
+     * <p>The groups were briefly coloured as well -- the minority tinted, compiler verbs left
+     * alone. The headings turned out to do the whole job, so the colour was reinforcing a
+     * distinction the reader could already see, at the price of a terminal-detection path,
+     * a {@code NO_COLOR} path, and a case that could not run on Windows at all because
+     * picocli reads Git Bash as a pseudo-TTY. Removed rather than kept as decoration.
      */
     static String commandList(CommandLine.Help help, Ctx c) {
         List<String> compilerVerbs = c.words("compilerVerbs");
@@ -361,25 +356,23 @@ final class flixwhelp {
         for (List<String[]> g : List.of(compiler, wrapper, plugins, tasks))
             for (String[] r : g) w = Math.max(w, r[0].length());
 
-        ColorScheme cs = help.colorScheme();
         int width = help.commandSpec().usageMessage().width();
         StringBuilder out = new StringBuilder();
-        group(out, cs, width, w, "Compiler commands:", compiler, null);
-        group(out, cs, width, w, "Wrapper commands:", wrapper, Ansi.Style.fg_cyan);
-        group(out, cs, width, w, "Plugins:", plugins, Ansi.Style.fg_magenta);
-        group(out, cs, width, w, "Tasks:", tasks, Ansi.Style.faint);
+        group(out, width, w, "Compiler commands:", compiler);
+        group(out, width, w, "Wrapper commands:", wrapper);
+        group(out, width, w, "Plugins:", plugins);
+        group(out, width, w, "Tasks:", tasks);
         return out.toString();
     }
 
     /** One heading and its rows; nothing at all when the group is empty. */
-    static void group(StringBuilder out, ColorScheme cs, int width, int w,
-                      String heading, List<String[]> rows, Ansi.Style style) {
+    static void group(StringBuilder out, int width, int w,
+                      String heading, List<String[]> rows) {
         if (rows.isEmpty()) return;
         out.append(heading).append('\n');
         for (String[] r : rows) {
-            String name = style == null ? r[0] : cs.apply(r[0], List.of(style)).toString();
-            String pad = " ".repeat(w - r[0].length());   // pad on the plain length, not the
-            String head = "  " + name + pad + "  ";       // styled one, which carries escapes
+            String pad = " ".repeat(w - r[0].length());
+            String head = "  " + r[0] + pad + "  ";
             for (String line : wrap(r[1], Math.max(20, width - w - 4))) {
                 out.append(head).append(line).append('\n');
                 head = "  " + " ".repeat(w) + "  ";       // continuation lines hang under it
@@ -464,6 +457,13 @@ final class flixwhelp {
         for (String v : compilerVerbs) sub(root, v, desc.getOrDefault(v, ""));
         for (String v : c.words("wrapperVerbs"))
             if (!compilerVerbs.contains(v)) sub(root, v, "(wrapper) " + wrapperDesc(v));
+        // `wrapper` and `completion` are words a user types and neither is in WRAPPER_VERBS:
+        // the first is a namespace of flags, the second is answered before that table is
+        // consulted at all. Both were therefore absent from this screen while the offline
+        // fallback listed them, so the renderer with the whole model showed strictly less
+        // than the one with none of it. Same compiler-first guard as any other word.
+        for (String v : new String[] { "wrapper", "completion" })
+            if (!compilerVerbs.contains(v)) sub(root, v, "(wrapper) " + wrapperDesc(v));
         if (!c.get("helpFile").isEmpty()) addOptions(root, readOrEmpty(c.get("helpFile")));
         return root;
     }
@@ -477,6 +477,8 @@ final class flixwhelp {
             case "help" -> "this table.";
             case "plugin" -> "install, list, remove and run verified third-party commands.";
             case "task" -> ".flixw/tasks.toml's aliases.";
+            case "wrapper" -> "--version, --upgrade, --install-jdk, --purge, --schema.";
+            case "completion" -> "a TAB-completion script for bash, zsh, fish or pwsh.";
             default -> "";
         };
     }
