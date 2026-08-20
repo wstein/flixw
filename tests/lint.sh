@@ -235,6 +235,11 @@ fi
 missing=
 for tok in $(grep -rhoE '(src|tests)[\\/][A-Za-z0-9._\\/-]+' "$root/.github/workflows" 2>/dev/null \
              | tr '\134' '/' | sed 's|/*$||' | sort -u); do
+  # `tests/.work/` is deliberately gitignored scratch space. The test jobs name a child
+  # directory there only as an actions/cache target; it is created by tests/run.sh, so its
+  # absence in a fresh checkout is correct. Every other src/ or tests/ path is a repository
+  # path and must exist before the workflow reaches it.
+  case "$tok" in tests/.work/*) continue ;; esac
   # Only files: a bare directory (tests/fixtures/smoke) is equally real and equally named.
   [ -e "$root/$tok" ] || missing="$missing $tok"
 done
