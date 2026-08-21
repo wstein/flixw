@@ -1836,6 +1836,14 @@ g 85 'digest mismatch' "upgrade refuses a release whose stage 0 was tampered wit
 t 0 "...and left the project on the stage 0 it had"              sh -c '
   grep -q "WRAPPER_VERSION = \"$2\"" "$1/.flixw/flixw.java"' sh "$tamperproj" "$wrapper_version"
 
+# `--upgrade` takes an optional release. The shape is checked before any network, which is
+# what these assert: a fixed URL beats "whatever GitHub calls latest today" for holding a
+# fleet on one wrapper, and stepping back from a bad release needs a way to name the good one.
+g 87 'is not a version' "upgrade rejects a target that is not a version" \
+     ./flixw wrapper --upgrade banana
+g 87 'at most one version' "upgrade takes at most one target" \
+     ./flixw wrapper --upgrade 1.2.3 4.5.6
+
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
 # that keeps it from walking backwards -- and it must hold whether this version is newer
 # than the newest release (working on flixw) or exactly it (the commit a release was cut

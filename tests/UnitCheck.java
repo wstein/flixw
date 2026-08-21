@@ -450,6 +450,25 @@ public final class UnitCheck {
     // ---- 13: the asset set a release publishes ----------------------------
 
     /**
+     * Which release `wrapper --upgrade` reaches for.
+     *
+     * <p>`latest` skips pre-releases and is whatever GitHub says today; a named version
+     * is a fixed URL. FLIXW_RELEASE_SOURCE outranks both, because it already names one
+     * release -- a mirror, or a staging directory -- so appending a version to it would
+     * ask for a release inside a release.
+     */
+    static void upgradeTarget() {
+        eq("upgrade: no version means latest", "true",
+           String.valueOf(flixw.releaseBase(null).endsWith("/releases/latest/download/")));
+        eq("upgrade: a version names its own release",
+           "https://github.com/wstein/flixw/releases/download/v0.25.8/",
+           flixw.releaseBase("0.25.8"));
+        // Both spellings of one release resolve the same way, since `strip` runs first.
+        eq("upgrade: latest and a version differ", "false",
+           String.valueOf(flixw.releaseBase(null).equals(flixw.releaseBase("0.25.8"))));
+    }
+
+    /**
      * Rewriting a release asset URL for a newer tag, which is how upgrade finds one.
      *
      * <p>Derived from the URL the lock already records rather than from a naming scheme:
@@ -1111,6 +1130,7 @@ public final class UnitCheck {
         pluginDescription();
         declaredVerbs();
         upgradeUrls();
+        upgradeTarget();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }

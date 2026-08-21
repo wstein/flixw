@@ -1472,6 +1472,32 @@ public final class flixw {
 
     record Jvm(Path exe, int feature, String how) {}
 
+    /**
+     * Verbs that must answer even when no java satisfies the lock.
+     *
+     * <p>The same set that stays in stage 0 permanently, minus `pin`, which is dispatched
+     * before java selection is reached at all. They are what a fresh clone or a broken
+     * checkout has to be able to run: a wrapper whose diagnostics need the thing they
+     * diagnose has none.
+     */
+    static boolean diagnostic(String verb) {
+        // Named exactly, never by shape. `null` is a bare `./flixw`, and `--anything` is
+        // forwarded to the compiler -- both would have run it on the java the lock just
+        // refused, which is the one thing this must not buy for the diagnostics.
+        // `wrapper` is absent because it returns before java selection is reached.
+        // `contains(null)` throws on an immutable list, and a bare `./flixw` is null.
+        return verb != null
+               && List.of("info", "doctor", "validate", "help", "--help", "-h").contains(verb);
+    }
+
+    /** The JVM already executing this code, which is by construction usable. */
+    static Jvm runningJvm() {
+        Path exe = ProcessHandle.current().info().command().map(Paths::get)
+                       .orElseGet(() -> exeIn(System.getProperty("java.home")));
+        return new Jvm(exe, Runtime.version().feature(), "running JVM");
+    }
+
+
     static Path exeIn(String home) {
         return Paths.get(home, "bin", isWindows() ? "java.exe" : "java");
     }
@@ -4005,10 +4031,22 @@ public final class flixw {
      * <p>Note that GitHub's {@code latest} skips pre-releases, so a 0.x pre-release is
      * deliberately not offered here -- an adopter asks for one by tag.
      */
-    static String latestBase() {
+    static String latestBase() { return releaseBase(null); }
+
+    /**
+     * Where one release's assets live: a named version's, or whatever {@code latest} means.
+     *
+     * <p>{@code FLIXW_RELEASE_SOURCE} still wins over both. It names one release outright --
+     * a mirror, or a staging directory during a test -- so a version argument has nothing
+     * left to select, and quietly appending one to it would ask for a release inside a
+     * release.
+     */
+    static String releaseBase(String version) {
         String o = env("FLIXW_RELEASE_SOURCE");
         if (o != null && !o.isBlank()) return o.replaceAll("/+$", "") + "/";
-        return "https://github.com/wstein/flixw/releases/latest/download/";
+        return version == null
+               ? "https://github.com/wstein/flixw/releases/latest/download/"
+               : "https://github.com/wstein/flixw/releases/download/v" + version + "/";
     }
 
     /** The digest a {@code SHA256SUMS} file names for one file, or null if it does not. */
@@ -4117,8 +4155,8 @@ public final class flixw {
         return warm;
     }
 
-    static void upgradeWrapper(Path root) {
-        String base = latestBase();
+    static void upgradeWrapper(Path root, String to) {
+        String base = releaseBase(to);
         String sums = readSums(base);
         String want = digestFor(sums, "flixw.java");
         if (want == null || !want.matches("[0-9a-f]{64}"))
@@ -4141,7 +4179,8 @@ public final class flixw {
         try {
             dir = Files.createTempDirectory("flixw-upgrade-");
             Path fresh = dir.resolve("flixw.java");
-            System.err.println("flixw: downloading the latest flixw");
+            System.err.println("flixw: downloading flixw "
+                             + (to == null ? "(the latest release)" : to));
             if (base.startsWith("file://"))
                 Files.copy(Paths.get(URI.create(base + "flixw.java")), fresh,
                            StandardCopyOption.REPLACE_EXISTING);
@@ -4157,15 +4196,31 @@ public final class flixw {
             Matcher m = Pattern.compile("WRAPPER_VERSION\\s*=\\s*\"([^\"]+)\"")
                                .matcher(Files.readString(fresh, StandardCharsets.UTF_8));
             String published = m.find() ? m.group(1) : null;
-            if (published != null && olderOrSame(published, WRAPPER_VERSION)) {
+            // Naming a version is the intent, so an older one is honoured rather than
+            // refused -- but said out loud, because walking a project backwards silently is
+            // the accident this guard exists to prevent when no version was named.
+            boolean notNewer = published != null && olderOrSame(published, WRAPPER_VERSION);
+            boolean same = published != null
+                           && canonical(published).equals(canonical(WRAPPER_VERSION));
+            if (notNewer && to != null && !same)
+                System.err.println("flixw: moving back from " + WRAPPER_VERSION + " to "
+                                 + published + ", which you asked for by name");
+            else if (notNewer && to != null) {
+                // Named the version already installed. "Newer than the newest release" is
+                // true of `latest` and nonsense here -- it would report 0.25.9 as newer
+                // than 0.25.9. Reached only when the bytes differ from the published ones,
+                // which for an ordinary user means the digest check above did not fire.
+                System.out.println("flixw is already " + published + ". Nothing to do.");
+                warmAssets(sums, published);
+                return;
+            } else if (notNewer) {
                 System.out.println("flixw " + WRAPPER_VERSION + " is newer than the newest"
                                  + " release (" + published + "). Nothing to do.");
                 // Warmed only when this *is* the published release, which is the ordinary
                 // reading of "same or older". Ahead of it -- someone working on flixw --
                 // the assets for this version were never published, so asking for them
                 // would be a guaranteed 404 dressed up as a note about the network.
-                if (canonical(published).equals(canonical(WRAPPER_VERSION)))
-                    warmAssets(sums, WRAPPER_VERSION);
+                if (same) warmAssets(sums, WRAPPER_VERSION);
                 return;
             }
             System.err.println("flixw: " + WRAPPER_VERSION + " -> "
@@ -4231,10 +4286,14 @@ public final class flixw {
                                  + "  java " + Runtime.version());
             }
             case "--upgrade" -> {
-                if (!rest.isEmpty()) throw w008(wrapperUsage("'--upgrade' takes no arguments"));
+                if (rest.size() > 1)
+                    throw w008(wrapperUsage("'--upgrade' takes at most one version"));
+                String to = rest.isEmpty() ? null : strip(rest.get(0));
+                if (to != null && !SEMVERISH.matcher(to).matches())
+                    throw w008(wrapperUsage("'" + rest.get(0) + "' is not a version"));
                 // The only operation here that needs a project, and it resolves one itself
                 // rather than making the others depend on being inside one.
-                upgradeWrapper(findRoot(wrapperAnchor()));
+                upgradeWrapper(findRoot(wrapperAnchor()), to);
             }
             case "--install-jdk" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
@@ -4277,7 +4336,8 @@ public final class flixw {
              + "\n                              | --install-jdk | --purge [days] [--yes] | --schema]"
              + "\n         --help         the routing table for this project"
              + "\n         --version      the wrapper version and how stage 0 was launched"
-             + "\n         --upgrade      move this project to the newest published flixw"
+             + "\n         --upgrade [<version>]  move this project to the newest published"
+             + "\n                        flixw, or to the release you name"
              + "\n                        (to repair the files it has: ./flixw doctor --fix)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
              + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for"
@@ -4843,7 +4903,21 @@ public final class flixw {
             return;
         }
 
-        Jvm jvm = selectJava(lock == null ? null : lock.java());
+        // A java the lock does not accept is fatal for anything that runs the compiler, and
+        // must not be fatal for the verbs whose job is to tell you about it. `pin` was already
+        // exempt as the documented repair; `info`, `doctor`, `validate`, `help` and the
+        // `wrapper --*` flags are how the problem is seen in the first place, and reporting
+        // "cannot select a java" by refusing to run the java reporter is a dead end.
+        Jvm jvm;
+        try {
+            jvm = selectJava(lock == null ? null : lock.java());
+        } catch (Fail e) {
+            if (!diagnostic(first)) throw e;
+            System.err.println(e.getMessage());
+            System.err.println("flixw: continuing on the JVM this wrapper is running under,"
+                             + " because " + q(first) + " reports state rather than compiling");
+            jvm = runningJvm();
+        }
         tr("java " + jvm.exe() + " (" + jvm.feature() + ")");
         recordJava(root, jvm.exe());
         if (relaunch(jvm, argv)) return;

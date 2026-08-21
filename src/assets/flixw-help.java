@@ -432,7 +432,7 @@ final class flixwhelp {
     static void wrapperOptions(CommandSpec s) {
         s.addOption(OptionSpec.builder("--version").description("the wrapper version").build());
         s.addOption(OptionSpec.builder("--upgrade")
-                    .description("move this project to the newest published flixw").build());
+                    .description("move this project to the newest published flixw, or to --upgrade <version>").build());
         s.addOption(OptionSpec.builder("--install-jdk")
                     .description("fetch a verified Temurin into the cache").build());
         s.addOption(OptionSpec.builder("--purge")
