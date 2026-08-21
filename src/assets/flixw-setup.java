@@ -785,6 +785,49 @@ final class flixwsetup {
         # Written by flixw-setup.java into the global flixw cache's bin directory. It finds the
         # nearest checked-in flixw wrapper and delegates all policy to it.
         set -eu
+
+        # Where flixw keeps its cache, which is where the setup program below lives.
+        #
+        # FLIX_CACHE_HOME first, as everywhere else in flixw. Then this launcher's own
+        # directory, which is inside the cache by construction -- but only after following
+        # symlinks, because the documented way to put this on PATH is to link to it, and $0
+        # then names the link rather than the file: linked into ~/.local/bin, deriving from
+        # $0 asked for ~/.local/wrapper/assets and found nothing.
+        #
+        # The platform default last, so a launcher someone copied rather than linked still
+        # finds the cache. That case cannot be resolved away -- a copy has no link to
+        # follow -- and it is the one that fails most confusingly, since a copy also stops
+        # being updated by any later install.
+        flixw_cache_home() {
+          if [ -n "${FLIX_CACHE_HOME:-}" ]; then printf '%s\n' "$FLIX_CACHE_HOME"; return; fi
+          self=$1 hops=0
+          while [ -L "$self" ] && [ "$hops" -lt 40 ]; do
+            link=$(readlink "$self")
+            case $link in /*) self=$link ;; *) self=$(dirname -- "$self")/$link ;; esac
+            hops=$((hops + 1))
+          done
+          own=$(cd -- "$(dirname -- "$self")/.." 2>/dev/null && pwd -P) || own=
+          if [ -n "$own" ] && [ -d "$own/wrapper/assets" ]; then printf '%s\n' "$own"; return; fi
+          case $(uname -s) in
+            Darwin) printf '%s\n' "$HOME/Library/Caches/flixw" ;;
+            *)      printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/flixw" ;;
+          esac
+        }
+
+        # `setup` is the one word that never delegates: it exists to create the project
+        # there is none of, so it is answered before the search for one. Checked after that
+        # search it looked correct and was not -- inside a project the walk below finds a
+        # wrapper first, and `flixw setup other-dir` handed `setup` to the compiler.
+        if [ "${1-}" = setup ]; then
+          shift
+          cache=$(flixw_cache_home "$0")
+          asset=$(ls -1d "$cache"/wrapper/assets/*/flixw-setup.java 2>/dev/null | sort | tail -1)
+          if [ -n "$asset" ]; then exec java "$asset" "$@"; fi
+          echo "flixw: no setup program cached in $cache/wrapper/assets" >&2
+          echo "       download one: https://github.com/wstein/flixw/releases/latest" >&2
+          exit 87
+        fi
+
         here=$(pwd -P)
         while :; do
           if [ -x "$here/flixw" ] && [ -f "$here/.flixw/flixw.java" ]; then
@@ -794,19 +837,6 @@ final class flixwsetup {
           [ "$parent" = "$here" ] && break
           here=$parent
         done
-        # `setup` is the one word that cannot be delegated: it exists to create the project
-        # there is none of. Answered from the setup program this launcher was installed
-        # alongside, so `flixw setup newproj --pin 0.75.3` works in an empty directory --
-        # which is the only place anyone would type it.
-        if [ "${1-}" = setup ]; then
-          shift
-          cache=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
-          asset=$(ls -1d "$cache"/wrapper/assets/*/flixw-setup.java 2>/dev/null | sort | tail -1)
-          if [ -n "$asset" ]; then exec java "$asset" "$@"; fi
-          echo "flixw: no setup program cached in $cache/wrapper/assets" >&2
-          echo "       download one: https://github.com/wstein/flixw/releases/latest" >&2
-          exit 87
-        fi
         echo "flixw: no checked-in flixw wrapper found above $(pwd -P)" >&2
         echo "       to create one here:  flixw setup . [--pin <version>]" >&2
         exit 87

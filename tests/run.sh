@@ -423,6 +423,15 @@ t 0  "the global launcher answers setup with no project anywhere" sh -c '
   d=$1/bootglobal; rm -rf "$d"; mkdir -p "$d"
   cd "$d" && "$FLIX_CACHE_HOME/bin/flixw" setup . --pin '"$version"' >/dev/null 2>&1
   test -x ./flixw && grep -q "version = \"'"$version"'\"" .flixw/lock.toml' sh "$work"
+# The documented way onto PATH is a symlink, and the launcher derives the cache from its own
+# location -- so it has to follow the link first, or it looks for the setup program beside
+# the link instead of beside itself. And `setup` has to be answered before the search for a
+# project, not after: inside one, the search finds a wrapper and hands `setup` to the compiler.
+t 0  "setup works through a symlinked launcher, inside a project" sh -c '
+  ln -sf "$FLIX_CACHE_HOME/bin/flixw" "$1/linked-flixw"
+  cd "$2" && out=$(FLIX_CACHE_HOME= "$1/linked-flixw" setup --pin 2>&1)
+  case $out in *"--pin <version>"*) exit 0 ;; *) printf "%s\n" "$out"; exit 1 ;; esac' \
+  sh "$work" "$proj"
 t 0  "the scripted setup form writes no lock"                    sh -c '
   d=$1/bootnopin; rm -rf "$d"
   java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
