@@ -432,6 +432,14 @@ t 0  "setup works through a symlinked launcher, inside a project" sh -c '
   cd "$2" && out=$(FLIX_CACHE_HOME= "$1/linked-flixw" setup --pin 2>&1)
   case $out in *"--pin <version>"*) exit 0 ;; *) printf "%s\n" "$out"; exit 1 ;; esac' \
   sh "$work" "$proj"
+# `.flixw/` is ~3,300 lines of somebody else's Java, and a tool counting a project's code
+# should not report them as the project's. scc reads a per-directory file, so flixw can
+# answer it without editing anything the project maintains. The pattern matters: an empty
+# .sccignore is read and ignores nothing.
+t 0  "setup writes a .sccignore that actually ignores"           sh -c '
+  f=$1/.flixw/.sccignore
+  test -f "$f" && grep -qx "[*]" "$f"' sh "$proj"
+
 t 0  "the scripted setup form writes no lock"                    sh -c '
   d=$1/bootnopin; rm -rf "$d"
   java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1
