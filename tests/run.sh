@@ -1966,6 +1966,19 @@ g 0  'echoit *echoes its ABI environment' \
 # A plugin may claim a bare verb, after the compiler's set and the wrapper's have had
 # their say. The claim lives in the lock, so it is reviewable in a diff rather than a
 # surprise, and the three ways it can go wrong are all refusals at install time.
+# A plugin is a tool, not a dependency: installing one is something a person does to their
+# machine, and having to repeat it in every project's lock to type the word is not what
+# anyone means by "installed". The lock is still consulted first and still pins a version --
+# that is what a project reaches for when it wants the same plugin in CI.
+t 0  "a globally installed verb runs in a project that declares none" sh -c '
+  d=$1/undeclared; rm -rf "$d"; mkdir -p "$d"
+  cp -R "$2/.flixw" "$2/flixw" "$d/" 2>/dev/null
+  awk "/^\\[plugins/{skip=1} /^\\[compiler\\]|^\\[wrapper\\]|^\\[java\\]/{skip=0} !skip" \
+    "$2/.flixw/lock.toml" > "$d/.flixw/lock.toml"
+  cd "$d" && ! grep -q "\\[plugins" .flixw/lock.toml || exit 1
+  out=$(./flixw echoit 2>&1) || exit 1
+  case $out in *"is plugin echoer"*) exit 0 ;; *) printf "%s\n" "$out"; exit 1 ;; esac' \
+  sh "$work" "$pp"
 g 0  'command = "echoit"' "a declared verb is recorded in the lock" \
      sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
 g 0  'ARGS=--flag' "the declared verb reaches the plugin with its arguments" sh -c '
@@ -2178,8 +2191,12 @@ g 88 'no compiler pinned' "...and refuses to run without one"      sh -c '
 t 0  "installing a second version with no lock present"            sh -c '
   cd "$1" && ./flixw plugin install echoer 2.0.0 "$2/pluginjar/plugin.jar" >/dev/null 2>&1' \
   sh "$pp3" "$(fileurl "$work")"
-g 88 'has 2 versions installed' \
-  "an ambiguous plugin with no lock entry names the fix"           sh -c '
+# Two installed and no lock entry used to be a refusal that sent the reader to `plugin
+# install`. That is right for a project that wants one version for ever and wrong for a tool
+# someone installed on their machine, so the newest runs and the choice is stated under
+# trace. Pinning is still how a project stops the answer moving.
+g 0  'running plugin echoer 2.0.0' \
+  "with no lock entry, the newest installed version runs"          sh -c '
   cd "$1" && ./flixw plugin echoer' sh "$pp3"
 
 # --- tasks ---------------------------------------------------------------

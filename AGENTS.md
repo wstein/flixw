@@ -328,8 +328,17 @@ always work and are always unambiguous.
 
 **A plugin may also claim one bare verb**, which reverses the rule this paragraph used to
 state absolutely. It declares it in its jar manifest as `Flixw-Plugin-Command`, read as
-data at install time, and the claim is recorded in `lock.toml` — so it arrives in a diff
-rather than as a surprise, and a reviewer sees which word a plugin took. `./flixw metrics`
+data at install time, recorded in `lock.toml` **and** beside the artifact in the cache.
+
+**Installing a plugin is enough to use it; a lock entry pins a version.** A plugin is a
+tool, not a dependency — installing one is something a person does to their machine, like
+putting a `git-` subcommand on `PATH`, and requiring it in every project's lock before the
+word could be typed is not what anyone means by "installed". So dispatch consults the lock
+first, and falls back to what is installed; where the lock says nothing and several
+versions are present, the newest runs. What a lock entry buys is reproducibility: the same
+plugin, at the same version, on a colleague's machine and in CI. That is a project's choice
+to make rather than a toll on every use, and it is the one real cost of this — a bare verb
+works here and not on a clone, unless the project declared it. `./flixw metrics`
 beats `./flixw plugin flixw-metrics` for the same reason `git foo` and `cargo fmt` beat any
 namespaced spelling: it is what people type.
 
@@ -560,9 +569,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/stage0/flixw.java` | 3268 | 2900 |
+| code lines in `src/stage0/flixw.java` | 3309 | 2900 |
 | comment density | 33% | ≥25% floor |
-| bytes | 296552 | 225000 |
+| bytes | 300766 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the

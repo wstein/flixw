@@ -2893,6 +2893,12 @@ public final class flixw {
             Path artifact = dest.resolve("plugin." + format);
             try { Files.move(tmp, artifact, StandardCopyOption.ATOMIC_MOVE); }
             catch (IOException e) { if (!Files.isRegularFile(artifact)) throw e; }
+            // Beside the artifact, because a verb has to be found without a lock and
+            // reading it back out of the jar would mean opening every installed plugin's
+            // zip on every unrecognised word.
+            if (!verb.isEmpty())
+                try { writeAtomic(dest.resolve("command"), verb + "\n"); }
+                catch (RuntimeException ignored) { }
             System.err.println("flixw: installed plugin " + name + " " + version
                              + " (" + got.substring(0, 16) + "...)");
             // Never quieter than a fork pin's own warning: a digest says these are the
@@ -2943,9 +2949,70 @@ public final class flixw {
      */
     /** Which plugin, if any, declared {@code verb} in this lock. */
     static String commandOwner(Lock lock, String verb) {
-        for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
-            if (verb.equals(e.getValue().command())) return e.getKey();
-        return null;
+        if (lock != null)
+            for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
+                if (verb.equals(e.getValue().command())) return e.getKey();
+        return installedCommandOwner(verb);
+    }
+
+    /**
+     * The installed plugin that claims this verb, for a project that declares none.
+     *
+     * <p>A plugin is a tool, not a dependency: installing one is a thing a person does to
+     * their machine, like putting a `git-` subcommand on PATH, and having to repeat it in
+     * every project's lock to type the word is not what anyone means by "installed". A lock
+     * entry is still consulted first, and still pins a version -- that is what a project
+     * reaches for when it wants the same plugin on someone else's machine and in CI.
+     *
+     * <p>Read from a file the install wrote beside the artifact, so an unrecognised word
+     * costs a directory listing rather than opening every installed plugin's jar.
+     *
+     * <p>Two plugins claiming one word is not resolved here. Install refuses a verb another
+     * plugin declared, so this is reachable only across projects that installed different
+     * plugins at different times, and picking one silently is worse than saying so.
+     */
+    static String installedCommandOwner(String verb) {
+        String found = null;
+        for (Path nameDir : dirsIn(pluginsDir()))
+            for (Path v : dirsIn(nameDir)) {
+                Path f = v.resolve("command");
+                // Backfilled for anything installed before this file existed, so an upgrade
+                // does not silently require reinstalling every plugin to keep its verb.
+                if (!Files.isRegularFile(f)) backfillCommand(v, f);
+                if (!Files.isRegularFile(f)) continue;
+                try {
+                    if (!verb.equals(Files.readString(f, StandardCharsets.UTF_8).trim())) continue;
+                } catch (IOException e) { continue; }
+                String name = nameDir.getFileName().toString();
+                if (found != null && !found.equals(name))
+                    throw w009("both " + found + " and " + name + " claim " + q(verb)
+                             + "\n       run one by name: ./flixw plugin <name>");
+                found = name;
+            }
+        return found;
+    }
+
+    /**
+     * Writes the verb an already-installed plugin declares, reading its jar once.
+     *
+     * <p>An empty file when it declares none, so the read is not repeated on every
+     * unrecognised word for every plugin that will never claim one.
+     */
+    static void backfillCommand(Path versionDir, Path into) {
+        try {
+            Path artifact = findPluginArtifact(versionDir);
+            String ext = artifact.getFileName().toString();
+            String verb = pluginAttribute(artifact, "Flixw-Plugin-Command", 32,
+                                          ext.substring(ext.lastIndexOf('.') + 1));
+            writeAtomic(into, verb.matches(PLUGIN_NAME_PATTERN) ? verb + "\n" : "");
+        } catch (IOException | RuntimeException ignored) { }
+    }
+
+    /** Directories directly under {@code dir}, sorted; empty when it is not one. */
+    static List<Path> dirsIn(Path dir) {
+        try (var s = Files.isDirectory(dir) ? Files.list(dir) : null) {
+            return s == null ? List.of() : s.filter(Files::isDirectory).sorted().toList();
+        } catch (IOException e) { return List.of(); }
     }
 
     /**
@@ -3087,6 +3154,12 @@ public final class flixw {
      * plugin the one cached, executed artifact in this codebase whose bytes are trusted
      * on the strength of a install-time check alone.
      */
+    /** The version half of a {@code <version>-<sha256>} plugin directory name. */
+    static String pluginVersionOf(Path dir) {
+        String n = dir.getFileName().toString();
+        return n.length() > 65 ? n.substring(0, n.length() - 65) : n;
+    }
+
     static ResolvedPlugin resolvePlugin(String name, Lock lock) {
         if (!validPluginName(name))
             throw w009("plugin name " + q(name) + " must be lowercase letters, digits and"
@@ -3111,11 +3184,16 @@ public final class flixw {
             if (versions.isEmpty())
                 throw w009("plugin " + q(name) + " is not installed"
                          + "\n       run: ./flixw plugin install " + name + " <version> <url>");
-            if (versions.size() > 1)
-                throw w009("plugin " + q(name) + " has " + versions.size() + " versions installed,"
-                         + " and lock.toml does not say which -- add a [plugins." + name + "] entry"
-                         + " (./flixw plugin install " + name + " <version> <url> --sha256 <digest>)");
+            // The newest installed, when the lock does not pin one. It used to refuse and
+            // send the reader to `plugin install`, which is the right answer for a project
+            // that wants one version for ever and the wrong one for a tool a person
+            // installed on their machine and expects to be able to run.
             dir = versions.get(0);
+            for (Path v : versions)
+                if (olderOrSame(pluginVersionOf(dir), pluginVersionOf(v))) dir = v;
+            if (versions.size() > 1)
+                tr("plugin " + name + ": " + versions.size() + " installed, running "
+                 + pluginVersionOf(dir) + "; pin one with ./flixw plugin install");
         }
         Path artifact = findPluginArtifact(dir);
         // The directory name is "<version>-<sha256>"; the digest is always the trailing
@@ -4950,7 +5028,7 @@ public final class flixw {
         // and the wrapper's have had their say -- so an installed plugin can never take a
         // word away from either. Read from the lock, which is committed, so a plugin
         // claiming a word shows up in a diff rather than in a surprise.
-        String pluginOwner = first == null || lock == null || compilerVerbs.contains(first)
+        String pluginOwner = first == null || compilerVerbs.contains(first)
                              || WRAPPER_VERBS.contains(first) ? null : commandOwner(lock, first);
         if (forcedCompiler) {
             toCompiler = true;
