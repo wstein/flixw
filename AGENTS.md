@@ -554,6 +554,65 @@ comment-density floor below now costs adopting projects **nothing**. Comments ar
 the point of delivery, so the pressure to write fewer of them to keep the vendored file
 small is gone, and the floor and the line ceiling stop competing for the same budget.
 
+### Vendoring stage 0, or referencing it
+
+Every adopting project commits `.flixw/flixw.java`, and the shim hashes it on every run:
+
+```sh
+h=$(shasum -a 256 "$src" | cut -d' ' -f1)
+if [ -f "$cache/stage0/$h/flixw.class" ] && [ "$jfeature" -ge 21 ]; then
+  exec "$java0" -cp "$cache/stage0/$h" flixw "$@"
+fi
+exec "$java0" "$src" "$@"
+```
+
+So the vendored bytes are not a bootstrap seed that stops mattering — they **are** the identity
+of which stage 0 this project runs, consulted on every invocation. That is what makes the
+alternative coherent: pin `version` and `sha256` in the lock, have the shim look up
+`<cache>/stage0/<that digest>/`, and the repository need not carry the file at all.
+
+**Not decided. Measured first, because the obvious argument for it is the weakest one.**
+
+The case usually made is diff churn: an upgrade rewrites a 3,700-line file in somebody else's
+repository. Measured against real releases, that is mostly wrong -- a diff is line-based, and
+consecutive releases touch a small part of it:
+
+| upgrade | changed lines | of 3,730 |
+|---|---:|---:|
+| 0.25.9 → 0.25.10 | 123 | 3% |
+| 0.25.3 → 0.25.10 | 314 | 8% |
+| 0.25.0 → 0.25.10 | 776 | 20% |
+
+A single-release upgrade is a 123-line diff, not a 3,700-line one. Anyone arguing from churn
+should quote these rather than the file's size.
+
+What referencing would actually buy is narrower and still real: one copy per machine instead of
+one per project, and `.flixw/.sccignore` becomes unnecessary rather than a suppression -- the
+line-count problem disappears instead of being hidden.
+
+What it costs is two properties this repository has argued for elsewhere:
+
+- **A fresh clone stops running offline.** Today `git clone && ./flixw check` needs no network
+  for stage 0, because stage 0 is in the tree. Under a reference, a machine that has never seen
+  that flixw version must fetch it before anything runs at all.
+- **Something must verify stage 0 before executing it, and today that something is git and a
+  reviewer.** "What ships is not what you read" rests on the vendored copy being *someone
+  else's diff*: a reader sees the code that will run. A version and a digest are
+  cryptographically equivalent and editorially not, and that paragraph would have to be
+  rewritten rather than quietly contradicted.
+
+And the fetch has nowhere good to live. The shims own one decision each, are written twice, and
+cannot be unit-tested on the `cmd.exe` side; download-and-verify is exactly what they exist to
+keep out. The variant that avoids this -- shim *locates*, and fails with "run flixw setup" when
+the cache has nothing -- keeps them dumb at the price of a clone that cannot run until someone
+runs setup on that machine, which is the offline property again in a different coat.
+
+**If it is taken up**, the order matters: stop `--upgrade` rewriting the vendored file when
+nothing but the wrapper changed (the lock already records the version) before changing the lock
+format, since that captures the churn benefit with none of the trust or offline cost. The lock
+gaining `[wrapper] version` + `sha256` is a v1-compatible addition; the shim lookup is not, and
+would be the first change to make an existing checkout unrunnable by an older wrapper.
+
 ### Size is a ratchet, not an aspiration
 
 Stage 0 is shrinking toward a **verified launcher with a narrow plugin broker**: install,
@@ -569,9 +628,9 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/stage0/flixw.java` | 3309 | 2900 |
+| code lines in `src/stage0/flixw.java` | 3326 | 2900 |
 | comment density | 33% | ≥25% floor |
-| bytes | 300767 | 225000 |
+| bytes | 302372 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
