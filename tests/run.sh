@@ -419,6 +419,14 @@ t 87 "--pin with no version is a usage error"                    sh -c '
   java "$2/src/assets/flixw-setup.java" "$d" --pin' sh "$work" "$root"
 # `setup` cannot be delegated to a project wrapper: it exists to create the project there is
 # none of, and the launcher used to answer it with "run setup in a project first".
+# `plugin list` and `plugin remove` read and write the machine-wide cache and touch no
+# project. Requiring one was the wrapper imposing a rule the operation does not have -- it
+# refused from anywhere that was not a flixw project, including flixw's own source tree.
+t 0  "machine-wide plugin verbs answer with no project"          sh -c '
+  cd "$1" && java "$2/src/stage0/flixw.java" plugin list >/dev/null 2>&1' sh "$work" "$root"
+t 80 "...while a verb that needs a project still says so"        sh -c '
+  cd "$1" && java "$2/src/stage0/flixw.java" check' sh "$work" "$root"
+
 t 0  "the global launcher answers setup with no project anywhere" sh -c '
   d=$1/bootglobal; rm -rf "$d"; mkdir -p "$d"
   cd "$d" && "$FLIX_CACHE_HOME/bin/flixw" setup . --pin '"$version"' >/dev/null 2>&1

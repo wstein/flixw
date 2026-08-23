@@ -837,6 +837,17 @@ final class flixwsetup {
           [ "$parent" = "$here" ] && break
           here=$parent
         done
+        # `plugin list` and `plugin remove` read and write the machine-wide cache and need no
+        # project, so not finding one is not a reason to refuse them. Stage 0 is already in the
+        # cache -- compiled, keyed by the source it came from -- so the newest of those answers
+        # here. Every other word still needs a project, and still says so.
+        case ${1-}:${2-} in
+          plugin:list | plugin:remove)
+            cache=$(flixw_cache_home "$0")
+            s0=$(ls -1dt "$cache"/stage0/*/flixw.class 2>/dev/null | head -1)
+            if [ -n "$s0" ]; then exec java -cp "$(dirname -- "$s0")" flixw "$@"; fi
+            ;;
+        esac
         echo "flixw: no checked-in flixw wrapper found above $(pwd -P)" >&2
         echo "       to create one here:  flixw setup . [--pin <version>]" >&2
         exit 87

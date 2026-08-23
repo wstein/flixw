@@ -3094,6 +3094,24 @@ public final class flixw {
         catch (IOException e) { tr("cannot record plugin in " + lf + ": " + e.getMessage()); }
     }
 
+    /**
+     * This project's lock, or null when there is no project or it does not parse.
+     *
+     * <p>For the verbs answered before project resolution: they must work without one, and
+     * must still say what a project pins when there is one. Answering early made `plugin
+     * list` drop the marker naming the build the lock runs, which is the one thing that
+     * listing says beyond what a directory listing would.
+     */
+    static Lock lockIfAny() {
+        try {
+            Path root = findRoot(wrapperAnchor());
+            return root == null || !Files.isRegularFile(lockPath(root)) ? null
+                                                                       : readLock(lockPath(root));
+        } catch (Fail e) {
+            return null;
+        }
+    }
+
     static void pluginList(Lock lock) {
         Map<String, String> want = new LinkedHashMap<>();
         if (lock != null) lock.plugins().forEach((n, d) ->
@@ -4873,6 +4891,19 @@ public final class flixw {
 
         // flixw's own namespace, before project, lock, network or compiler work.
         if ("wrapper".equals(first)) { wrapperNamespace(argv); return; }
+        // `plugin list` and `plugin remove` read and write the machine-wide cache and touch
+        // no project: no lock, no manifest, no compiler. Answered here for that reason --
+        // requiring a project to delete a machine-wide install is this wrapper imposing a
+        // rule the operation does not have, and it refused from anywhere that was not a
+        // flixw project, including flixw's own source tree.
+        if ("plugin".equals(first) && argv.size() >= 2) {
+            List<String> rest = argv.subList(2, argv.size());
+            switch (argv.get(1)) {
+                case "list" -> { pluginList(lockIfAny()); return; }
+                case "remove" -> { pluginRemove(rest); return; }
+                default -> { }                       // everything else needs the project
+            }
+        }
         // The list of operations is wrapperUsage's alone. Spelled out a second time here,
         // it went stale the first time one was added, and lint cannot see this copy: it
         // greps for one flag named after the verb, which a bracketed list is not.
