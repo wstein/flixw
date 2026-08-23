@@ -2774,14 +2774,20 @@ public final class flixw {
      * code that prints it on a first install.
      */
     static void pluginUpgrade(Path root, List<String> args) {
-        if (root == null) throw w001("no flixw project here; plugins are declared in a lock");
-        Lock lock = readLock(lockPath(root));
-        if (lock.plugins().isEmpty()) { System.out.println("(no plugins declared)"); return; }
+        // A lock pins versions and is consulted first; anything merely installed is upgraded
+        // too. Requiring a project made this the one plugin verb that could not be run from
+        // outside one, which is where somebody maintaining their machine actually stands.
+        Lock lock = root == null ? null : lockIfAny();
+        Map<String, PluginDep> want = new LinkedHashMap<>();
+        if (lock != null) want.putAll(lock.plugins());
+        for (Map.Entry<String, PluginDep> e : installedPlugins().entrySet())
+            want.putIfAbsent(e.getKey(), e.getValue());
+        if (want.isEmpty()) { System.out.println("(no plugins installed)"); return; }
         String only = args.isEmpty() ? null : args.get(0);
-        if (only != null && !lock.plugins().containsKey(only))
-            throw w009("plugin " + q(only) + " is not declared in " + lockPath(root));
+        if (only != null && !want.containsKey(only))
+            throw w009("plugin " + q(only) + " is neither declared nor installed");
         boolean moved = false;
-        for (Map.Entry<String, PluginDep> e : new LinkedHashMap<>(lock.plugins()).entrySet()) {
+        for (Map.Entry<String, PluginDep> e : want.entrySet()) {
             if (only != null && !only.equals(e.getKey())) continue;
             String url = newerAsset(e.getValue().source(), e.getValue().version());
             if (url == null) {
@@ -2899,6 +2905,11 @@ public final class flixw {
             if (!verb.isEmpty())
                 try { writeAtomic(dest.resolve("command"), verb + "\n"); }
                 catch (RuntimeException ignored) { }
+            // Where it came from, so `plugin upgrade` can find a newer one without a lock.
+            // The cache knows the name and the version from its own path and knew nothing
+            // else, so upgrading was the one plugin operation that still needed a project.
+            try { writeAtomic(dest.resolve("source"), url + "\n"); }
+            catch (RuntimeException ignored) { }
             System.err.println("flixw: installed plugin " + name + " " + version
                              + " (" + got.substring(0, 16) + "...)");
             // Never quieter than a fork pin's own warning: a digest says these are the
@@ -2947,6 +2958,31 @@ public final class flixw {
      * today's set would be failing for a reason the next `pin` could erase. Dispatch says so
      * instead, at the moment it is true.
      */
+    /**
+     * Every installed plugin, newest version first, as the cache knows it.
+     *
+     * <p>Name and version come from the directory; the source URL from the file install
+     * wrote beside the artifact. A plugin installed before that file existed has no source,
+     * and upgrade says so rather than guessing at a URL.
+     */
+    static Map<String, PluginDep> installedPlugins() {
+        Map<String, PluginDep> out = new LinkedHashMap<>();
+        for (Path nameDir : dirsIn(pluginsDir())) {
+            Path best = null;
+            for (Path v : dirsIn(nameDir))
+                if (best == null || olderOrSame(pluginVersionOf(best), pluginVersionOf(v))) best = v;
+            if (best == null) continue;
+            String src = null;
+            try { src = Files.readString(best.resolve("source"), StandardCharsets.UTF_8).trim(); }
+            catch (IOException ignored) { }
+            String n = best.getFileName().toString();
+            out.put(nameDir.getFileName().toString(),
+                    new PluginDep(pluginVersionOf(best), n.substring(n.length() - 64),
+                                  src, "", ""));
+        }
+        return out;
+    }
+
     /** Which plugin, if any, declared {@code verb} in this lock. */
     static String commandOwner(Lock lock, String verb) {
         if (lock != null)
@@ -3081,6 +3117,7 @@ public final class flixw {
 
     static void recordPluginInLock(Path root, String name, String version, String sha256,
                                    String url, String description, String command) {
+        if (root == null) return;                // installed to the cache; no project to record in
         Path lf = lockPath(root);
         if (!Files.isRegularFile(lf)) return;
         Lock have;
@@ -3102,6 +3139,11 @@ public final class flixw {
      * list` drop the marker naming the build the lock runs, which is the one thing that
      * listing says beyond what a directory listing would.
      */
+    /** This project's root, or null when there is no project here. */
+    static Path rootIfAny() {
+        try { return findRoot(wrapperAnchor()); } catch (Fail e) { return null; }
+    }
+
     static Lock lockIfAny() {
         try {
             Path root = findRoot(wrapperAnchor());
@@ -4901,6 +4943,8 @@ public final class flixw {
             switch (argv.get(1)) {
                 case "list" -> { pluginList(lockIfAny()); return; }
                 case "remove" -> { pluginRemove(rest); return; }
+                case "install" -> { pluginInstall(rootIfAny(), rest); return; }
+                case "upgrade" -> { pluginUpgrade(rootIfAny(), rest); return; }
                 default -> { }                       // everything else needs the project
             }
         }

@@ -424,6 +424,12 @@ t 87 "--pin with no version is a usage error"                    sh -c '
 # refused from anywhere that was not a flixw project, including flixw's own source tree.
 t 0  "machine-wide plugin verbs answer with no project"          sh -c '
   cd "$1" && java "$2/src/stage0/flixw.java" plugin list >/dev/null 2>&1' sh "$work" "$root"
+# Every plugin verb, not some of them. `upgrade` was the last to need a project, because the
+# cache knew a plugin's name and version and not where it came from; install records that now.
+t 0  "upgrade answers with no project, from what the cache recorded" sh -c '
+  cd "$1" && out=$(java "$2/src/stage0/flixw.java" plugin upgrade 2>&1)
+  case $out in *"no plugins installed"*|*"newest release"*|*installed*) exit 0 ;;
+                *) printf "%s\n" "$out"; exit 1 ;; esac' sh "$work" "$root"
 t 80 "...while a verb that needs a project still says so"        sh -c '
   cd "$1" && java "$2/src/stage0/flixw.java" check' sh "$work" "$root"
 
@@ -1995,6 +2001,10 @@ t 0  "a globally installed verb runs in a project that declares none" sh -c '
   out=$(./flixw echoit 2>&1) || exit 1
   case $out in *"is plugin echoer"*) exit 0 ;; *) printf "%s\n" "$out"; exit 1 ;; esac' \
   sh "$work" "$pp"
+# The cache records where a plugin came from, which is what lets `plugin upgrade` find a
+# newer one without a lock. Name and version are in the path; the URL was nowhere.
+t 0  "install records where a plugin came from"                  sh -c '
+  find "$FLIX_CACHE_HOME/plugins/echoer" -name source | grep -q .' sh
 g 0  'command = "echoit"' "a declared verb is recorded in the lock" \
      sh -c 'cd "$1" && cat .flixw/lock.toml' sh "$pp"
 g 0  'ARGS=--flag' "the declared verb reaches the plugin with its arguments" sh -c '
