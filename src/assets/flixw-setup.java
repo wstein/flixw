@@ -1036,17 +1036,37 @@ final class flixwsetup {
       + "# It keeps .flixw/local/ -- machine-specific notes -- out of git.\n"
       + "local/\n";
 
+    /**
+     * The block flixw owns in a file the project maintains: line endings for the six
+     * shipped files, and {@code linguist-vendored} on the three that carry code.
+     *
+     * <p>GitHub reads .gitattributes the way scc reads .sccignore, so the same argument
+     * decides it -- a language graph reporting a fresh Flix project as 89% Shell and 11%
+     * Java is describing the wrapper, not the project. .sccignore could not reach ./flixw
+     * and ./flixw.cmd without flixw writing a file at the project root that the project
+     * owns; the block already is that negotiated space, so here the two shims are covered
+     * too.
+     *
+     * <p>{@code linguist-vendored} and not {@code linguist-generated}, which also excludes
+     * a file from the language graph: generated files are additionally collapsed in a pull
+     * request diff, and the vendored stage 0 exists precisely to be somebody else's diff.
+     * An upgrade rewriting the file a reader trusts with a download is the one diff that
+     * must not arrive folded shut. Vendored is what these files literally are.
+     *
+     * <p>Only the three that carry code are marked; the lock and the two ignore files are
+     * data, and linguist does not count them either way.
+     */
     static void mergeGitattributes(Path ga) throws IOException {
         String begin = "# >>> flixw >>>", end = "# <<< flixw <<<";
-        String block = begin + "\n/flixw text eol=lf\n"
-                     + "/" + WRAPPER_DIR + "/flixw.java text eol=lf\n"
+        String block = begin + "\n/flixw text eol=lf linguist-vendored\n"
+                     + "/" + WRAPPER_DIR + "/flixw.java text eol=lf linguist-vendored\n"
                      + "/" + WRAPPER_DIR + "/lock.toml text eol=lf\n"
                      // Compared byte for byte by `doctor --fix`, so a checkout that
                      // translated its endings would make every run report a file to
                      // repair and repair it back. Same reason as the four above.
                      + "/" + WRAPPER_DIR + "/.gitignore text eol=lf\n"
                      + "/" + WRAPPER_DIR + "/.sccignore text eol=lf\n"
-                     + "/flixw.cmd text eol=crlf\n" + end + "\n";
+                     + "/flixw.cmd text eol=crlf linguist-vendored\n" + end + "\n";
         String cur = Files.isRegularFile(ga) ? Files.readString(ga, StandardCharsets.UTF_8) : "";
         // Every existing block is removed and one is appended, rather than each being
         // rewritten where it sits: two blocks rewritten in place stay two blocks, and the

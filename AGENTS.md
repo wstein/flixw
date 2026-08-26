@@ -118,6 +118,22 @@ verbs, and process launch. The shims own exactly one decision each (which `java`
 cache lookup; keep it that way — logic added to a shim has to be written twice and cannot be
 unit-tested.
 
+`.gitattributes` is the one file flixw shares rather than owns, and the installer merges a
+marked block into it: line endings for all six shipped files, and `linguist-vendored` on
+the three that carry code, so GitHub's language graph describes the project rather than the
+wrapper vendored into it. **Vendored, not `linguist-generated`** — both leave the graph
+alone, but generated files also arrive collapsed in a pull request diff, and the whole of
+"Vendoring stage 0, or referencing it" below rests on the vendored copy being *somebody
+else's diff*. The upgrade that rewrites it is the one diff that must not be folded shut.
+
+The marks go *inside* the block rather than ahead of it: the block is what `doctor --fix`
+regenerates, so a hand-written rule above it is unmanaged and goes stale in silence.
+`validate` reads a later rule the way git resolves attributes, one at a time, so only one
+leaving `text` or `eol` saying something other than the block does is an override —
+`/flixw -linguist-vendored` after it is a project disagreeing, not a failure, while
+`/flixw eol=crlf` is the shim checking out unrunnable. `binary` counts despite naming
+neither attribute, being git's macro for `-diff -merge -text`.
+
 The one thing a shim also reads is the selected JDK's `release` file, and it uses that for
 nothing except declining the compiled stage 0 when the JVM is below `MIN_JAVA`. That is not
 a Java *policy* decision — stage 0 still owns every diagnostic — it is the shim refusing to

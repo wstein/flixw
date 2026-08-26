@@ -454,6 +454,29 @@ t 0  "setup writes a .sccignore that actually ignores"           sh -c '
   f=$1/.flixw/.sccignore
   test -f "$f" && grep -qx "[*]" "$f"' sh "$proj"
 
+# GitHub reads .gitattributes the way scc reads .sccignore, so the same argument decides
+# it: a fresh project whose language graph reads 89% Shell and 11% Java is describing the
+# wrapper, not the project. The block is shared ground flixw already writes to, so it
+# reaches the two shims at the root that .sccignore could not. Asserted through git, since
+# what matters is the attribute that resolves, not the line that was written.
+t 0  "the block marks the wrapper vendored for GitHub"           sh -c '
+  cd "$1" || exit 1
+  for f in flixw flixw.cmd .flixw/flixw.java; do
+    git check-attr linguist-vendored -- "$f" | grep -q ": set$" || exit 1
+  done
+  # and leaves the endings it now shares those rules with alone
+  git check-attr eol -- flixw | grep -q ": lf$"' sh "$proj"
+# Not linguist-generated, which would also collapse the file in a pull request diff. The
+# vendored stage 0 exists to be somebody else's diff, and an upgrade rewriting it is the
+# one diff that must not arrive folded shut.
+t 0  "the wrapper is not marked generated"                       sh -c '
+  cd "$1" && git check-attr linguist-generated -- .flixw/flixw.java \
+    | grep -q ": unspecified$"' sh "$proj"
+# Nor the lock and the ignore files: they are data, and linguist does not count them.
+t 0  "the lock is not marked at all"                             sh -c '
+  cd "$1" && git check-attr linguist-vendored -- .flixw/lock.toml \
+    | grep -q ": unspecified$"' sh "$proj"
+
 t 0  "the scripted setup form writes no lock"                    sh -c '
   d=$1/bootnopin; rm -rf "$d"
   java "$2/src/assets/flixw-setup.java" setup "$d" >/dev/null 2>&1

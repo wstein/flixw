@@ -40,7 +40,7 @@ sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
 It must print exactly this, and if it does not, stop:
 
 ```
-827409b8d53501b449910f5eae294820c08e34a998f82996ef6b80c0b61af430  flixw-setup.java
+ee82784ec72aaa6f84d018891477edb06981f72f5222ab16af3f2d89bc7f87f5  flixw-setup.java
 ```
 
 **The digest comes from this page, not from the download.** That is the whole point of the
@@ -58,7 +58,7 @@ every machine, which is why both are given.
 Comparing by eye is fine for a one-off. A pipeline wants an exit status:
 
 ```console
-echo "827409b8d53501b449910f5eae294820c08e34a998f82996ef6b80c0b61af430  flixw-setup.java" \
+echo "ee82784ec72aaa6f84d018891477edb06981f72f5222ab16af3f2d89bc7f87f5  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -317,7 +317,16 @@ hello/
 `flixw`, `flixw.cmd`, `flixw.java`, `.gitignore` and `.sccignore` are byte-identical in
 every project on the same flixw release, so one published digest validates all five.
 `lock.toml` is yours, `.gitattributes` is yours with a block of ours in it, and
-`local/java` belongs to this machine alone. Not committed, and safe to delete at any time:
+`local/java` belongs to this machine alone.
+
+That block also marks the three files that carry code `linguist-vendored`, so GitHub's
+language graph reports your Flix rather than our Shell and Java. Vendored and not
+`linguist-generated`: both leave the graph alone, but generated files arrive collapsed in a
+pull request, and an upgrade rewriting the wrapper you are trusting with a download is the
+diff you most want open. Say `-linguist-vendored` after the block if you would rather have
+them counted.
+
+Not committed, and safe to delete at any time:
 
 ```text
 build/  lib/  artifact/  .flix-cache/    Flix's own output and dependency cache

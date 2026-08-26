@@ -21,7 +21,14 @@ flixw.cmd             cmd.exe shim
 ```
 
 The installer also merges a marked block into `.gitattributes` — the seventh file, and the
-only one flixw shares rather than owns — preserving unrelated rules.
+only one flixw shares rather than owns — preserving unrelated rules. The block pins the
+line endings of all six shipped files and marks the three that carry code — `flixw`,
+`flixw.cmd`, `.flixw/flixw.java` — `linguist-vendored`, so GitHub's language graph
+describes the project rather than the wrapper vendored into it. Not `linguist-generated`,
+which excludes a file from the graph and collapses its pull-request diff as well: the
+vendored stage 0 is meant to be read before it is trusted, and an upgrade rewriting it is
+the diff that most needs to be open. A project that disagrees says `-linguist-vendored`
+after the block.
 
 `flixw validate` compares the two shims byte for byte against the bytes this release ships,
 reports stage 0's digest for comparison against the published release, and fails if a later
