@@ -3557,6 +3557,56 @@ public final class flixw {
         return shipped.equals("flixw.cmd") ? "text eol=crlf" : "text eol=lf";
     }
 
+    /**
+     * Does a later rule leave {@code text} or {@code eol} saying something other than the
+     * block does? git resolves attributes one at a time, so a rule reaches only those it
+     * names: the block sets {@code linguist-vendored} beside the endings, and a project
+     * that turns that back off has not touched what this check protects.
+     *
+     * <p>A token that is not {@code text} or {@code eol} may still be either of them
+     * wearing a macro's name, which is why {@code macros} is passed rather than assumed
+     * empty: {@code binary} is git's own, expands to {@code -diff -merge -text}, and
+     * un-pins the endings while naming neither. Expansion recurses once with no macros,
+     * so a macro defined in terms of itself cannot loop.
+     */
+    static boolean changesEndings(String attrs, String shipped, Map<String, String> macros) {
+        String pinned = " " + canonicalAttrs(shipped) + " ";
+        for (String token : attrs.split("\\s+")) {
+            String name = token.replaceFirst("^[-!]", "").replaceFirst("=.*", "");
+            String macro = macros.get(name);
+            if (macro != null) {
+                if (changesEndings(macro, shipped, Map.of())) return true;
+                continue;
+            }
+            if (!name.equals("text") && !name.equals("eol")) continue;
+            // `text=auto` differs from the block's plain `text` only in how git decides a
+            // file is text at all, and the block's own `eol` goes on resolving beside it --
+            // so the bytes that get checked out are the same. It is also the single most
+            // likely line to be appended to a .gitattributes, and failing a project over
+            // one that changes nothing is what this whole check is trying to stop.
+            if (token.equals("text=auto") && pinned.contains(" text ")) continue;
+            if (!pinned.contains(" " + token + " ")) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The macros in force for this file: git's built-in {@code binary}, plus any the file
+     * defines itself. Config-defined macros are out of reach and deliberately so — they
+     * are not committed, so they describe one clone rather than the project.
+     */
+    static Map<String, String> attrMacros(String text) {
+        Map<String, String> macros = new LinkedHashMap<>();
+        macros.put("binary", "-diff -merge -text");
+        for (String line : text.split("\r?\n")) {
+            String t = line.trim();
+            if (!t.startsWith("[attr]")) continue;
+            String[] parts = t.substring("[attr]".length()).split("\\s+", 2);
+            if (parts.length == 2) macros.putIfAbsent(parts[0], parts[1]);
+        }
+        return macros;
+    }
+
     static final List<String> SHIPPED =
         List.of("flixw", "flixw.cmd", WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml",
                 WRAPPER_DIR + "/.gitignore");
@@ -3576,8 +3626,9 @@ public final class flixw {
      * the failure the block exists to prevent.
      *
      * What counts as an override is the resulting attribute, not the mere presence of a
-     * later rule: a repetition of what the block already says changes nothing, and calling
-     * it harmful would send someone hunting for a problem they do not have.
+     * later rule: a repetition of what the block already says changes nothing, and neither
+     * does a rule setting some unrelated attribute on the same path. Calling either harmful
+     * would send someone hunting for a problem they do not have.
      */
     static int checkGitattributes(Path ga) {
         if (!Files.isRegularFile(ga)) {
@@ -3605,13 +3656,14 @@ public final class flixw {
         }
         int after = text.lastIndexOf(end);
         if (after < 0) return bad;                    // nothing after an end that is not there
+        Map<String, String> macros = attrMacros(text);
         for (String line : text.substring(after).split("\r?\n")) {
             String t = line.trim();
             if (t.isEmpty() || t.startsWith("#")) continue;
             String pattern = t.split("\\s+")[0];
             String attrs = t.substring(pattern.length()).trim();
             for (String f : SHIPPED) {
-                if (patternMatches(pattern, f) && !attrs.equals(canonicalAttrs(f))) {
+                if (patternMatches(pattern, f) && changesEndings(attrs, f, macros)) {
                     System.out.println("FAIL  .gitattributes rule " + q(t)
                                      + " comes after the flixw block and changes " + f);
                     bad++;

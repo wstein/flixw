@@ -20,14 +20,25 @@ flixw.cmd             cmd.exe shim
 ```
 
 The installer also merges a marked block into `.gitattributes` — the sixth file, and the
-only one flixw shares rather than owns — preserving unrelated rules. `flixw validate` compares the two shims byte for byte against the bytes this
-release ships, reports stage 0's digest for comparison against the published release, and
-fails if a later `.gitattributes` rule overrides the block — any rule matching one of the
-five shipped paths, whether by wildcard or by naming it outright — or if more than one
-flixw block exists, since git honours the last — gitattributes resolves by
-last matching pattern, so an override silently un-pins the line endings the block exists
-to fix. All five must be committed; `flixw validate` fails if a gitignore rule swallows one,
-because a collaborator would then get a project that cannot bootstrap. `.flixw/local/` is
+only one flixw shares rather than owns — preserving unrelated rules.
+
+`flixw validate` compares the two shims byte for byte against the bytes this release ships,
+reports stage 0's digest for comparison against the published release, and fails if a later
+`.gitattributes` rule overrides the block, or if more than one flixw block exists, since git
+honours the last.
+
+An override is judged by the attribute that results, not by the presence of a later rule.
+git resolves attributes one at a time, so a rule counts only when it matches a shipped path
+— by wildcard or by naming it outright — *and* leaves `text` or `eol` saying something
+other than the block does. Repeating what the block already says is not an override, nor is
+setting some unrelated attribute on the same path; a bare `text=auto` is not one either,
+because the block's own `eol` goes on resolving beside it. `binary` is, despite naming
+neither attribute: it is git's macro for `-diff -merge -text`, and so is any macro the file
+defines that unsets `text` the same way. Macros defined in git config are out of scope,
+being uncommitted and therefore true of one clone rather than of the project.
+
+All five shipped files must be committed; `flixw validate` fails if a gitignore rule
+swallows one, because a collaborator would then get a project that cannot bootstrap. `.flixw/local/` is
 the exception that proves it: machine-specific, and ignored by the `.gitignore` flixw
 ships for exactly that purpose. Stage 0 rewrites both notes in it on any run that resolves
 a compiler, and discards every failure doing so — a note whose absence costs only a

@@ -1760,6 +1760,44 @@ t 0  "a later rule identical to the block is harmless"           sh -c '
   printf "/flixw text eol=lf\n" >> .gitattributes
   ./flixw validate >/dev/null 2>&1; rc=$?
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# git resolves attributes one at a time, so a later rule reaches only the ones it names.
+# The block sets linguist-vendored, and a project that would rather have its shims counted
+# turns that off after it -- leaving the endings this check exists to protect untouched.
+# Reading any later mention of a shipped path as an override failed that project over a
+# rule that changes nothing.
+t 0  "a later rule on an unrelated attribute is not an override" sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "/flixw -linguist-vendored\n" >> .gitattributes
+  ./flixw validate >/dev/null 2>&1; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# Naming one ending and changing it is still an override, which is what per-attribute
+# reading must not lose: the shim would check out with CRLF and stop being runnable.
+g 88 'changes flixw' "a later rule that changes eol alone is an override" sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "/flixw eol=crlf\n" >> .gitattributes
+  ./flixw validate; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# `binary` names neither attribute and re-points the endings anyway: it is git's own macro
+# for `-diff -merge -text`, so reading tokens literally would wave it through and hand a
+# collaborator the shim with the wrong endings -- the one failure the block exists to stop.
+g 88 'changes flixw' "a later binary macro is an override"       sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "/flixw binary\n" >> .gitattributes
+  ./flixw validate; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# The same reasoning through a macro the project defines for itself.
+g 88 'changes flixw' "a later project macro that unsets text counts" sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "[attr]blob -text\n/flixw blob\n" >> .gitattributes
+  ./flixw validate; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# ...and the converse, because `* text=auto` is the likeliest line anyone ever appends: the
+# block's own `eol` goes on resolving beside it, so the checked-out bytes do not move.
+t 0  "a later bare text=auto leaves the endings alone"           sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "* text=auto\n" >> .gitattributes
+  ./flixw validate >/dev/null 2>&1; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
 g 88 'markers' "an unbalanced flixw marker is a failure"         sh -c '
   cp .gitattributes "$1/ga.keep"
   printf "# <<< flixw <<<\n" >> .gitattributes
