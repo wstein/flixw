@@ -942,7 +942,7 @@ final class flixwsetup {
                                  + " that changed:");
                 System.out.println("  git add flixw flixw.cmd " + WRAPPER_DIR);
             } else if (!pinning) {
-                System.out.println("next: ./flixw pin <version>   then commit all five files");
+                System.out.println("next: ./flixw pin <version>   then commit all six files");
             }
         } catch (IOException e) { throw w009("install failed: " + e.getMessage()); }
     }
@@ -1063,7 +1063,7 @@ final class flixwsetup {
                      + "/" + WRAPPER_DIR + "/lock.toml text eol=lf\n"
                      // Compared byte for byte by `doctor --fix`, so a checkout that
                      // translated its endings would make every run report a file to
-                     // repair and repair it back. Same reason as the four above.
+                     // repair and repair it back. Same reason as every line above.
                      + "/" + WRAPPER_DIR + "/.gitignore text eol=lf\n"
                      + "/" + WRAPPER_DIR + "/.sccignore text eol=lf\n"
                      + "/flixw.cmd text eol=crlf linguist-vendored\n" + end + "\n";

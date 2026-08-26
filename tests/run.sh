@@ -1963,7 +1963,7 @@ echo "install advice"
 # `install` is reached two ways. First contact has nothing pinned and the next step is
 # pinning. `wrapper --upgrade` arrives here with a lock already in place, and telling that
 # reader to pin reads as though the upgrade had lost their compiler.
-g 0 'commit all five files' "first contact says to pin"          sh -c '
+g 0 'commit all six files' "first contact says to pin"          sh -c '
   d=$1/advice-new; rm -rf "$d"; mkdir -p "$d"
   java "$2/src/assets/flixw-setup.java" setup "$d" 2>&1' sh "$work" "$root"
 g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
