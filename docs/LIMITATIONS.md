@@ -90,8 +90,9 @@ full suite under Git Bash and the shim once from PowerShell. That job now runs o
 push and passes. `flix-invaders` also runs the POSIX shim under Git Bash on
 `windows-latest`, launching the game in a real window.
 
-Two gaps remain behind that green tick. Four suite cases cannot exist on Windows and are
-reported as skipped, not passed. And the `cmd.exe` trampoline has no *field* coverage: the
+Two gaps remain behind that green tick. Twenty suite cases cannot run on Windows and are
+reported as skipped, not passed — the figure the Windows job prints as `skipped=`, so it is
+checkable rather than asserted. And the `cmd.exe` trampoline has no *field* coverage: the
 one real project using flixw drives it from Git Bash, so `flixw.cmd` is exercised only by
 flixw's own smoke job. Specific risks:
 
@@ -488,12 +489,16 @@ row per Flix release, precisely so the cost shows up as a number rather than an 
 its baseline row records that the project adopted 0.75.2 on the day it shipped, *before*
 pinning, which is the bar the experiment now has to clear.
 
-Four of those cases cannot run on Windows and are reported as skipped rather than
-quietly passing. Three drive a fake JDK — a lying `release` file over a `bin/java` that
-delegates to the real one — which Windows would need as a genuine `java.exe`; a copied
-`java.exe` resolves `java.home` from its own path and would find no `lib/modules`. The
-fourth signals stage 0 with `SIGTERM`, which MSYS cannot deliver to a native JVM. The
-behaviours themselves are OS-independent and are covered on the other two platforms.
+Twenty of those cases cannot run on Windows and are reported as skipped rather than
+quietly passing, in four groups. Eleven drive a fake JDK — a lying `release` file over a
+`bin/java` that delegates to the real one — which Windows would need as a genuine
+`java.exe`; a copied `java.exe` resolves `java.home` from its own path and would find no
+`lib/modules`. Seven need `PATH` emptied of every `java`, which MSYS re-populates. One
+signals stage 0 with `SIGTERM`, which MSYS cannot deliver to a native JVM. The last needs
+`ln -s` to produce a link rather than a copy, and is the only one probed rather than gated
+on the platform: a Windows host with `winsymlinks:nativestrict` and the right to create
+links runs it. The behaviours themselves are OS-independent and are covered on the other
+two platforms.
 
 Every claim in [CONTRACT.md](CONTRACT.md) is tested. None of them is *proven in the
 field*, and the policy question the design paper raises — whether pinning helps or hurts

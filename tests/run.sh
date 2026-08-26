@@ -441,11 +441,19 @@ t 0  "the global launcher answers setup with no project anywhere" sh -c '
 # location -- so it has to follow the link first, or it looks for the setup program beside
 # the link instead of beside itself. And `setup` has to be answered before the search for a
 # project, not after: inside one, the search finds a wrapper and hands `setup` to the compiler.
+# Probed rather than gated on the platform: Git Bash's `ln -s` silently *copies* unless
+# MSYS=winsymlinks:nativestrict is set and the account may create links, and a copy left
+# outside the cache derives the wrong cache root -- so the case would fail for the one
+# reason it is not testing. A Windows host that can make links still runs it.
+if ln -sf "$FLIX_CACHE_HOME/bin/flixw" "$work/linked-flixw" 2>/dev/null &&
+   [ -L "$work/linked-flixw" ]; then
 t 0  "setup works through a symlinked launcher, inside a project" sh -c '
-  ln -sf "$FLIX_CACHE_HOME/bin/flixw" "$1/linked-flixw"
   cd "$2" && out=$(FLIX_CACHE_HOME= "$1/linked-flixw" setup --pin 2>&1)
   case $out in *"--pin <version>"*) exit 0 ;; *) printf "%s\n" "$out"; exit 1 ;; esac' \
   sh "$work" "$proj"
+else
+  s "setup works through a symlinked launcher, inside a project" "ln -s does not link here"
+fi
 # `.flixw/` is ~3,300 lines of somebody else's Java, and a tool counting a project's code
 # should not report them as the project's. scc reads a per-directory file, so flixw can
 # answer it without editing anything the project maintains. The pattern matters: an empty

@@ -97,9 +97,11 @@ Schema. Adding a case means adding a file; nothing enumerates them by name. See
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
 space: two JDK stand-ins, a JAR whose `--help` cannot be parsed, a JAR that sleeps, and a
-git-initialised scratch project. Nothing binary is committed. Four cases cannot exist on
-Windows — three need a runnable fake `bin/java.exe`, one needs a POSIX signal — and are
-reported as `skip` rather than asserted for the wrong reason.
+git-initialised scratch project. Nothing binary is committed. Twenty cases cannot run on
+Windows — eleven need a runnable fake `bin/java.exe`, seven need a `PATH` with no `java` on
+it, one needs a POSIX signal, one needs `ln -s` to link rather than copy — and are reported
+as `skip` rather than asserted for the wrong reason. The last is probed instead of gated on
+the platform, so a host that *can* link still runs it.
 
 ## Architecture
 
