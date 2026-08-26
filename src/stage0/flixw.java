@@ -3607,9 +3607,15 @@ public final class flixw {
         return macros;
     }
 
+    /**
+     * Every path the installer writes and the project commits — the set the block pins and
+     * the set git has to carry. One list, because it was two: {@code .sccignore} shipped
+     * into the block while both copies still named five files, so a later rule re-pointing
+     * its endings went unreported and nothing noticed it was untracked.
+     */
     static final List<String> SHIPPED =
         List.of("flixw", "flixw.cmd", WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml",
-                WRAPPER_DIR + "/.gitignore");
+                WRAPPER_DIR + "/.gitignore", WRAPPER_DIR + "/.sccignore");
 
     /** Does one .gitattributes pattern match one path flixw ships? */
     static boolean patternMatches(String pattern, String path) {
@@ -3836,14 +3842,13 @@ public final class flixw {
 
         // Generated wrapper files are only reproducible for a collaborator if git actually
         // carries them.  A .gitignore rule that swallows the lock is silent otherwise.
-        List<String> generated = List.of("flixw", "flixw.cmd",
-                                         WRAPPER_DIR + "/flixw.java", WRAPPER_DIR + "/lock.toml",
-                                         WRAPPER_DIR + "/.gitignore");
         Integer isRepo = git(root, "rev-parse", "--is-inside-work-tree");
         if (isRepo == null || isRepo != 0) {
             System.out.println("warn  not a git work tree; cannot check tracked status");
         } else {
-            for (String rel : generated) {
+            for (String rel : SHIPPED) {
+                // Skipped when absent rather than failed: a project installed before a file
+                // joined the set has not done anything wrong, and `doctor --fix` writes it.
                 if (!Files.exists(root.resolve(rel))) continue;
                 Integer ignored = git(root, "check-ignore", "-q", "--", rel);
                 if (ignored != null && ignored == 0) {

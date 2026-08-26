@@ -1798,6 +1798,13 @@ t 0  "a later bare text=auto leaves the endings alone"           sh -c '
   printf "* text=auto\n" >> .gitattributes
   ./flixw validate >/dev/null 2>&1; rc=$?
   cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
+# .sccignore joined the block a release before it joined this check, so a rule re-pointing
+# its endings was silently allowed. It is a shipped file like the other five.
+g 88 'changes .flixw/.sccignore' "a later rule on .sccignore is an override" sh -c '
+  cp .gitattributes "$1/ga.keep"
+  printf "/.flixw/.sccignore eol=crlf\n" >> .gitattributes
+  ./flixw validate; rc=$?
+  cp "$1/ga.keep" .gitattributes; exit $rc' sh "$work"
 g 88 'markers' "an unbalanced flixw marker is a failure"         sh -c '
   cp .gitattributes "$1/ga.keep"
   printf "# <<< flixw <<<\n" >> .gitattributes
@@ -1945,6 +1952,12 @@ g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
 # --- git integration -------------------------------------------------------
 echo "git integration"
 t 0  "validate warns when generated files are untracked"        sh -c 'git init -q . 2>/dev/null; ./flixw validate'
+# Every shipped file is reported, .sccignore included: it is committed like the rest, and
+# a check that names five of six lets the sixth go missing from a clone in silence.
+t 0  "validate reports the tracked status of every shipped file" sh -c '
+  git init -q . 2>/dev/null
+  n=$(./flixw validate 2>/dev/null | grep -cE "^(ok    .* is tracked$|warn  .* is not tracked yet )")
+  test "$n" -eq 6'
 g 88 'gitignore' "validate fails when the lock is ignored"      sh -c '
   echo ".flixw/" > .gitignore
   ./flixw validate; rc=$?

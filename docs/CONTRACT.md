@@ -5,8 +5,8 @@ promised. Every statement below is covered by a case in `tests/run.sh`.
 
 ## Files
 
-Five files are committed into a consuming project, plus a block inside one the project
-already owns. Four of the five are byte-identical across every project using a given
+Six files are committed into a consuming project, plus a block inside one the project
+already owns. Five of the six are byte-identical across every project using a given
 `flixw` release, so a single published hash validates them; only the lock differs per
 project.
 
@@ -16,10 +16,11 @@ flixw.cmd             cmd.exe shim
 .flixw/flixw.java     stage 0
 .flixw/lock.toml      the pin: version, URL, SHA-256
 .flixw/.gitignore     keeps .flixw/local/ out of git
+.flixw/.sccignore     keeps the vendored wrapper out of scc's line counts
 .flixw/local/java     the JDK this machine resolved to; NOT committed
 ```
 
-The installer also merges a marked block into `.gitattributes` — the sixth file, and the
+The installer also merges a marked block into `.gitattributes` — the seventh file, and the
 only one flixw shares rather than owns — preserving unrelated rules.
 
 `flixw validate` compares the two shims byte for byte against the bytes this release ships,
@@ -37,7 +38,7 @@ neither attribute: it is git's macro for `-diff -merge -text`, and so is any mac
 defines that unsets `text` the same way. Macros defined in git config are out of scope,
 being uncommitted and therefore true of one clone rather than of the project.
 
-All five shipped files must be committed; `flixw validate` fails if a gitignore rule
+All six shipped files must be committed; `flixw validate` fails if a gitignore rule
 swallows one, because a collaborator would then get a project that cannot bootstrap. `.flixw/local/` is
 the exception that proves it: machine-specific, and ignored by the `.gitignore` flixw
 ships for exactly that purpose. Stage 0 rewrites both notes in it on any run that resolves
@@ -46,7 +47,7 @@ startup optimisation is not worth a diagnostic, still less a failed build.
 
 **Installing from an archive.** A release also ships `flixw-<version>.tar.gz` and
 `flixw-<version>.zip`, whose contents are byte-identical to what `install` writes and are
-extracted at a project root. They carry the four invariant files and nothing else: the lock is yours to
+extracted at a project root. They carry the five invariant files and nothing else: the lock is yours to
 generate, and `.gitattributes` is omitted because `install` *merges* its block into
 whatever the project already has, while an archive can only overwrite. `./flixw doctor --fix` performs that merge afterwards, and
 `./flixw validate` reports the block as missing if it was skipped. The executable bit on

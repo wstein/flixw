@@ -305,18 +305,19 @@ hello/
 ├── .flixw/
 │   ├── flixw.java         stage 0: the bootstrap, one dependency-free Java file
 │   ├── .gitignore         keeps local/ out of git
+│   ├── .sccignore         keeps the wrapper out of scc's line counts
 │   ├── lock.toml          the pin — repository, version, URL, SHA-256
 │   └── local/java         the JDK this machine resolved to — not committed
-├── .gitattributes         line endings for the five above, as a block in your file
+├── .gitattributes         line endings for the committed six, as a block in your file
 ├── flix.toml              your project: name, dependencies, the minimum Flix
 ├── src/Main.flix          your code
 └── test/TestMain.flix     your tests
 ```
 
-`flixw`, `flixw.cmd`, `flixw.java` and `.gitignore` are byte-identical in every project on
-the same flixw release, so one published digest validates all four. `lock.toml` is yours,
-`.gitattributes` is yours with a block of ours in it, and `local/java` belongs to this
-machine alone. Not committed, and safe to delete at any time:
+`flixw`, `flixw.cmd`, `flixw.java`, `.gitignore` and `.sccignore` are byte-identical in
+every project on the same flixw release, so one published digest validates all five.
+`lock.toml` is yours, `.gitattributes` is yours with a block of ours in it, and
+`local/java` belongs to this machine alone. Not committed, and safe to delete at any time:
 
 ```text
 build/  lib/  artifact/  .flix-cache/    Flix's own output and dependency cache
