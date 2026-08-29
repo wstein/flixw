@@ -74,7 +74,14 @@ final class flixwexamples {
 
         switch (verb) {
             case "list" -> list(root);
-            case "run", "check" -> dispatch(root, javaExe, compilerJar, verb, rest);
+            // Verb-agnostic on purpose: dispatch only ever changes the compiler's working
+            // directory and forwards what follows <name>, so "what does build's artifact
+            // location mean here" has the same answer it does for the root project --
+            // Flix's own convention, examples/<name>/build/, needs nothing from this asset.
+            // "test" means what it says for a package with its own @Test defs, not Cargo's
+            // run-the-example-as-a-test-of-the-root-package sense -- there is no such sense
+            // here, since examples is its own namespace rather than a flag on `run`.
+            case "run", "check", "build", "test" -> dispatch(root, javaExe, compilerJar, verb, rest);
             default -> {
                 System.err.println("flixw examples: unknown command " + q(verb));
                 System.err.println(usageText());
@@ -168,6 +175,6 @@ final class flixwexamples {
 
     static String usageText() {
         return "usage: ./flixw examples list"
-             + "\n       or: ./flixw examples run|check <name> [-- args]";
+             + "\n       or: ./flixw examples run|check|build|test <name> [-- args]";
     }
 }

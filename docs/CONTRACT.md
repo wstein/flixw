@@ -648,15 +648,25 @@ without touching the root's own lock:
 ./flixw examples run cli-tool
 ./flixw examples run cli-tool -- some-token
 ./flixw examples check cli-tool
+./flixw examples build cli-tool
+./flixw examples test cli-tool
 ```
 
 A bare `./flixw examples` is the same as `./flixw examples list`. `list` prints nothing
 but a directory name for every `examples/<name>/` that contains a `flix.toml`; a name that
 does not match `[a-z][a-z0-9-]*` is silently excluded rather than listed and then refused,
-degrading the same way an unparsed compiler `--help` does elsewhere in this wrapper. `run`
-and `check` exit 89, naming the known examples, if `<name>` is not one of them — the
+degrading the same way an unparsed compiler `--help` does elsewhere in this wrapper. Every
+other subcommand exits 89, naming the known examples, if `<name>` is not one of them — the
 companion-asset convention `help` already uses for "no help topic" and "no plugin", not a
 `FLIXWnnn` code: an asset's own diagnostics are not stage 0's numbered registry.
+
+**Dispatch is verb-agnostic.** `run`, `check`, `build` and `test` all reach the same code
+path — change the compiler's working directory, forward what follows `<name>` — so `build`
+needs no opinion from this wrapper about where its artifact goes (`examples/<name>/build/`,
+Flix's own convention, exactly as it would be for the root project) and `test` means what
+it says for a package with its own `@Test` definitions, not Cargo's sense of running an
+example as a test of the root package: there is no such sense here, since `examples` is its
+own command rather than a flag riding `run`.
 
 **Everything after `<name>` is forwarded to the compiler verb verbatim, including a
 leading `--`.** Flix's own `run` rejects trailing words as unsupported "file arguments"

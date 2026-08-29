@@ -74,7 +74,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 393-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 395-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -394,7 +394,7 @@ requires a resolvable project root, and both of these have to answer without one
 | `src/assets/flixw-help.java` | `help [<topic>]`, `completion <shell>` | the static completer answers before `findRoot`, same as `--schema`/`--version` |
 | `src/assets/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 | `src/assets/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
-| `src/assets/flixw-examples.java` | `examples [list \| run \| check]` | see below — a different reason from the three above |
+| `src/assets/flixw-examples.java` | `examples [list \| run \| check \| build \| test]` | see below — a different reason from the three above |
 
 **`examples` was never a migration candidate; it was designed as an asset from the start,
 for a reason the table above doesn't cover.** `examples/<name>/` is a real, separate Flix

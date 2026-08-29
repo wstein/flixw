@@ -581,7 +581,7 @@ fi
 MAX_CODE_LINES=3412          # `examples` is a wrapper verb dispatching to a companion asset,
                              # like `help`/`completion`; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 33
-MAX_BYTES=312456             # same capability; target: 225000
+MAX_BYTES=312467             # examples gains build/test, same as run/check; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

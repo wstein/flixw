@@ -474,6 +474,8 @@ examples` runs one against the root project's own selected Java and verified com
 ./flixw examples run cli-tool
 ./flixw examples run cli-tool -- some-token
 ./flixw examples check cli-tool
+./flixw examples build cli-tool
+./flixw examples test cli-tool
 ```
 
 Everything after `<name>` is forwarded to the compiler verb exactly as typed, `--`

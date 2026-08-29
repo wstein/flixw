@@ -2359,7 +2359,8 @@ flix = "$version"
 authors = ["t"]
 EOF
 # Sys.Env.Env.getArgs is the one channel a `run --` token actually reaches: proof that
-# forwarding works end to end, not only that the process launches.
+# forwarding works end to end, not only that the process launches. The @Test def is for
+# `examples test` below -- a package can carry both a main and its own tests.
 cat > "$ep/examples/cli-tool/src/Main.flix" <<'FLIX'
 use Sys.Env.Env
 
@@ -2368,6 +2369,10 @@ def main(): Unit \ IO =
         let args: List[String] = Env.getArgs();
         List.forEach((a: String) -> println(a), args)
     )
+
+@Test
+def testExampleOwnsItsOwnTests(): Unit \ Assert =
+    Assert.assertEq(expected = 1, 1)
 FLIX
 
 g 0  '^cli-tool$'            "examples list finds a real example"  sh -c '
@@ -2389,6 +2394,15 @@ g 0  '^AEtgYICyPB1X$' "run forwards a token after -- to the example" sh -c '
   cd "$1" && ./flixw examples run cli-tool -- AEtgYICyPB1X' sh "$ep"
 t 0  "check runs against the example, not the root project"       sh -c '
   cd "$1" && ./flixw examples check cli-tool' sh "$ep"
+# Verb-agnostic dispatch: build and test need nothing beyond changing the working
+# directory and forwarding the verb, so a package's own build output and its own tests
+# are exactly what the compiler already does for the root project, unasked.
+t 0  "build compiles the example into its own build/ directory"   sh -c '
+  cd "$1" && ./flixw examples build cli-tool' sh "$ep"
+# Flix's own test report is ANSI-coloured even through a pipe, so the digits are matched
+# loosely around the escape codes rather than as one literal substring.
+g 0  'Passed:.*1.*Failed:.*0' "test runs the example's own tests"  sh -c '
+  cd "$1" && ./flixw examples test cli-tool' sh "$ep"
 
 # Probed rather than gated on the platform, same reasoning as the symlinked-launcher case
 # above: a host that can make links still runs these.

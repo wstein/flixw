@@ -1027,7 +1027,7 @@ public final class flixw {
     static final String VALIDATE_USAGE = "usage: ./flixw validate";
     static final String EXAMPLES_USAGE =
           "usage: ./flixw examples list"
-        + "\n          or: ./flixw examples run|check <name> [-- args]";
+        + "\n          or: ./flixw examples run|check|build|test <name> [-- args]";
 
     /**
      * {@code --help}/{@code -h} anywhere in a wrapper verb's own arguments, the same way a
