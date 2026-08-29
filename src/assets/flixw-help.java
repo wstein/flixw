@@ -661,7 +661,12 @@ final class flixwhelp {
         }
         // The child is gone; the reader has at most a buffer left to drain.
         reader.join(1000);
-        return b.toString();
+        // flix() compares this against the cached --help byte-for-byte to tell "no
+        // per-command help, same top-level text repeated" from a real answer. That cache
+        // went through captureHelp's own \r\n normalization (a Windows JVM's own
+        // System.lineSeparator()); without the same normalization here the two would
+        // differ on Windows even when the compiler said the same thing twice.
+        return b.toString().replace("\r\n", "\n").replace('\r', '\n');
     }
 
     // ---- plugins and tasks ----------------------------------------------------
