@@ -10,7 +10,10 @@ import java.util.stream.Stream;
 /**
  * Renders {@code ./flixw examples ...} -- a wrapper-owned companion asset, not a plugin.
  *
- * <p>{@code java flixw-examples.java <root> <javaExe> <compilerJar> <verb> [args...]}
+ * <p>{@code java flixw-examples.java <root> <javaExe> <compilerJar> <jvmOptCount>
+ * [jvmOpt...] <verb> [args...]} -- the option count precedes the options themselves so an
+ * arbitrary-length, already-tokenized list can sit between fixed positions with no
+ * delimiter to collide with a real option string.
  *
  * <p>Runs one of a project's {@code examples/<name>/} directories as its own consumer
  * package, against the root project's already-selected, already-verified Java and
@@ -62,15 +65,21 @@ final class flixwexamples {
 
     static void body(String[] args) throws Exception {
         if (args.length < 4) {
-            System.err.println("usage: java flixw-examples.java <root> <javaExe>"
-                             + " <compilerJar> <verb> [args...]");
+            System.err.println(protocolUsage());
             throw new Exit(87);
         }
         Path root = Paths.get(args[0]);
         Path javaExe = Paths.get(args[1]);
         Path compilerJar = Paths.get(args[2]);
-        String verb = args[3];
-        List<String> rest = List.of(args).subList(4, args.length);
+        int optCount = Integer.parseInt(args[3]);
+        int verbAt = 4 + optCount;
+        if (verbAt >= args.length) {
+            System.err.println(protocolUsage());
+            throw new Exit(87);
+        }
+        List<String> jvmOpts = List.of(args).subList(4, verbAt);
+        String verb = args[verbAt];
+        List<String> rest = List.of(args).subList(verbAt + 1, args.length);
 
         switch (verb) {
             case "list" -> list(root);
@@ -81,7 +90,8 @@ final class flixwexamples {
             // "test" means what it says for a package with its own @Test defs, not Cargo's
             // run-the-example-as-a-test-of-the-root-package sense -- there is no such sense
             // here, since examples is its own namespace rather than a flag on `run`.
-            case "run", "check", "build", "test" -> dispatch(root, javaExe, compilerJar, verb, rest);
+            case "run", "check", "build", "test" ->
+                dispatch(root, javaExe, compilerJar, jvmOpts, verb, rest);
             default -> {
                 System.err.println("flixw examples: unknown command " + q(verb));
                 System.err.println(usageText());
@@ -131,7 +141,8 @@ final class flixwexamples {
         else names.forEach(System.out::println);
     }
 
-    static void dispatch(Path root, Path javaExe, Path compilerJar, String verb, List<String> rest)
+    static void dispatch(Path root, Path javaExe, Path compilerJar, List<String> jvmOpts,
+                         String verb, List<String> rest)
             throws IOException, InterruptedException {
         if (rest.isEmpty()) {
             System.err.println("flixw examples: " + verb + " needs a name -- known: "
@@ -164,14 +175,27 @@ final class flixwexamples {
             throw new Exit(89);
         }
 
-        List<String> cmd = new ArrayList<>(List.of(javaExe.toString(), "-jar",
-                                                    compilerJar.toString(), verb));
+        // Same shape stage 0's own launch() uses for the root project's compiler: options
+        // between the executable and -jar, so "options for the compiler JVM" means the
+        // same thing here as it does for ./flixw run -- already validated and tokenized
+        // by stage 0's jvmOpts(), never re-parsed from a raw string in this asset.
+        List<String> cmd = new ArrayList<>();
+        cmd.add(javaExe.toString());
+        cmd.addAll(jvmOpts);
+        cmd.add("-jar");
+        cmd.add(compilerJar.toString());
+        cmd.add(verb);
         cmd.addAll(forward);
         Process p = new ProcessBuilder(cmd).directory(dir.toFile()).inheritIO().start();
         throw new Exit(p.waitFor());
     }
 
     static String q(String s) { return "'" + s + "'"; }
+
+    static String protocolUsage() {
+        return "usage: java flixw-examples.java <root> <javaExe> <compilerJar>"
+             + " <jvmOptCount> [jvmOpt...] <verb> [args...]";
+    }
 
     static String usageText() {
         return "usage: ./flixw examples list"

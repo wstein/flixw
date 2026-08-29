@@ -2394,6 +2394,31 @@ g 0  '^AEtgYICyPB1X$' "run forwards a token after -- to the example" sh -c '
   cd "$1" && ./flixw examples run cli-tool -- AEtgYICyPB1X' sh "$ep"
 t 0  "check runs against the example, not the root project"       sh -c '
   cd "$1" && ./flixw examples check cli-tool' sh "$ep"
+# --help only ever means "show flixw's usage" before the first bare --; past it, it is the
+# example's own argv. wantsHelp scanning the whole rest list once made this indistinguishable
+# from `examples --help`, silently eating the one token this command exists to deliver.
+g 0  '^--help$' "-- --help reaches the example, not flixw's own usage" sh -c '
+  cd "$1" && ./flixw examples run cli-tool -- --help' sh "$ep"
+g 0  'usage: ./flixw examples' "examples --help is still flixw's own usage" sh -c '
+  cd "$1" && ./flixw examples --help' sh "$ep"
+# FLIX_JVM_OPTS names "options for the compiler JVM" (CONTRACT.md), and examples launches
+# that same compiler jar -- a syntactically-safe but nonexistent flag must reach the child
+# and fail there, the same as it would for ./flixw run, proving it is forwarded rather than
+# silently dropped between stage 0 and the asset.
+g 1  "Unrecognized VM option" "a bogus safe JVM opt reaches ./flixw check, for comparison" sh -c '
+  cd "$1" && FLIX_JVM_OPTS="-XX:+ThisFlagDoesNotExistXYZ" ./flixw check' sh "$ep"
+g 1  "Unrecognized VM option" "FLIX_JVM_OPTS reaches the example's own compiler launch" sh -c '
+  cd "$1" && FLIX_JVM_OPTS="-XX:+ThisFlagDoesNotExistXYZ" ./flixw examples run cli-tool' sh "$ep"
+# The two-context promise -- root chooses compiler/JVM, child directory chooses
+# manifest/source -- has to hold through a FLIX_JAR override too: examples receives
+# whatever stage 0 already resolved, override or not, rather than re-acquiring its own.
+# Real cached bytes copied elsewhere, same as the FLIX_JAR override section above: only
+# the location differs, so a failure here would be about examples, not about the override.
+t 0  "examples respects a FLIX_JAR override, not just the lock's own pin" sh -c '
+  cd "$1" || exit 1
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}")
+  cp "$jar" "$1/my-build.jar"
+  FLIX_JAR="$1/my-build.jar" ./flixw examples run cli-tool' sh "$ep"
 # Verb-agnostic dispatch: build and test need nothing beyond changing the working
 # directory and forwarding the verb, so a package's own build output and its own tests
 # are exactly what the compiler already does for the root project, unasked.

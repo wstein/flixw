@@ -1038,9 +1038,18 @@ public final class flixw {
      * dispatcher entirely, being the one verb answered before a compiler is ever reachable.
      * Checked before the verb's own grammar runs, so it can never be shadowed by an "unknown
      * option" diagnostic firing first -- which is exactly what happened before this existed.
+     *
+     * <p>Only scans up to the first bare {@code --}, not the whole list. No other wrapper
+     * verb has a reason for a literal {@code --} to appear in its own arguments, but
+     * {@code examples} forwards everything past one verbatim to the launched example --
+     * {@code examples run <name> -- --help} must reach the example's own argv, not be
+     * mistaken for a request for flixw's help, the same as {@code ./flixw -- --help}
+     * already reaches the compiler alone rather than merging with the wrapper's table.
      */
     static boolean wantsHelp(List<String> rest) {
-        return rest.contains("--help") || rest.contains("-h");
+        int dd = rest.indexOf("--");
+        List<String> scanned = dd < 0 ? rest : rest.subList(0, dd);
+        return scanned.contains("--help") || scanned.contains("-h");
     }
 
     /** A single path segment, nothing else -- in particular no `.`, so a name can never
@@ -2765,8 +2774,16 @@ public final class flixw {
                     throw w009("examples needs a pinned, reachable compiler"
                              + "\n       run: ./flixw pin <version>");
                 Path asset = ensureAsset(EXAMPLES_ASSET);
+                // FLIX_JVM_OPTS is "options for the compiler JVM" (docs/CONTRACT.md), and
+                // examples launches that same compiler jar -- omitting them here was the
+                // one way `./flixw examples run` could silently differ from `./flixw run`.
+                // Passed already-tokenized and count-prefixed, never as one joined string:
+                // the asset must not re-tokenize an environment variable itself, the exact
+                // hand-rolled parsing bug class `tokenize`/`jvmOpts` exist to own in one place.
+                List<String> opts = jvmOpts();
                 List<String> a = new ArrayList<>(List.of(root.toString(), jvm.exe().toString(),
-                                                         jar.toString()));
+                                                         jar.toString(), String.valueOf(opts.size())));
+                a.addAll(opts);
                 a.addAll(rest.isEmpty() ? List.of("list") : rest);
                 System.exit(runAsset(asset, null, a));
             }

@@ -578,10 +578,11 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3412          # `examples` is a wrapper verb dispatching to a companion asset,
-                             # like `help`/`completion`; target: 2900
+MAX_CODE_LINES=3416          # examples forwards FLIX_JVM_OPTS and stops --help detection at
+                             # the first --, closing two correctness gaps in that capability;
+                             # target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 33
-MAX_BYTES=312467             # examples gains build/test, same as run/check; target: 225000
+MAX_BYTES=313774             # same capability; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

@@ -673,12 +673,18 @@ leading `--`.** Flix's own `run` rejects trailing words as unsupported "file arg
 unless `--` introduces them — `run foo` refuses to run at all; `run -- foo` delivers `foo`
 to `Sys.Env.Env.getArgs()`. `examples` does not interpret or strip that boundary; it is the
 compiler's own convention, typed by the caller exactly as `./flixw -- <verb> <args>` would
-be for the root project.
+be for the root project. This includes `--help`/`-h`: `examples --help` (nothing after the
+verb yet) answers with this wrapper's usage, but `examples run cli-tool -- --help` reaches
+the example's own argv — `--help` only ever means "show usage" *before* the first bare
+`--`, the one place a literal `--help` could not otherwise be forwarded to anything.
 
 The compiler's *working directory* changes to `examples/<name>/`; nothing else does. Java
-selection, the compiler jar and its digest verification all remain the root project's —
-`examples` reads no manifest of its own and performs no floor check, on purpose: a second,
-weaker version comparison would only ever disagree with the compiler's own, better error.
+selection, the compiler jar (including a `FLIX_JAR` override) and its digest verification
+all remain the root project's — `examples` reads no manifest of its own and performs no
+floor check, on purpose: a second, weaker version comparison would only ever disagree with
+the compiler's own, better error. `FLIX_JVM_OPTS` applies here exactly as it does to
+`./flixw run`: it names "options for the compiler JVM", and `examples` launches that same
+compiler jar, just from a different working directory.
 
 Unlike `info`/`doctor`/`validate`, which must answer even when the project's compiler
 cannot be reached — that is how a broken project is diagnosed — `examples` exists only to
