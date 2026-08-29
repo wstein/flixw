@@ -462,6 +462,27 @@ Past the options flixw knows about, the shell's own filename completion takes ov
 PowerShell works against the `flixw.cmd` that already ships; nothing needs to move to a
 `.ps1`.
 
+## Examples
+
+`examples/<name>/` is a real, separate Flix package inside your project — its own
+`flix.toml`, often depending on a *released* build of the root project rather than its
+local source, so it doubles as proof a published consumer actually works. `./flixw
+examples` runs one against the root project's own selected Java and verified compiler:
+
+```console
+./flixw examples list
+./flixw examples run cli-tool
+./flixw examples run cli-tool -- some-token
+./flixw examples check cli-tool
+```
+
+Everything after `<name>` is forwarded to the compiler verb exactly as typed, `--`
+included — Flix's own `run` needs it to tell trailing words from "file arguments" it does
+not support, the same as `./flixw -- run -- <args>` would for the root project itself.
+
+Fetched and cached the way the completion generator is, so there is no separate install
+step and no "unaudited third-party code" warning: this is flixw's own code, not a plugin.
+
 ## Plugins and tasks
 
 Two ways to extend what `./flixw` runs, both opt-in. `pin`, `info`, `doctor`, `validate`
@@ -557,8 +578,9 @@ flixw/
 │   ├── flixw-setup.java       the bootstrap: fetches and verifies stage 0, writes a project
 │   ├── flixw-jdk.java         optional JDK provisioning, for `wrapper --install-jdk`
 │   ├── flixw-inspect.java     the cache inventory behind `info --verbose`
-│   ├── flixw-help.java  TAB-completion generator
-│   │                          — the four companion assets: published per release, fetched
+│   ├── flixw-help.java        the help renderer and TAB-completion generator
+│   ├── flixw-examples.java    runs examples/<name>/ for `./flixw examples`
+│   │                          — the five companion assets: published per release, fetched
 │   │                            on first use, digest-verified, never committed to a project
 │   ├── flixw                  POSIX shim — finds a Java, prefers the compiled stage 0
 │   └── flixw.cmd              cmd.exe shim — the same, without a POSIX shell

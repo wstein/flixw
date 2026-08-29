@@ -74,7 +74,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 382-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 393-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -82,9 +82,9 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 `tests/corpus/`, the `pin` rewrite as a property over the same corpus, 36 adversarial
 manifests, JDK selection and discovery in stage 0 plus the provisioner asset's own
 metadata parsing and platform coordinates, pin targets, verb capture against both help
-renderers, 23 lock fixtures and the lock schema against the hand-written validators, and
-the bounds on `runCapture`, and the four completion scripts with the note they read —
-403 assertions in total. Refresh the corpus with
+renderers, 23 lock fixtures and the lock schema against the hand-written validators,
+the bounds on `runCapture`, the four completion scripts with the note they read, and
+`examples/` discovery and symlink containment — 407 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,
@@ -97,11 +97,11 @@ Schema. Adding a case means adding a file; nothing enumerates them by name. See
 
 `tests/run.sh` builds every fixture it needs under `tests/.work/`, its gitignored scratch
 space: two JDK stand-ins, a JAR whose `--help` cannot be parsed, a JAR that sleeps, and a
-git-initialised scratch project. Nothing binary is committed. Twenty cases cannot run on
-Windows — eleven need a runnable fake `bin/java.exe`, seven need a `PATH` with no `java` on
-it, one needs a POSIX signal, one needs `ln -s` to link rather than copy — and are reported
-as `skip` rather than asserted for the wrong reason. The last is probed instead of gated on
-the platform, so a host that *can* link still runs it.
+git-initialised scratch project. Nothing binary is committed. Twenty-two cases cannot run
+on Windows — eleven need a runnable fake `bin/java.exe`, seven need a `PATH` with no `java`
+on it, one needs a POSIX signal, three need `ln -s` to link rather than copy — and are
+reported as `skip` rather than asserted for the wrong reason. Every `ln -s` case is probed
+instead of gated on the platform, so a host that *can* link still runs it.
 
 ## Architecture
 
@@ -304,7 +304,7 @@ it, and a change that would make an existing lock unreadable does.
 
 Order in `realMain` (paper §4.8): `--wrapper-*` flags → `install` (first contact only) →
 drift check → `./flixw -- args` forced pass-through → verb in the captured compiler verb set →
-verb in `WRAPPER_VERBS` (`pin info doctor validate help plugin task`) → otherwise the
+verb in `WRAPPER_VERBS` (`pin info doctor validate help plugin task examples`) → otherwise the
 compiler, so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire
 *automatically*, one at a time, as Flix implements them; a displaced verb prints a
 deprecation notice. `FLIX_BACKEND=wrapper|compiler` forces a side during a transition.
@@ -394,6 +394,24 @@ requires a resolvable project root, and both of these have to answer without one
 | `src/assets/flixw-help.java` | `help [<topic>]`, `completion <shell>` | the static completer answers before `findRoot`, same as `--schema`/`--version` |
 | `src/assets/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 | `src/assets/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
+| `src/assets/flixw-examples.java` | `examples [list \| run \| check]` | see below — a different reason from the three above |
+
+**`examples` was never a migration candidate; it was designed as an asset from the start,
+for a reason the table above doesn't cover.** `examples/<name>/` is a real, separate Flix
+package — typically depending on a *released* build of the root project rather than its
+local source — run against the root's already-selected, already-verified Java and
+compiler. That was prototyped first as a plugin (`flixw-examples`, claiming no bare verb),
+and two things about a plugin were wrong for what this specific command is: every
+invocation would carry the "3rd-party code, not audited by flixw" warning for something
+that is, in fact, flixw's own code; and a lock entry pins a version without installing it
+(`doctor` only *warns* when a locked plugin is missing), so a fresh clone or CI runner
+would fail the project's own advertised demo command before anything could be done about
+it. Shipping it the way `flixw-help.java` ships answers both: no warning, and
+`wrapper --upgrade` (which every adopting project already runs) warms it the same as any
+other asset, with no separate install step. Unlike `help`/`completion`/`--install-jdk`,
+`examples` *does* need a resolvable project root and a working compiler — it is dispatched
+through `wrapperVerb` exactly like `info`/`doctor`/`validate`, not answered early the way
+the table's other three are.
 
 `ensureAsset(name, version)` fetches, verifies and caches any of them; see "Completion is
 data, not a generated script" below for the shape, which is now shared. The version is a

@@ -17,12 +17,16 @@ and `src/stage0/flixw.cmd` are shims that only locate a `java` and prefer the ca
   `java src/stage0/flixw.java wrapper --schema`, and `tests/lint.sh` diffs the two. Change the Java
   list and regenerate; never hand-edit the JSON.
 - Never patch, wrap, or link against `flix.jar`; it is launched as an opaque process.
-- **Never vendor picocli**, or any other library, to reach a completion generator. The
-  compiler may be picocli-based; flixw observes that from the outside and delegates to the
-  script the compiler emits. `src/stage0/flixw.java` imports nothing.
-- The completion scripts are text blocks in `src/stage0/flixw.java` with **no on-disk copies** —
-  unlike the shims. They are emitted by `completion`, never installed, so
-  `install`, `validate` and `doctor --fix` do not know about them. Do not add copies.
+- **Never vendor picocli, or any other library, into `src/stage0/flixw.java`.** It imports
+  nothing and stays dependency-free; picocli is used only by the `flixw-help.java`
+  companion asset, fetched as a verified release asset, never committed to a project.
+- `help`, `completion <shell>`, `wrapper --install-jdk` and `examples` are answered by
+  companion assets (`src/assets/flixw-*.java`), not stage 0 itself — fetched, digest-verified
+  and cached the way `wrapper --upgrade` fetches `flixw.java`. `ensureAsset(name, version)`
+  is the one way stage 0 reaches any of them; add a new command there, not by growing
+  stage 0's own code for something a companion asset could do instead. They have **no
+  on-disk copies** in a project — never installed, so `install`, `validate` and
+  `doctor --fix` do not know about them.
 - The cached compiler is SHA-256 verified on **every** run. One download attempt, at most one
   Java relaunch, no retry loops.
 - `flix.toml` is the human authority; drift against `.flixw/lock.toml` fails before any

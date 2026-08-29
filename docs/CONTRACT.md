@@ -484,10 +484,11 @@ reached only when no explicit setting exists and the running JVM is unusable.
    not an operation here — see "Completion" below.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
-4. Otherwise, if it is `pin`, `info`, `doctor`, `validate`, `help`, `plugin` or `task`,
-   the wrapper implements it. `plugin` and `task` are namespaces rather than bare verbs —
-   `plugin <name>`/`task <name>` — so only those two words are subject to this rule; a
-   third-party plugin's own name can never collide with a future compiler verb.
+4. Otherwise, if it is `pin`, `info`, `doctor`, `validate`, `help`, `plugin`, `task` or
+   `examples`, the wrapper implements it. `plugin` and `task` are namespaces rather than
+   bare verbs — `plugin <name>`/`task <name>` — so only those two words are subject to
+   this rule; a third-party plugin's own name can never collide with a future compiler
+   verb.
 5. Otherwise the compiler gets it.
 
 `./flixw wrapper --upgrade` moves the project to the newest published flixw: it fetches
@@ -633,6 +634,55 @@ quietly wrong would be found out days later, by someone wondering why nothing co
 bash needs both `flixw` and `./flixw` registered, because it matches the command word as
 typed. zsh, fish and PowerShell each resolve the name from the path, so one registration
 covers every spelling including an absolute one.
+
+## Examples
+
+`examples/<name>/` is a real, separate Flix package inside a project — its own
+`flix.toml`, typically depending on a *released* build of the root project rather than its
+local source, proof that a published consumer actually works. `./flixw examples` runs one
+of them against the root project's already-selected Java and already-verified compiler,
+without touching the root's own lock:
+
+```console
+./flixw examples list
+./flixw examples run cli-tool
+./flixw examples run cli-tool -- some-token
+./flixw examples check cli-tool
+```
+
+A bare `./flixw examples` is the same as `./flixw examples list`. `list` prints nothing
+but a directory name for every `examples/<name>/` that contains a `flix.toml`; a name that
+does not match `[a-z][a-z0-9-]*` is silently excluded rather than listed and then refused,
+degrading the same way an unparsed compiler `--help` does elsewhere in this wrapper. `run`
+and `check` exit 89, naming the known examples, if `<name>` is not one of them — the
+companion-asset convention `help` already uses for "no help topic" and "no plugin", not a
+`FLIXWnnn` code: an asset's own diagnostics are not stage 0's numbered registry.
+
+**Everything after `<name>` is forwarded to the compiler verb verbatim, including a
+leading `--`.** Flix's own `run` rejects trailing words as unsupported "file arguments"
+unless `--` introduces them — `run foo` refuses to run at all; `run -- foo` delivers `foo`
+to `Sys.Env.Env.getArgs()`. `examples` does not interpret or strip that boundary; it is the
+compiler's own convention, typed by the caller exactly as `./flixw -- <verb> <args>` would
+be for the root project.
+
+The compiler's *working directory* changes to `examples/<name>/`; nothing else does. Java
+selection, the compiler jar and its digest verification all remain the root project's —
+`examples` reads no manifest of its own and performs no floor check, on purpose: a second,
+weaker version comparison would only ever disagree with the compiler's own, better error.
+
+Unlike `info`/`doctor`/`validate`, which must answer even when the project's compiler
+cannot be reached — that is how a broken project is diagnosed — `examples` exists only to
+launch one. A project with no working lock gets `FLIXW009` from stage 0 itself, naming the
+repair (`./flixw pin <version>`), before the asset is ever fetched.
+
+**A companion asset, not a plugin — see AGENTS.md for the full reasoning.** In short: this
+is flixw's own code, shipped and warmed the way `flixw-help.java` is, so there is no
+"3rd-party, unaudited" warning and no separate install step gating a project's own
+advertised demo command on a fresh clone or in CI.
+
+Symlinks are defended against twice, the same way plugin names are: `examples/` itself
+resolving outside the project root is refused before anything is listed, and a selected
+`<name>` resolving outside the real `examples/` directory is refused before anything runs.
 
 ## Plugins and tasks
 
