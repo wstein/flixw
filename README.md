@@ -33,14 +33,14 @@ strings, digests and paths will differ on your machine.
 ### 1. Download the setup program, and check it
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.12/flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.26.0/flixw-setup.java
 sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
 ```
 
 It must print exactly this, and if it does not, stop:
 
 ```
-1732598366a5104d578c6b62f739dd3e8366ee9b0e0525c3d9e5560493f7206d  flixw-setup.java
+f56026b2d3da493dc04fa9b61a8ad545f6448473b622cdfaa673693361d99744  flixw-setup.java
 ```
 
 **The digest comes from this page, not from the download.** That is the whole point of the
@@ -58,7 +58,7 @@ every machine, which is why both are given.
 Comparing by eye is fine for a one-off. A pipeline wants an exit status:
 
 ```console
-echo "1732598366a5104d578c6b62f739dd3e8366ee9b0e0525c3d9e5560493f7206d  flixw-setup.java" \
+echo "f56026b2d3da493dc04fa9b61a8ad545f6448473b622cdfaa673693361d99744  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -68,7 +68,7 @@ Verifying against the release's own manifest instead is one line shorter and one
 weaker — it catches a corrupted or intercepted download, not a replaced release:
 
 ```console
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.12/SHA256SUMS
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.26.0/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS    # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
 ```
 
@@ -81,7 +81,7 @@ sha256sum --ignore-missing -c SHA256SUMS    # macOS: shasum -a 256 --ignore-miss
 Windows 10 and later:
 
 ```bat
-curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.25.12/flixw-setup.java
+curl -fsSLO https://github.com/wstein/flixw/releases/download/v0.26.0/flixw-setup.java
 certutil -hashfile flixw-setup.java SHA256
 java .\flixw-setup.java
 del flixw-setup.java
@@ -100,7 +100,7 @@ so the POSIX `flixw` is there too and is what Git Bash and WSL use.
 
 ```powershell
 Invoke-WebRequest -OutFile flixw-setup.java `
-  https://github.com/wstein/flixw/releases/download/v0.25.12/flixw-setup.java
+  https://github.com/wstein/flixw/releases/download/v0.26.0/flixw-setup.java
 (Get-FileHash -Algorithm SHA256 flixw-setup.java).Hash.ToLower()
 # compare with the digest printed above before running the next line
 java .\flixw-setup.java
@@ -269,11 +269,16 @@ $ ./flixw test
 Passed: 1, Failed: 0. Skipped: 0. Elapsed: 3.4ms.
 
 $ ./flixw validate
-ok    ./flixw matches flixw 0.25.3
-ok    ./flixw.cmd matches flixw 0.25.3
-ok    .flixw/flixw.java  sha256=c41d7b3eec8f91ce...
+ok    ./flixw matches flixw 0.26.0
+ok    ./flixw.cmd matches flixw 0.26.0
+ok    .flixw/flixw.java  sha256=cc8fc69eeaf987482d...
 ok    the lock satisfies flix.toml
+ok    the lock conforms to, and names, the v1 schema
 ok    the compiler reports the version the lock pins
+ok    cached compiler digest
+ok    stage0 cache is private to you
+ok    jdks cache is private to you
+ok    .gitattributes block is not overridden
 ```
 
 The JDK can be pinned too, in the same file and for the same reason — a version, not a
@@ -370,11 +375,11 @@ published here, on a different path, and can be compared against something the r
 not serve:
 
 ```console
-base=https://github.com/wstein/flixw/releases/download/v0.25.12
-curl -fsSLO $base/flixw-0.25.3.tar.gz
-curl -fsSL  $base/SHA256SUMS | grep flixw-0.25.3.tar.gz | sha256sum -c -
-tar -xzf flixw-0.25.3.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
-rm flixw-0.25.3.tar.gz
+base=https://github.com/wstein/flixw/releases/download/v0.26.0
+curl -fsSLO $base/flixw-0.26.0.tar.gz
+curl -fsSL  $base/SHA256SUMS | grep flixw-0.26.0.tar.gz | sha256sum -c -
+tar -xzf flixw-0.26.0.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
+rm flixw-0.26.0.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
                                     # 0.75.3 or v0.75.3 -- the release tag works too
 ./flixw doctor --fix                # merges the .gitattributes block
@@ -382,8 +387,8 @@ git add flixw flixw.cmd .flixw .gitattributes
 ```
 
 The digest line is a check you run, not a comparison you eyeball: it prints `OK` or fails.
-On Windows the equivalents are `Get-FileHash flixw-0.25.3.tar.gz` and `Expand-Archive` in
-PowerShell, or `certutil -hashfile flixw-0.25.3.tar.gz SHA256` and `tar -xf` in cmd.exe —
+On Windows the equivalents are `Get-FileHash flixw-0.26.0.tar.gz` and `Expand-Archive` in
+PowerShell, or `certutil -hashfile flixw-0.26.0.tar.gz SHA256` and `tar -xf` in cmd.exe —
 `tar` ships with Windows 10 and later.
 
 Pick `<version>` to satisfy the `flix` key your `flix.toml` already has. That key is Flix's
@@ -425,7 +430,7 @@ Nothing about the build depends on the line. A lock written by an older flixw ha
 
 ```console
 $ ./flixw pin --refresh
-flixw: rewrote .flixw/lock.toml in the shape flixw 0.25.3 writes; the pin is unchanged
+flixw: rewrote .flixw/lock.toml in the shape flixw 0.26.0 writes; the pin is unchanged
 ```
 
 That is offline and moves nothing — same repository, version, URL, digest and java pin —
