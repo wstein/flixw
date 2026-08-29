@@ -1198,6 +1198,24 @@ public final class UnitCheck {
         if (split.get(0).isEmpty() && split.get(1).equals(List.of("cli-tool"))) ok();
         else bad("examples: no leading flags at all leaves <name> untouched", split.toString());
 
+        // Regression: a Windows-captured --help arrives \r\n-terminated, and the trailing \r
+        // left after splitting on "\n" fails OPTION_ENTRY's $ anchor on every line -- so raw,
+        // unnormalized text silently loses every flag's arity. That is the exact windows-latest
+        // CI failure that shipped in 0.26.2 ("no example 'Bogus.main'" instead of reaching the
+        // compiler): pin it here so a future change cannot reintroduce it unnoticed.
+        String rawCrlfHelp = help.replace("\n", "\r\n");
+        if (flixwexamples.valueTakingOptions(rawCrlfHelp).isEmpty()) ok();
+        else bad("examples: unnormalized \\r\\n text was expected to lose every flag",
+                 flixwexamples.valueTakingOptions(rawCrlfHelp).toString());
+
+        // captureHelp normalizes exactly this way before anything downstream ever parses it;
+        // simulate that here rather than spawning a subprocess just to prove the composition.
+        String normalizedHelp = rawCrlfHelp.replace("\r\n", "\n").replace('\r', '\n');
+        var normalizedValueTaking = flixwexamples.valueTakingOptions(normalizedHelp);
+        if (normalizedValueTaking.equals(valueTaking)) ok();
+        else bad("examples: valueTakingOptions survives a normalized \\r\\n-terminated --help",
+                 normalizedValueTaking.toString());
+
         System.out.println("  ok   examples: verb-flags-before-<name> grammar");
     }
 

@@ -2291,7 +2291,11 @@ public final class flixw {
         }
         if (out == null)
             throw w009("`flix --help` did not finish within " + HELP_TIMEOUT.toSeconds() + "s");
-        return out;
+        // A Windows JVM writes its own help text \r\n-terminated, and every consumer of a
+        // capture (parseVerbs, both assets' OPTION_ENTRY matchers) splits on "\n" and expects
+        // $ at the end of what is left -- a trailing \r fails that silently, on Windows alone,
+        // which is why this was only ever going to be caught by a Windows run.
+        return out.replace("\r\n", "\n").replace('\r', '\n');
     }
 
     static List<String> captureVerbs(String out, Path jar) {
