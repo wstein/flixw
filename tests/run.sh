@@ -2415,7 +2415,11 @@ if ln -sf "$outside" "$ep/examples/escaped" 2>/dev/null && [ -L "$ep/examples/es
 else
   s "a symlinked child escaping examples/ is refused" "ln -s does not link here"
 fi
-rm -f "$ep/examples/escaped"
+# rm -rf, not rm -f: Git Bash's ln -s silently *copies* the directory tree instead of
+# linking rather than failing outright, so the probe above already routed to the skip
+# branch, but a real directory is still sitting there -- rm -f cannot remove one, and
+# aborted the whole suite here under `set -e` the first time this ran on Windows.
+rm -rf "$ep/examples/escaped"
 
 mv "$ep/examples" "$ep/examples.real"
 if ln -sf "$outside" "$ep/examples" 2>/dev/null && [ -L "$ep/examples" ]; then
@@ -2428,7 +2432,7 @@ if ln -sf "$outside" "$ep/examples" 2>/dev/null && [ -L "$ep/examples" ]; then
 else
   s "examples/ itself as a symlink is refused, not enumerated" "ln -s does not link here"
 fi
-rm -f "$ep/examples"
+rm -rf "$ep/examples"      # see the rm -rf note above; same Git Bash copy-not-link case
 mv "$ep/examples.real" "$ep/examples"
 
 # --- tasks ---------------------------------------------------------------
