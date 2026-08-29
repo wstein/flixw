@@ -1027,7 +1027,7 @@ public final class flixw {
     static final String VALIDATE_USAGE = "usage: ./flixw validate";
     static final String EXAMPLES_USAGE =
           "usage: ./flixw examples list"
-        + "\n          or: ./flixw examples run|check|build|test <name> [-- args]";
+        + "\n          or: ./flixw examples run|check|build|test [flags] <name> [-- args]";
 
     /**
      * {@code --help}/{@code -h} anywhere in a wrapper verb's own arguments, the same way a
@@ -2650,7 +2650,7 @@ public final class flixw {
     // ---- wrapper verbs ----------------------------------------------------
 
     static void wrapperVerb(String verb, List<String> rest, Path root, Lock lock, Path jar,
-                            Jvm jvm, List<String> compilerVerbs) {
+                            Jvm jvm, List<String> compilerVerbs, String verbId) {
         switch (verb) {
             case "pin" -> {
                 if (wantsHelp(rest)) { System.out.println(PIN_USAGE); return; }
@@ -2781,9 +2781,17 @@ public final class flixw {
                 // the asset must not re-tokenize an environment variable itself, the exact
                 // hand-rolled parsing bug class `tokenize`/`jvmOpts` exist to own in one place.
                 List<String> opts = jvmOpts();
+                // The compiler's own captured --help, so the asset can tell a value-taking
+                // verb flag (--entrypoint <class>) from the example name that follows it --
+                // without this, "examples run --entrypoint Foo.main cli-tool" cannot be told
+                // from "examples run cli-tool" with two stray words. Best-effort: a missing
+                // or unverified capture degrades to no known flags, exactly like verb capture
+                // itself falling back to BUILTIN_VERBS elsewhere.
+                String helpText = verbId == null ? "" : storedHelp(verbId);
                 List<String> a = new ArrayList<>(List.of(root.toString(), jvm.exe().toString(),
                                                          jar.toString(), String.valueOf(opts.size())));
                 a.addAll(opts);
+                a.add(helpText == null ? "" : helpText);
                 a.addAll(rest.isEmpty() ? List.of("list") : rest);
                 System.exit(runAsset(asset, null, a));
             }
@@ -5175,10 +5183,10 @@ public final class flixw {
                 if (wantsHelp(rest)) System.out.println(PIN_USAGE);
                 else pin(root, parsePin(rest, lock));
             } else if (bareHelp) {
-                wrapperVerb("help", List.of(), root, lock, null, null, null);
+                wrapperVerb("help", List.of(), root, lock, null, null, null, null);
             }
             else
-                wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null);
+                wrapperVerb(first, argv.subList(1, argv.size()), root, lock, null, null, null, null);
             return;
         }
         if (lockError != null) throw lockError;      // unreadable, and the repair declined it
@@ -5293,7 +5301,7 @@ public final class flixw {
                                  + " (forced by FLIX_BACKEND=wrapper; compiler " + lock.version()
                                  + " also implements it)");
             else routingNotice(first, lock.version());
-            wrapperVerb(first, forward.subList(1, forward.size()), root, lock, jar, jvm, compilerVerbs);
+            wrapperVerb(first, forward.subList(1, forward.size()), root, lock, jar, jvm, compilerVerbs, verbId);
             return;
         }
         if (first != null && lock != null && compilerVerbs.contains(first)

@@ -3,7 +3,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -11,9 +14,11 @@ import java.util.stream.Stream;
  * Renders {@code ./flixw examples ...} -- a wrapper-owned companion asset, not a plugin.
  *
  * <p>{@code java flixw-examples.java <root> <javaExe> <compilerJar> <jvmOptCount>
- * [jvmOpt...] <verb> [args...]} -- the option count precedes the options themselves so an
- * arbitrary-length, already-tokenized list can sit between fixed positions with no
- * delimiter to collide with a real option string.
+ * [jvmOpt...] <helpText> <verb> [args...]} -- the option count precedes the options
+ * themselves so an arbitrary-length, already-tokenized list can sit between fixed
+ * positions with no delimiter to collide with a real option string. {@code <helpText>} is
+ * the compiler's own captured {@code --help} (or an empty string if none was captured),
+ * used only to tell a value-taking verb flag from the example name that follows it.
  *
  * <p>Runs one of a project's {@code examples/<name>/} directories as its own consumer
  * package, against the root project's already-selected, already-verified Java and
@@ -64,7 +69,7 @@ final class flixwexamples {
     }
 
     static void body(String[] args) throws Exception {
-        if (args.length < 4) {
+        if (args.length < 5) {
             System.err.println(protocolUsage());
             throw new Exit(87);
         }
@@ -72,12 +77,14 @@ final class flixwexamples {
         Path javaExe = Paths.get(args[1]);
         Path compilerJar = Paths.get(args[2]);
         int optCount = Integer.parseInt(args[3]);
-        int verbAt = 4 + optCount;
-        if (verbAt >= args.length) {
+        int helpAt = 4 + optCount;
+        if (helpAt + 1 >= args.length) {
             System.err.println(protocolUsage());
             throw new Exit(87);
         }
-        List<String> jvmOpts = List.of(args).subList(4, verbAt);
+        List<String> jvmOpts = List.of(args).subList(4, helpAt);
+        Set<String> valueTaking = valueTakingOptions(args[helpAt]);
+        int verbAt = helpAt + 1;
         String verb = args[verbAt];
         List<String> rest = List.of(args).subList(verbAt + 1, args.length);
 
@@ -91,13 +98,68 @@ final class flixwexamples {
             // run-the-example-as-a-test-of-the-root-package sense -- there is no such sense
             // here, since examples is its own namespace rather than a flag on `run`.
             case "run", "check", "build", "test" ->
-                dispatch(root, javaExe, compilerJar, jvmOpts, verb, rest);
+                dispatch(root, javaExe, compilerJar, jvmOpts, valueTaking, verb, rest);
             default -> {
                 System.err.println("flixw examples: unknown command " + q(verb));
                 System.err.println(usageText());
                 throw new Exit(89);
             }
         }
+    }
+
+    /**
+     * An option row in either compiler help layout: a short form, a long form, or both,
+     * optionally followed by a {@code <value>} placeholder. The same shape
+     * {@code flixw-help.java}'s {@code OPTION_ENTRY} matches, trimmed to what this asset
+     * needs -- whether a spelling takes a value -- since it has no reason to also collect
+     * descriptions or handle wrapped continuation lines the way the help renderer does.
+     */
+    static final Pattern OPTION_ENTRY = Pattern.compile(
+        "^(?:-([A-Za-z0-9])(?:[, ]\\s*)?)?(--[A-Za-z][A-Za-z0-9-]*)?"
+      + "(?:[\\s=]+<([^>]*)>)?(?:\\s\\s+(\\S.*))?$");
+
+    /**
+     * Every spelling of a compiler flag that takes a value, both short and long, from its
+     * captured {@code --help}. Best-effort: an empty or unparseable capture yields an empty
+     * set, which just means every leading {@code -}-token in {@code examples run [flags]
+     * <name>} is treated as zero-arity -- the same degrade-not-brick answer verb capture
+     * itself gives when a help screen cannot be parsed at all.
+     */
+    static Set<String> valueTakingOptions(String help) {
+        Set<String> out = new HashSet<>();
+        if (help == null || help.isEmpty()) return out;
+        for (String raw : help.split("\n", -1)) {
+            String line = raw.replace('\t', ' ').replaceFirst("^\\s+", "");
+            Matcher m = OPTION_ENTRY.matcher(line);
+            if (!m.matches()) continue;
+            String shortOpt = m.group(1), longOpt = m.group(2), value = m.group(3);
+            if ((shortOpt == null && longOpt == null) || value == null) continue;
+            if (shortOpt != null) out.add("-" + shortOpt);
+            if (longOpt != null) out.add(longOpt);
+        }
+        return out;
+    }
+
+    /**
+     * Peels leading verb flags off {@code rest}, stopping at the first token that is not
+     * one -- which is {@code <name>} -- or at a bare {@code --}, which can never be a flag
+     * and always starts the forwarded, untouched half of the command line.
+     *
+     * <p>A flag not found in {@code valueTaking} is treated as zero-arity rather than
+     * refused: guessing wrong on an unrecognised flag is no worse than today's behaviour,
+     * where any leading {@code -}-token is mistaken for {@code <name>} outright, and stopping
+     * to ask would fail a command line that stock Flix will explain perfectly well itself
+     * the moment it actually runs.
+     */
+    static List<List<String>> splitVerbFlags(List<String> rest, Set<String> valueTaking) {
+        List<String> flags = new ArrayList<>();
+        int i = 0;
+        while (i < rest.size() && rest.get(i).startsWith("-") && !rest.get(i).equals("--")) {
+            String tok = rest.get(i++);
+            flags.add(tok);
+            if (valueTaking.contains(tok) && i < rest.size()) flags.add(rest.get(i++));
+        }
+        return List.of(flags, rest.subList(i, rest.size()));
     }
 
     /**
@@ -142,20 +204,25 @@ final class flixwexamples {
     }
 
     static void dispatch(Path root, Path javaExe, Path compilerJar, List<String> jvmOpts,
-                         String verb, List<String> rest)
+                         Set<String> valueTaking, String verb, List<String> rest)
             throws IOException, InterruptedException {
-        if (rest.isEmpty()) {
+        // examples run [flags] <name> [-- args]: flags meant for the compiler verb itself
+        // (./flixw run --entrypoint Foo.main at the root) precede <name>, the same order
+        // the root command already uses, rather than needing to hide behind the name.
+        List<List<String>> split = splitVerbFlags(rest, valueTaking);
+        List<String> verbFlags = split.get(0), afterFlags = split.get(1);
+        if (afterFlags.isEmpty()) {
             System.err.println("flixw examples: " + verb + " needs a name -- known: "
                              + String.join(" ", discover(root)));
             throw new Exit(87);
         }
-        String name = rest.get(0);
+        String name = afterFlags.get(0);
         // Everything after <name> is forwarded verbatim, INCLUDING a leading "--". Flix's
         // own `run` rejects trailing words as unsupported "file arguments" unless "--"
         // introduces them (verified against a real compiler: `run foo` refuses to run at
         // all, `run -- foo` delivers foo to Sys.Env.Env.getArgs()) -- so stripping it here
         // would silently break the one thing this command exists for.
-        List<String> forward = rest.subList(1, rest.size());
+        List<String> forward = afterFlags.subList(1, afterFlags.size());
 
         List<String> known = discover(root);
         if (!known.contains(name)) {
@@ -185,6 +252,7 @@ final class flixwexamples {
         cmd.add("-jar");
         cmd.add(compilerJar.toString());
         cmd.add(verb);
+        cmd.addAll(verbFlags);
         cmd.addAll(forward);
         Process p = new ProcessBuilder(cmd).directory(dir.toFile()).inheritIO().start();
         throw new Exit(p.waitFor());
@@ -194,11 +262,11 @@ final class flixwexamples {
 
     static String protocolUsage() {
         return "usage: java flixw-examples.java <root> <javaExe> <compilerJar>"
-             + " <jvmOptCount> [jvmOpt...] <verb> [args...]";
+             + " <jvmOptCount> [jvmOpt...] <helpText> <verb> [args...]";
     }
 
     static String usageText() {
         return "usage: ./flixw examples list"
-             + "\n       or: ./flixw examples run|check|build|test <name> [-- args]";
+             + "\n       or: ./flixw examples run|check|build|test [flags] <name> [-- args]";
     }
 }

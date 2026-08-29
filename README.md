@@ -478,14 +478,17 @@ examples` runs one against the root project's own selected Java and verified com
 ./flixw examples list
 ./flixw examples run cli-tool
 ./flixw examples run cli-tool -- some-token
+./flixw examples run --entrypoint Foo.main cli-tool -- some-token
 ./flixw examples check cli-tool
 ./flixw examples build cli-tool
 ./flixw examples test cli-tool
 ```
 
-Everything after `<name>` is forwarded to the compiler verb exactly as typed, `--`
-included — Flix's own `run` needs it to tell trailing words from "file arguments" it does
-not support, the same as `./flixw -- run -- <args>` would for the root project itself.
+Flags before `<name>` reach the compiler verb itself, the same as `./flixw run
+--entrypoint Foo.main` at the root. Everything after `<name>` is forwarded exactly as
+typed, `--` included — Flix's own `run` needs it to tell trailing words from "file
+arguments" it does not support, the same as `./flixw -- run -- <args>` would for the root
+project itself.
 
 Fetched and cached the way the completion generator is, so there is no separate install
 step and no "unaudited third-party code" warning: this is flixw's own code, not a plugin.

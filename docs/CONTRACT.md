@@ -647,6 +647,7 @@ without touching the root's own lock:
 ./flixw examples list
 ./flixw examples run cli-tool
 ./flixw examples run cli-tool -- some-token
+./flixw examples run --entrypoint Foo.main cli-tool -- some-token
 ./flixw examples check cli-tool
 ./flixw examples build cli-tool
 ./flixw examples test cli-tool
@@ -667,6 +668,18 @@ Flix's own convention, exactly as it would be for the root project) and `test` m
 it says for a package with its own `@Test` definitions, not Cargo's sense of running an
 example as a test of the root package: there is no such sense here, since `examples` is its
 own command rather than a flag riding `run`.
+
+**Flags before `<name>` reach the compiler verb itself**, mirroring
+`./flixw run --entrypoint Foo.main` at the root: `examples run --entrypoint Foo.main
+cli-tool` runs `cli-tool` with that entry point, the same as it would for the root
+project. Telling a value-taking flag (`--entrypoint <class>`) from `<name>` needs the
+compiler's own captured `--help` — without it, `--entrypoint Foo.main` and `<name>` look
+identical, two bare words in a row. The scan stops at the first token that is not a known
+or plausible flag, which is `<name>`, or at a bare `--`, which can never be one. A flag
+this project's cached `--help` does not recognise is treated as taking no value rather than
+refused: guessing wrong there is no worse than the flag being mistaken for `<name>` outright,
+which is what happened before this existed, and the compiler's own "Unknown option" is a
+clearer failure than flixw inventing one.
 
 **Everything after `<name>` is forwarded to the compiler verb verbatim, including a
 leading `--`.** Flix's own `run` rejects trailing words as unsupported "file arguments"

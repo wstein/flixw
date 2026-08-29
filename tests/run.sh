@@ -2401,6 +2401,20 @@ g 0  '^--help$' "-- --help reaches the example, not flixw's own usage" sh -c '
   cd "$1" && ./flixw examples run cli-tool -- --help' sh "$ep"
 g 0  'usage: ./flixw examples' "examples --help is still flixw's own usage" sh -c '
   cd "$1" && ./flixw examples --help' sh "$ep"
+
+# A slot for compiler-verb flags before <name>, mirroring ./flixw run --entrypoint Foo.main
+# at the root. Telling a value-taking flag from <name> needs the compiler's own captured
+# --help: --entrypoint takes a value (real Entry Point error proves the pair reached the
+# compiler intact, not "no example 'Bogus.main'"), --yes takes none (cli-tool must still be
+# found as <name> right after it), and an unrecognised flag degrades to zero-arity rather
+# than refusing -- the compiler's own "Unknown option" is a clearer failure than flixw's.
+g 1  "Entry point.*not found" \
+     "a value-taking verb flag before <name> reaches the compiler, not <name>" sh -c '
+  cd "$1" && ./flixw examples run --entrypoint Bogus.main cli-tool -- hi' sh "$ep"
+g 0  '^hi$' "a boolean verb flag before <name> still finds <name>"    sh -c '
+  cd "$1" && ./flixw examples run --yes cli-tool -- hi' sh "$ep"
+g 1  "Unknown option" "an unrecognised flag degrades to zero-arity and reaches the compiler" sh -c '
+  cd "$1" && ./flixw examples run --nonexistent-flag-xyz cli-tool -- hi' sh "$ep"
 # FLIX_JVM_OPTS names "options for the compiler JVM" (CONTRACT.md), and examples launches
 # that same compiler jar -- a syntactically-safe but nonexistent flag must reach the child
 # and fail there, the same as it would for ./flixw run, proving it is forwarded rather than

@@ -74,7 +74,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 400-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 403-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -417,6 +417,19 @@ the table's other three are.
 data, not a generated script" below for the shape, which is now shared. The version is a
 parameter for one reason: `wrapper --upgrade` warms the assets of the release it is
 upgrading *to*, from the stage 0 it is upgrading *from*.
+
+**The asset cache is keyed by version string, not content hash — a real sharp edge for
+local development.** `<cache>/wrapper/assets/<version>/` names a released version, and
+every project pinned to that version shares the one machine-wide entry. Testing an
+in-progress asset change with `FLIXW_ASSET_SOURCE` against a locally-built stage 0 that
+still declares the *already-published* `WRAPPER_VERSION` (true of every commit between a
+release and the next version bump) writes straight into that shared slot — silently
+breaking every other project on the machine pinned to the same real release, until the
+polluted entry is deleted or a real upgrade re-fetches it. Point `FLIX_CACHE_HOME` at a
+scratch directory for this kind of testing; never the default. Caught the hard way:
+`examples`'s own second round of development (the flags-before-`<name>` grammar) did
+exactly this to two unrelated real projects on the same machine before the cause was
+found.
 
 **`wrapper --upgrade` warms them all**, so nothing needs the network on first use
 afterwards. The set comes from the release's own `SHA256SUMS` — every `flixw-<name>.java`

@@ -1145,6 +1145,62 @@ public final class UnitCheck {
         }
     }
 
+    // ---- 10b: the verb-flags-before-<name> grammar in examples ---------------
+
+    /**
+     * Offline coverage for the parsing behind {@code examples run [flags] <name>}: which
+     * compiler flags take a value, and where the leading run of flags ends. A shell test
+     * proves the whole path reaches a real compiler; this proves the split itself is right
+     * on inputs a shell test would need a contrived {@code --help} fixture to reach at all.
+     */
+    static void examplesGrammar() {
+        String help = "Usage: flix [run] [options]\n"
+                     + "Command: run\n"
+                     + "  runs main for the current project.\n"
+                     + "\n"
+                     + "  --entrypoint <value>     specifies the main entry point.\n"
+                     + "  --yes                    automatically answer yes to all prompts.\n"
+                     + "  -o, --output <value>     where to write it.\n";
+        var valueTaking = flixwexamples.valueTakingOptions(help);
+        if (valueTaking.contains("--entrypoint") && valueTaking.contains("--output")
+            && valueTaking.contains("-o") && !valueTaking.contains("--yes")) ok();
+        else bad("examples: valueTakingOptions arity", valueTaking.toString());
+
+        if (flixwexamples.valueTakingOptions("").isEmpty()
+            && flixwexamples.valueTakingOptions(null).isEmpty()) ok();
+        else bad("examples: an empty or missing --help yields no known flags", "found some");
+
+        // A value-taking flag consumes the next token; a boolean one does not; an
+        // unrecognised flag degrades to zero-arity rather than being refused.
+        var split = flixwexamples.splitVerbFlags(
+            List.of("--entrypoint", "Foo.main", "cli-tool", "--", "x"), valueTaking);
+        if (split.get(0).equals(List.of("--entrypoint", "Foo.main"))
+            && split.get(1).equals(List.of("cli-tool", "--", "x"))) ok();
+        else bad("examples: a value-taking flag consumes its value", split.toString());
+
+        split = flixwexamples.splitVerbFlags(List.of("--yes", "cli-tool"), valueTaking);
+        if (split.get(0).equals(List.of("--yes")) && split.get(1).equals(List.of("cli-tool")))
+            ok();
+        else bad("examples: a boolean flag does not consume the next token", split.toString());
+
+        split = flixwexamples.splitVerbFlags(List.of("--unknown-flag", "cli-tool"), valueTaking);
+        if (split.get(0).equals(List.of("--unknown-flag"))
+            && split.get(1).equals(List.of("cli-tool"))) ok();
+        else bad("examples: an unrecognised flag degrades to zero-arity", split.toString());
+
+        // A bare "--" can never be a flag, even though it starts with "-": it is always the
+        // forwarding boundary, so the scan must stop there rather than consuming it.
+        split = flixwexamples.splitVerbFlags(List.of("--", "cli-tool"), valueTaking);
+        if (split.get(0).isEmpty() && split.get(1).equals(List.of("--", "cli-tool"))) ok();
+        else bad("examples: a bare -- never counts as a flag", split.toString());
+
+        split = flixwexamples.splitVerbFlags(List.of("cli-tool"), valueTaking);
+        if (split.get(0).isEmpty() && split.get(1).equals(List.of("cli-tool"))) ok();
+        else bad("examples: no leading flags at all leaves <name> untouched", split.toString());
+
+        System.out.println("  ok   examples: verb-flags-before-<name> grammar");
+    }
+
     // ---- 10: the command tree the completers are generated from -------------
 
     /**
@@ -1203,6 +1259,7 @@ public final class UnitCheck {
         completion();
         overrideContainment();
         examplesDiscovery();
+        examplesGrammar();
         releaseChannel();
         releaseAssets();
         optionRows();

@@ -578,11 +578,10 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3416          # examples forwards FLIX_JVM_OPTS and stops --help detection at
-                             # the first --, closing two correctness gaps in that capability;
-                             # target: 2900
+MAX_CODE_LINES=3418          # examples run/check/build/test take flags before <name>,
+                             # mirroring ./flixw run --entrypoint at the root; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 33
-MAX_BYTES=313774             # same capability; target: 225000
+MAX_BYTES=314483             # same capability; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would
