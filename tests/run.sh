@@ -75,13 +75,14 @@ relfixture=$work/release
 mkdir -p "$relfixture"
 cp "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
    "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+   "$root/src/assets/flixw-examples.java" \
    "$relfixture/"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$relfixture" && sha256sum flixw.java flixw-jdk.java \
-     flixw-setup.java flixw-inspect.java flixw-help.java > SHA256SUMS)
+     flixw-setup.java flixw-inspect.java flixw-help.java flixw-examples.java > SHA256SUMS)
 else
   (cd "$relfixture" && shasum -a 256 flixw.java flixw-jdk.java \
-     flixw-setup.java flixw-inspect.java flixw-help.java > SHA256SUMS)
+     flixw-setup.java flixw-inspect.java flixw-help.java flixw-examples.java > SHA256SUMS)
 fi
 # The renderer's picocli rides the fixture exactly as it rides a real release, so the
 # suite exercises the same ensureAsset path a user takes rather than a special case.
@@ -1745,7 +1746,7 @@ echo "unit checks"
 # flixw-help.java links against picocli, so the unit checks compile against the same jar the
 # release publishes -- staged into tests/.work above, beside the release fixture.
 javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/src/assets/flixw-help.java" \
-  "$root/src/assets/flixw-jdk.java" \
+  "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-examples.java" \
   "$root/tests/UnitCheck.java"
 set +e
 java -cp "$work/unit:$picocli_jar" UnitCheck "$root/tests/corpus" "$root/tests/schema"
@@ -2329,6 +2330,92 @@ t 0  "installing a second version with no lock present"            sh -c '
 g 0  'running plugin echoer 2.0.0' \
   "with no lock entry, the newest installed version runs"          sh -c '
   cd "$1" && ./flixw plugin echoer' sh "$pp3"
+
+# --- examples --------------------------------------------------------------
+# A companion asset, not a plugin: examples/<name>/ is a real, separate Flix package run
+# against this project's already-selected, already-verified compiler and Java. Its own
+# scratch project, same isolation reasoning as plugins above.
+echo "examples"
+ep=$work/examplesproj
+rm -rf "$ep" && mkdir -p "$ep"
+java "$root/src/assets/flixw-setup.java" setup "$ep" >/dev/null 2>&1
+git init -q "$ep"
+
+t 88 "examples needs a pinned compiler before it can run anything" sh -c '
+  cd "$1" && ./flixw examples list' sh "$ep"
+
+(cd "$ep" && ./flixw pin "$version" >/dev/null 2>&1)
+
+t 0  "examples list is quiet when there is no examples/ directory" sh -c '
+  cd "$1" && ./flixw examples list' sh "$ep"
+
+mkdir -p "$ep/examples/cli-tool/src"
+cat > "$ep/examples/cli-tool/flix.toml" <<EOF
+[package]
+name = "cli-tool"
+description = "example"
+version = "0.1.0"
+flix = "$version"
+authors = ["t"]
+EOF
+# Sys.Env.Env.getArgs is the one channel a `run --` token actually reaches: proof that
+# forwarding works end to end, not only that the process launches.
+cat > "$ep/examples/cli-tool/src/Main.flix" <<'FLIX'
+use Sys.Env.Env
+
+def main(): Unit \ IO =
+    Sys.Env.runWithIO(() ->
+        let args: List[String] = Env.getArgs();
+        List.forEach((a: String) -> println(a), args)
+    )
+FLIX
+
+g 0  '^cli-tool$'            "examples list finds a real example"  sh -c '
+  cd "$1" && ./flixw examples list' sh "$ep"
+g 0  'usage: ./flixw examples' "examples --help answers instead of running" sh -c '
+  cd "$1" && ./flixw examples --help' sh "$ep"
+g 0  '^cli-tool$'            "a bare examples defaults to list"    sh -c '
+  cd "$1" && ./flixw examples' sh "$ep"
+g 89 "no example 'nosuch'"   "an unknown example name is refused"  sh -c '
+  cd "$1" && ./flixw examples run nosuch' sh "$ep"
+t 87 "run with no name at all is refused"                         sh -c '
+  cd "$1" && ./flixw examples run' sh "$ep"
+
+# The headline scenario: a token after `--` must reach the example's own argv, not be
+# consumed or dropped by flixw or misdelivered to Flix's own command parser. Flix's `run`
+# rejects trailing words as unsupported "file arguments" unless `--` introduces them, so
+# this also proves the "--" is forwarded, not stripped.
+g 0  '^AEtgYICyPB1X$' "run forwards a token after -- to the example" sh -c '
+  cd "$1" && ./flixw examples run cli-tool -- AEtgYICyPB1X' sh "$ep"
+t 0  "check runs against the example, not the root project"       sh -c '
+  cd "$1" && ./flixw examples check cli-tool' sh "$ep"
+
+# Probed rather than gated on the platform, same reasoning as the symlinked-launcher case
+# above: a host that can make links still runs these.
+outside=$work/examples-outside
+rm -rf "$outside" && mkdir -p "$outside"
+: > "$outside/flix.toml"
+if ln -sf "$outside" "$ep/examples/escaped" 2>/dev/null && [ -L "$ep/examples/escaped" ]; then
+  t 89 "a symlinked child escaping examples/ is refused"           sh -c '
+    cd "$1" && ./flixw examples run escaped' sh "$ep"
+else
+  s "a symlinked child escaping examples/ is refused" "ln -s does not link here"
+fi
+rm -f "$ep/examples/escaped"
+
+mv "$ep/examples" "$ep/examples.real"
+if ln -sf "$outside" "$ep/examples" 2>/dev/null && [ -L "$ep/examples" ]; then
+  # list must refuse, not enumerate: an earlier draft canonicalized examples/ and then
+  # only ever compared a *child* against it, which passes trivially once both have
+  # already resolved through the same escaping symlink -- caught by pointing examples/
+  # at a real directory and watching list enumerate it, not by inspection.
+  t 89 "examples/ itself as a symlink is refused, not enumerated" sh -c '
+    cd "$1" && ./flixw examples list' sh "$ep"
+else
+  s "examples/ itself as a symlink is refused, not enumerated" "ln -s does not link here"
+fi
+rm -f "$ep/examples"
+mv "$ep/examples.real" "$ep/examples"
 
 # --- tasks ---------------------------------------------------------------
 # npm's `scripts`, not a new verb per task: .flixw/tasks.toml is hand-edited, never

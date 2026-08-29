@@ -1,7 +1,7 @@
 // flixw unit checks -- the parts of stage 0 the shell suite cannot reach from outside.
 //
 //   javac -d <out> src/stage0/flixw.java src/assets/flixw-help.java src/assets/flixw-jdk.java \
-//         tests/UnitCheck.java
+//         src/assets/flixw-examples.java tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
 // Compiled and run by tests/run.sh; not a separate CI entry point. The groups, in the
@@ -1067,6 +1067,84 @@ public final class UnitCheck {
         System.out.println("  ok   override: what counts as flixw's own compiler cache");
     }
 
+    // ---- 10b: examples/ discovery and containment ---------------------------
+
+    /**
+     * Offline coverage for flixwexamples's discovery and symlink-containment logic --
+     * a shell test would otherwise need a real pinned compiler and a real subprocess
+     * launch just to reach it. Uses a plain temp directory tree; needs no project.
+     */
+    static void examplesDiscovery() throws IOException {
+        Path root = Files.createTempDirectory("flixw-examples-uc-");
+        try {
+            Path ex = root.resolve("examples");
+            Files.createDirectories(ex.resolve("cli-tool"));
+            Files.createFile(ex.resolve("cli-tool").resolve("flix.toml"));
+            Files.createDirectories(ex.resolve("no-manifest"));      // no flix.toml: not listed
+            Files.createDirectories(ex.resolve("Bad_Name"));         // fails NAME: not listed
+            Files.createFile(ex.resolve("Bad_Name").resolve("flix.toml"));
+
+            List<String> found = flixwexamples.discover(root);
+            if (found.equals(List.of("cli-tool"))) ok();
+            else bad("examples: discover lists only NAME-conforming dirs with a manifest",
+                     found.toString());
+
+            if (flixwexamples.NAME.matcher("cli-tool").matches()
+                && !flixwexamples.NAME.matcher("Bad_Name").matches()
+                && !flixwexamples.NAME.matcher("-leading-dash").matches()) ok();
+            else bad("examples: NAME pattern", "accepted something it should reject, or the reverse");
+
+            Path noEx = Files.createTempDirectory("flixw-examples-uc-none-");
+            try {
+                if (flixwexamples.discover(noEx).isEmpty()) ok();
+                else bad("examples: no examples/ directory discovers nothing", "found something");
+            } finally {
+                Files.deleteIfExists(noEx);
+            }
+
+            // The bug this guards against: canonicalizing examples/ and only ever comparing
+            // a *child* against it passes trivially once both have resolved through the same
+            // escaping symlink. discover() must refuse before it ever lists anything.
+            Path outside = Files.createTempDirectory("flixw-examples-uc-outside-");
+            try {
+                Files.createFile(outside.resolve("flix.toml"));
+                Files.delete(ex.resolve("cli-tool").resolve("flix.toml"));
+                Files.delete(ex.resolve("cli-tool"));
+                Files.delete(ex.resolve("no-manifest"));
+                Files.delete(ex.resolve("Bad_Name").resolve("flix.toml"));
+                Files.delete(ex.resolve("Bad_Name"));
+                Files.delete(ex);
+                try {
+                    Files.createSymbolicLink(ex, outside);
+                    try {
+                        flixwexamples.discover(root);
+                        bad("examples: a symlinked examples/ is refused, not enumerated",
+                            "discover() returned instead of refusing");
+                    } catch (flixwexamples.Exit e) {
+                        ok();      // refused, whatever the code -- that is the property under test
+                    }
+                } catch (java.nio.file.FileSystemException e) {
+                    // No symlink privilege on this machine (notably some Windows CI
+                    // accounts); the shell suite probes and skips the same case rather
+                    // than asserting for the wrong reason, and so does this one.
+                }
+            } finally {
+                try (var walk = Files.walk(outside)) {
+                    walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                        try { Files.deleteIfExists(p); } catch (IOException ignored) { }
+                    });
+                }
+            }
+            System.out.println("  ok   examples: discovery and symlink containment");
+        } finally {
+            try (var walk = Files.walk(root)) {
+                walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (IOException ignored) { }
+                });
+            }
+        }
+    }
+
     // ---- 10: the command tree the completers are generated from -------------
 
     /**
@@ -1124,6 +1202,7 @@ public final class UnitCheck {
         bounded();
         completion();
         overrideContainment();
+        examplesDiscovery();
         releaseChannel();
         releaseAssets();
         optionRows();

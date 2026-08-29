@@ -53,11 +53,12 @@ fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/stage0/flixw.java" \
    "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-setup.java" \
-   "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" "$fixture/"
+   "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+   "$root/src/assets/flixw-examples.java" "$fixture/"
 # Unstripped here on purpose: this fixture exists only so the staging install can run
 # offline, and the stage 0 it writes is replaced by $shipped a few lines below.
 (cd "$fixture" && sum flixw.java flixw-jdk.java flixw-setup.java \
-   flixw-inspect.java flixw-help.java \
+   flixw-inspect.java flixw-help.java flixw-examples.java \
    > SHA256SUMS)
 FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
   java "$root/src/assets/flixw-setup.java" setup "$stage" "$root/src/stage0/flixw.java" >/dev/null
@@ -142,7 +143,7 @@ got=$(sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
 [ "$got" = "$PICOCLI_SHA256" ] || {
   echo "pack: picocli $pv digest mismatch: pinned $PICOCLI_SHA256, served $got" >&2; exit 1; }
 
-for a in jdk inspect setup help; do
+for a in jdk inspect setup help examples; do
   java "$root/tests/strip.java" "$root/src/assets/flixw-$a.java" "$version" "flixw-$a.java" \
     > "$out/flixw-$a.java"
   # flixw-help.java is the one asset with a compile-time dependency, and it is the jar this
@@ -159,7 +160,7 @@ cp "$root/THIRD_PARTY_NOTICES.md" "$out/THIRD_PARTY_NOTICES.md"
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
               flixw-jdk.java flixw-setup.java flixw-inspect.java \
-              flixw-help.java "picocli-$pv.jar" THIRD_PARTY_NOTICES.md \
+              flixw-help.java flixw-examples.java "picocli-$pv.jar" THIRD_PARTY_NOTICES.md \
               > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"
