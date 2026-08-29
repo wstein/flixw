@@ -109,7 +109,16 @@ final class flixwhelp {
             case "completion" -> completion(c, name);
             default -> {
                 System.err.println("flixw: no help topic " + q(topic));
-                System.err.println("       topics: flix wrapper plugin task");
+                // pin, info, doctor and validate are commands, not topics -- they are
+                // documented together under "wrapper" rather than one topic each, which is
+                // exactly the distinction someone typing `help pin` has not made yet. Naming
+                // the redirect is cheaper than leaving them to rediscover it from the list.
+                if (c.words("wrapperVerbs").contains(topic))
+                    System.err.println("       " + q(topic) + " is a wrapper verb, not a help"
+                                     + " topic -- run: ./flixw " + topic + " --help"
+                                     + "   or: ./flixw help wrapper");
+                else
+                    System.err.println("       topics: flix wrapper plugin task completion");
                 throw new Exit(89);
             }
         }

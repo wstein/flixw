@@ -545,6 +545,15 @@ outright. `./flixw -- --help`, `FLIX_BACKEND=compiler`, and any `--help` carryin
 arguments reach the compiler alone — which is what anyone parsing its output wants. The
 exit status is the compiler's.
 
+`--help`/`-h` after a wrapper verb answers that verb's own usage and exits 0 — `./flixw pin
+--help`, `./flixw info --help`, `./flixw doctor --help`, `./flixw validate --help` and
+`./flixw plugin --help` alike. `./flixw task --help` lists this project's tasks, the same as
+a bare `./flixw task`; unlike a plugin name, `tasks.toml` has no naming grammar, so a task
+literally named `--help` or `-h` is reserved by this rather than reachable through it —
+`./flixw task <other-name>` is unaffected. Each verb's own parser checks for `--help`/`-h`
+before its own grammar runs, so it can never be mistaken for an unrecognised option the way
+it once was.
+
 `FLIX_BACKEND=wrapper` forces rule 4 during a transition; `FLIX_BACKEND=compiler` forces
 the compiler for every verb, including the wrapper's own.
 

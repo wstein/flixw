@@ -1022,6 +1022,24 @@ public final class flixw {
         + "\n          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)"
         + "\n          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)";
 
+    static final String INFO_USAGE = "usage: ./flixw info [--verbose | -v]";
+    static final String DOCTOR_USAGE = "usage: ./flixw doctor [--fix]";
+    static final String VALIDATE_USAGE = "usage: ./flixw validate";
+
+    /**
+     * {@code --help}/{@code -h} anywhere in a wrapper verb's own arguments, the same way a
+     * user expects it to work on any CLI. {@code pin}, {@code info} and {@code doctor}
+     * otherwise treat an unrecognised {@code --xxx} as a usage error, so without this check
+     * {@code --help} was indistinguishable from a typo. {@code pin} is checked at its own
+     * call sites in {@link #realMain} rather than in {@link #wrapperVerb} -- it bypasses that
+     * dispatcher entirely, being the one verb answered before a compiler is ever reachable.
+     * Checked before the verb's own grammar runs, so it can never be shadowed by an "unknown
+     * option" diagnostic firing first -- which is exactly what happened before this existed.
+     */
+    static boolean wantsHelp(List<String> rest) {
+        return rest.contains("--help") || rest.contains("-h");
+    }
+
     /** A single path segment, nothing else -- in particular no `.`, so a name can never
      *  climb out of {@code <cache>/plugins/} the way {@code ..} would. Checked at every
      *  point a name reaches a path: the three CLI entry points, and a lock's own {@code
@@ -2623,6 +2641,7 @@ public final class flixw {
                             Jvm jvm, List<String> compilerVerbs) {
         switch (verb) {
             case "pin" -> {
+                if (wantsHelp(rest)) { System.out.println(PIN_USAGE); return; }
                 if (rest.isEmpty())
                     throw w009(PIN_USAGE);
                 pin(root, parsePin(rest, lock));
@@ -2640,24 +2659,31 @@ public final class flixw {
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
             case "info" -> {
+                if (wantsHelp(rest)) { System.out.println(INFO_USAGE); return; }
                 boolean verbose = rest.contains("--verbose") || rest.contains("-v");
                 for (String a : rest)
                     if (!a.equals("--verbose") && !a.equals("-v"))
-                        throw w008("./flixw info: unknown option " + q(a)
-                                 + "\n       usage: ./flixw info [--verbose | -v]");
+                        throw w008("./flixw info: unknown option " + q(a) + "\n       " + INFO_USAGE);
                 report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock));
                 if (verbose) { System.out.println(); listCache(lock, jvm); }
             }
             case "validate" -> {
+                if (wantsHelp(rest)) { System.out.println(VALIDATE_USAGE); return; }
+                // Unrecognised, not silently accepted: validate is CI's own gate, and a typo
+                // that reads as an accepted argument is a check that quietly stopped meaning
+                // what its exit code claims.
+                if (!rest.isEmpty())
+                    throw w008("./flixw validate: unknown argument " + q(rest.get(0))
+                             + "\n       " + VALIDATE_USAGE);
                 int bad = check(root, lock, jar, jvm);
                 if (bad > 0) throw w009(bad + " validation failure(s)");
             }
             case "doctor" -> {
+                if (wantsHelp(rest)) { System.out.println(DOCTOR_USAGE); return; }
                 boolean fix = rest.contains("--fix");
                 for (String a : rest)
                     if (!a.equals("--fix"))
-                        throw w008("./flixw doctor: unknown option " + q(a)
-                                 + "\n       usage: ./flixw doctor [--fix]");
+                        throw w008("./flixw doctor: unknown option " + q(a) + "\n       " + DOCTOR_USAGE);
                 if (fix) { updateWrapper(root); System.out.println(); }   // asset + lock
                 report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock));
                 System.out.println();
@@ -2673,6 +2699,13 @@ public final class flixw {
             case "plugin" -> {
                 if (rest.isEmpty()) throw w009(PLUGIN_USAGE);
                 String sub = rest.get(0);
+                // Checked before `sub` is treated as a plugin name -- otherwise this fell
+                // through to resolvePlugin("--help", ...), which failed on the name grammar
+                // and reported FLIXW009 "invalid plugin name", never mentioning --help at all.
+                if (sub.equals("--help") || sub.equals("-h")) {
+                    System.out.println(PLUGIN_USAGE);
+                    return;
+                }
                 List<String> args = rest.subList(1, rest.size());
                 switch (sub) {
                     case "install" -> pluginInstall(root, args);
@@ -2699,7 +2732,9 @@ public final class flixw {
             // file the project already trusts, the same as any other checked-in script.
             case "task" -> {
                 Map<String, String> tasks = readTasks(root);
-                if (rest.isEmpty()) {
+                // --help lists the same thing a bare `task` does: there is no separate usage
+                // grammar to document, since the alias itself is the only argument this takes.
+                if (rest.isEmpty() || rest.get(0).equals("--help") || rest.get(0).equals("-h")) {
                     if (tasks.isEmpty()) System.out.println("(no tasks in " + tasksPath(root) + ")");
                     else tasks.keySet().forEach(System.out::println);
                     return;
@@ -5092,7 +5127,9 @@ public final class flixw {
             if (drift != null) System.err.println("flixw: warning: " + drift.split("\n")[0]);
             routingNotice(first, lock == null ? "none" : lock.version());
             if (first.equals("pin")) {
-                pin(root, parsePin(argv.subList(1, argv.size()), lock));
+                List<String> rest = argv.subList(1, argv.size());
+                if (wantsHelp(rest)) System.out.println(PIN_USAGE);
+                else pin(root, parsePin(rest, lock));
             } else if (bareHelp) {
                 wrapperVerb("help", List.of(), root, lock, null, null, null);
             }
@@ -5109,7 +5146,9 @@ public final class flixw {
         // pin is the documented repair and never needs the compiler.
         if ("pin".equals(first) && !forcedCompiler) {
             routingNotice("pin", lock.version());
-            pin(root, parsePin(argv.subList(1, argv.size()), lock));
+            List<String> rest = argv.subList(1, argv.size());
+            if (wantsHelp(rest)) System.out.println(PIN_USAGE);
+            else pin(root, parsePin(rest, lock));
             return;
         }
 

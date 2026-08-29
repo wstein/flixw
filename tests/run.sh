@@ -385,6 +385,10 @@ t 0  "lock is reused"                                           ./flixw wrapper 
 t 81 "pin rejects a malformed repository"                       ./flixw pin not/a/repo "$version"
 t 88 "pin rejects two repositories"                             ./flixw pin a/b c/d "$version"
 t 88 "pin rejects two versions"                                 ./flixw pin 0.75.1 "$version"
+# --help used to fall into the "unrecognised --xxx" branch and answer FLIXW008, same as any
+# other typo -- the one flag every CLI is expected to honour was itself an error.
+g 0 'usage: ./flixw pin' "pin --help answers instead of FLIXW008"  ./flixw pin --help
+t 0  "pin -h is the same shortcut"                              ./flixw pin -h
 # The source is recorded so a bare re-pin cannot silently move the project elsewhere.
 t 0  "pin records the repository it fetched from"               sh -c '
   grep -q "^repo    = \"flix/flix\"" .flixw/lock.toml'
@@ -564,6 +568,17 @@ t 0  "doctor --fix repairs what it reports"                     sh -c '
   cp "$1/flixw.keep" flixw; chmod +x flixw; exit $rc' sh "$work"
 t 87 "doctor rejects an unknown option"                         ./flixw doctor --frobnicate
 t 87 "info rejects an unknown option"                           ./flixw info --frobnicate
+# Every wrapper verb's own arg parser used to treat --help exactly like --frobnicate above:
+# an unrecognised option, FLIXW008, no usage shown. --help is the one flag no CLI should be
+# able to mistake for a typo, and it was mistaken for one on five separate verbs at once.
+g 0 'usage: ./flixw info'    "info --help answers instead of FLIXW008"     ./flixw info --help
+g 0 'usage: ./flixw doctor'  "doctor --help answers instead of FLIXW008"   ./flixw doctor --help
+g 0 'usage: ./flixw validate' "validate --help answers instead of running" ./flixw validate --help
+g 0 'usage: ./flixw plugin'  "plugin --help answers instead of FLIXW009"   ./flixw plugin --help
+t 0  "task --help lists tasks, same as a bare task"             ./flixw task --help
+# validate silently accepted any trailing garbage before this -- ./flixw validate typo'd a
+# passing exit code, which is the one thing CI trusts this verb to get right.
+t 87 "validate rejects an unrecognised argument"                ./flixw validate --frobnicate
 # An entry with no marker at all is not "unused" -- it is unseen. It is kept, and said so,
 # because a first purge on a cache older than the markers otherwise reports freeing nothing
 # against gigabytes and reads as broken.
@@ -1552,6 +1567,14 @@ g 0 'checks the current project for errors' \
 g 0 'only a top-level' "help flix says when there is no per-command help" ./flixw help flix check
 t 89 "help flix rejects a command the compiler does not list"   ./flixw help flix nosuchverb
 t 89 "an unknown help topic is a usage error"                   ./flixw help nosuchtopic
+g 0 'topics: flix wrapper plugin task completion' \
+                 "an unrecognised topic names completion too"   sh -c '! ./flixw help nosuchtopic'
+# pin is a wrapper verb, not a help topic -- it is documented under `help wrapper` alongside
+# info/doctor/validate rather than one topic each. Typing `help pin` used to answer with the
+# same generic "no help topic" as a genuine typo; it now redirects to where the words the
+# reader typed actually work.
+g 0 "'pin' is a wrapper verb, not a help topic" \
+                 "help pin redirects instead of a generic error" sh -c '! ./flixw help pin'
 g 0 'no plugins\|plugin'  "help plugin answers without running anything" ./flixw help plugin
 g 0 'tasks'      "help task answers from the project's own file"  ./flixw help task
 
