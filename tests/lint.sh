@@ -95,7 +95,7 @@ fi
 if javac -Xlint:all,-auxiliaryclass -Werror -cp "$picocli" -d "$work/classes" \
         "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
         "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" \
-        "$root/src/assets/flixw-help.java" \
+        "$root/src/assets/flixw-help.java" "$root/src/assets/flixw-examples.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
 else
@@ -127,12 +127,13 @@ fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
    "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+   "$root/src/assets/flixw-examples.java" \
    "$fixture/"
 [ -f "$picocli" ] && cp "$picocli" "$fixture/picocli-$pv.jar"
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 # shellcheck disable=SC2086  # $sum is a command name plus flags, deliberately split
 (cd "$fixture" && $sum flixw.java flixw-jdk.java flixw-setup.java \
-   flixw-inspect.java flixw-help.java "picocli-$pv.jar" > SHA256SUMS)
+   flixw-inspect.java flixw-help.java flixw-examples.java "picocli-$pv.jar" > SHA256SUMS)
 export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
 
@@ -478,6 +479,7 @@ if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
         -d "$work/javadoc" -cp "$picocli" "$root/src/stage0/flixw.java" \
         "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-setup.java" \
         "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+        "$root/src/assets/flixw-examples.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"
 else
@@ -576,10 +578,10 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3397          # every wrapper verb answers --help/-h instead of a usage error;
-                             # target: 2900
+MAX_CODE_LINES=3412          # `examples` is a wrapper verb dispatching to a companion asset,
+                             # like `help`/`completion`; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 33
-MAX_BYTES=310655             # same capability; target: 225000
+MAX_BYTES=312456             # same capability; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

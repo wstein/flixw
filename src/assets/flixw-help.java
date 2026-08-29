@@ -522,6 +522,7 @@ final class flixwhelp {
             case "help" -> "this table.";
             case "plugin" -> "install, upgrade, list, remove and run verified third-party commands.";
             case "task" -> ".flixw/tasks.toml's aliases.";
+            case "examples" -> "run or check an examples/<name> package against this project's compiler.";
             case "wrapper" -> "--version, --upgrade, --install-jdk, --purge, --schema.";
             case "completion" -> "a TAB-completion script for bash, zsh, fish or pwsh.";
             default -> "";

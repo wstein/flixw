@@ -94,7 +94,7 @@ public final class flixw {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "info", "doctor", "validate", "help", "plugin", "task");
+        List.of("pin", "info", "doctor", "validate", "help", "plugin", "task", "examples");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -1025,6 +1025,9 @@ public final class flixw {
     static final String INFO_USAGE = "usage: ./flixw info [--verbose | -v]";
     static final String DOCTOR_USAGE = "usage: ./flixw doctor [--fix]";
     static final String VALIDATE_USAGE = "usage: ./flixw validate";
+    static final String EXAMPLES_USAGE =
+          "usage: ./flixw examples list"
+        + "\n          or: ./flixw examples run|check <name> [-- args]";
 
     /**
      * {@code --help}/{@code -h} anywhere in a wrapper verb's own arguments, the same way a
@@ -2746,6 +2749,26 @@ public final class flixw {
                              + (tasks.isEmpty() ? "" : "\n       known tasks: "
                                + String.join(", ", tasks.keySet())));
                 runTask(cmd, rest.subList(1, rest.size()));
+            }
+            // A companion asset, not a plugin: examples/<name>/ is a real, separate Flix
+            // package (own manifest, own dependencies -- typically on a *released* build of
+            // this project, not its local source), run against the compiler stage 0 already
+            // selected and verified. Shipped and warmed with flixw itself, so there is no
+            // separate install step and no "unaudited third-party code" warning the way a
+            // plugin invocation carries.
+            case "examples" -> {
+                if (wantsHelp(rest)) { System.out.println(EXAMPLES_USAGE); return; }
+                // info/doctor/validate answer with jar==null/jvm==null on purpose -- that is
+                // how a broken project is diagnosed. examples has no such use: it exists to
+                // launch a compiler, so without one there is nothing for it to do.
+                if (jar == null || jvm == null)
+                    throw w009("examples needs a pinned, reachable compiler"
+                             + "\n       run: ./flixw pin <version>");
+                Path asset = ensureAsset(EXAMPLES_ASSET);
+                List<String> a = new ArrayList<>(List.of(root.toString(), jvm.exe().toString(),
+                                                         jar.toString()));
+                a.addAll(rest.isEmpty() ? List.of("list") : rest);
+                System.exit(runAsset(asset, null, a));
             }
             default -> throw w009("no wrapper implementation for " + q(verb));
         }
@@ -4665,6 +4688,10 @@ public final class flixw {
 
     /** The help renderer; see {@link #helpTopic}. */
     static final String HELP_ASSET = "flixw-help.java";
+
+    /** Runs a project's {@code examples/<name>/}; see the {@code "examples"} case in
+     *  {@link #wrapperVerb}. */
+    static final String EXAMPLES_ASSET = "flixw-examples.java";
 
     /**
      * picocli, published as a flixw release asset like every other companion.
