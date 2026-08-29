@@ -2394,11 +2394,17 @@ g 0  '^AEtgYICyPB1X$' "run forwards a token after -- to the example" sh -c '
   cd "$1" && ./flixw examples run cli-tool -- AEtgYICyPB1X' sh "$ep"
 t 0  "check runs against the example, not the root project"       sh -c '
   cd "$1" && ./flixw examples check cli-tool' sh "$ep"
-# --help only ever means "show flixw's usage" before the first bare --; past it, it is the
-# example's own argv. wantsHelp scanning the whole rest list once made this indistinguishable
-# from `examples --help`, silently eating the one token this command exists to deliver.
+# --help only ever means "show flixw's usage" *before* a real verb is named -- examples,
+# alone among wrapper verbs, has a subordinate (the compiler) that answers --help far
+# better than a generic usage line once run/check/build/test is already in play. Reusing
+# the shared wantsHelp (a whole-list scan up to the first bare --) once caught this too
+# eagerly in three different shapes, each fixed as it was found:
 g 0  '^--help$' "-- --help reaches the example, not flixw's own usage" sh -c '
   cd "$1" && ./flixw examples run cli-tool -- --help' sh "$ep"
+g 0  'The Flix Programming Language' "run cli-tool --help reaches the compiler, not flixw's usage" sh -c '
+  cd "$1" && ./flixw examples run cli-tool --help' sh "$ep"
+g 0  'The Flix Programming Language' "run --help cli-tool (flag before <name>) also reaches the compiler" sh -c '
+  cd "$1" && ./flixw examples run --help cli-tool' sh "$ep"
 g 0  'usage: ./flixw examples' "examples --help is still flixw's own usage" sh -c '
   cd "$1" && ./flixw examples --help' sh "$ep"
 

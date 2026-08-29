@@ -1039,12 +1039,13 @@ public final class flixw {
      * Checked before the verb's own grammar runs, so it can never be shadowed by an "unknown
      * option" diagnostic firing first -- which is exactly what happened before this existed.
      *
-     * <p>Only scans up to the first bare {@code --}, not the whole list. No other wrapper
-     * verb has a reason for a literal {@code --} to appear in its own arguments, but
-     * {@code examples} forwards everything past one verbatim to the launched example --
-     * {@code examples run <name> -- --help} must reach the example's own argv, not be
-     * mistaken for a request for flixw's help, the same as {@code ./flixw -- --help}
-     * already reaches the compiler alone rather than merging with the wrapper's table.
+     * <p>Only scans up to the first bare {@code --}, not the whole list. No wrapper verb
+     * that calls this has a reason for a literal {@code --} to appear in its own arguments,
+     * so the guard is free insurance for all of them -- the one verb that genuinely forwards
+     * past a {@code --} is {@code examples}, and it does not call this method at all: once a
+     * real verb (run/check/build/test) is named, {@code --help}/{@code -h} is never
+     * intercepted in any position, because the compiler itself answers it better than a
+     * generic usage line once a verb is in play. See the {@code "examples"} case below.
      */
     static boolean wantsHelp(List<String> rest) {
         int dd = rest.indexOf("--");
@@ -2766,7 +2767,19 @@ public final class flixw {
             // separate install step and no "unaudited third-party code" warning the way a
             // plugin invocation carries.
             case "examples" -> {
-                if (wantsHelp(rest)) { System.out.println(EXAMPLES_USAGE); return; }
+                // Only before a real verb: once run/check/build/test is named, --help/-h is
+                // that verb's own business, whatever position it appears in. Flix's own scopt
+                // parser answers --help at exit 0 regardless of subcommand (the same
+                // known quirk `help flix <command>` already documents), so `examples run
+                // cli-tool --help` and `examples run --help cli-tool` both reach the compiler
+                // and get its own answer -- strictly more useful than this wrapper's generic
+                // usage, and consistent with treating examples as a thin relay rather than a
+                // second place that has opinions about what a compiler verb's flags mean.
+                // wantsHelp's whole-list scan is right for every other wrapper verb, which has
+                // no such subordinate to defer to; examples is the one exception.
+                if (!rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
+                    System.out.println(EXAMPLES_USAGE); return;
+                }
                 // info/doctor/validate answer with jar==null/jvm==null on purpose -- that is
                 // how a broken project is diagnosed. examples has no such use: it exists to
                 // launch a compiler, so without one there is nothing for it to do.

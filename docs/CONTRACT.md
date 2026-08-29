@@ -686,10 +686,14 @@ leading `--`.** Flix's own `run` rejects trailing words as unsupported "file arg
 unless `--` introduces them — `run foo` refuses to run at all; `run -- foo` delivers `foo`
 to `Sys.Env.Env.getArgs()`. `examples` does not interpret or strip that boundary; it is the
 compiler's own convention, typed by the caller exactly as `./flixw -- <verb> <args>` would
-be for the root project. This includes `--help`/`-h`: `examples --help` (nothing after the
-verb yet) answers with this wrapper's usage, but `examples run cli-tool -- --help` reaches
-the example's own argv — `--help` only ever means "show usage" *before* the first bare
-`--`, the one place a literal `--help` could not otherwise be forwarded to anything.
+be for the root project. This includes `--help`/`-h`: `examples --help` (no verb named yet)
+answers with this wrapper's usage, but once a real verb is named, `--help`/`-h` is never
+intercepted, in any position — `examples run cli-tool --help`, `examples run --help
+cli-tool` and `examples run cli-tool -- --help` all reach the compiler or the example, never
+this wrapper's usage. `examples`, alone among wrapper verbs, has a subordinate that answers
+`--help` better than a generic usage line once a verb is in play — Flix's own `--help`
+answers at exit 0 regardless of subcommand, the same known quirk `help flix <command>`
+already documents — so flixw defers rather than repeating a worse answer.
 
 The compiler's *working directory* changes to `examples/<name>/`; nothing else does. Java
 selection, the compiler jar (including a `FLIX_JAR` override) and its digest verification
