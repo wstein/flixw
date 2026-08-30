@@ -74,7 +74,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 407-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 411-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -84,10 +84,10 @@ manifests, JDK selection and discovery in stage 0 plus the provisioner asset's o
 metadata parsing and platform coordinates, pin targets, verb capture against both help
 renderers, 33 lock fixtures and the lock schema against the hand-written validators,
 the bounds on `runCapture`, the four completion scripts with the note they read,
-`examples/` discovery and symlink containment, and the verb-flags-before-`<name>` grammar
+`examples/` discovery and symlink containment, the verb-flags-before-`<name>` grammar
 (including a Windows-only regression: a `\r\n`-terminated `--help` silently lost every
-flag's arity until `captureHelp` started normalizing line endings) — 416 assertions in
-total. Refresh the corpus with
+flag's arity until `captureHelp` started normalizing line endings), and `autoRunBoundary`
+— 420 assertions in total. Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,

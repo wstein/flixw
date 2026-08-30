@@ -230,6 +230,20 @@ final class flixwexamples {
         // all, `run -- foo` delivers foo to Sys.Env.Env.getArgs()) -- so stripping it here
         // would silently break the one thing this command exists for.
         List<String> forward = afterFlags.subList(1, afterFlags.size());
+        // Unlike check/test, where a bare trailing word is a legitimate extra file to
+        // compile, run has no such reading -- the compiler rejects one outright, so a
+        // missing -- here can only ever be an omission, never a real choice being
+        // overridden. Insert it rather than making the caller retype the one thing this
+        // position can mean; check/build/test are left exactly as typed. A token that
+        // already starts with "-" is left alone even for run: it might already be "--", or
+        // it might be a flag like --help that must reach the compiler unwrapped, not a bare
+        // word to forward -- the same ambiguity autoRunBoundary declines at the root.
+        if ("run".equals(verb) && !forward.isEmpty() && !forward.get(0).startsWith("-")) {
+            List<String> withBoundary = new ArrayList<>();
+            withBoundary.add("--");
+            withBoundary.addAll(forward);
+            forward = withBoundary;
+        }
 
         List<String> known = discover(root);
         if (!known.contains(name)) {

@@ -5279,6 +5279,7 @@ public final class flixw {
             toCompiler = true; forward = argv.subList(1, argv.size());
         } else if (first != null && compilerVerbs.contains(first)) {
             toCompiler = true;
+            if ("run".equals(first)) forward = autoRunBoundary(argv);
         } else if (first != null && WRAPPER_VERBS.contains(first)) {
             toCompiler = false;
         } else if (pluginOwner != null) {
@@ -5695,6 +5696,26 @@ public final class flixw {
             Thread.currentThread().interrupt();
             System.exit(130);
         }
+    }
+
+    /**
+     * {@code run <word>}, with no leading flag and no {@code --} already, can only mean a
+     * forgotten forwarding boundary: unlike {@code check}/{@code test}, where the same shape
+     * is a legitimate extra file to compile, {@code run} rejects a bare trailing word
+     * outright ("does not support file arguments") rather than trying to load it, so there is
+     * no reading this could be overriding. A leading flag is left alone -- telling
+     * {@code --entrypoint}'s value from the boundary needs the same value-taking-option
+     * knowledge {@code examples}' own {@code splitVerbFlags} has, which would mean carrying
+     * that parser for every compiler verb here rather than the one place it already earns
+     * its keep.
+     */
+    static List<String> autoRunBoundary(List<String> argv) {
+        if (argv.size() < 2 || argv.get(1).startsWith("-")) return argv;
+        List<String> out = new ArrayList<>(argv.size() + 1);
+        out.add(argv.get(0));
+        out.add("--");
+        out.addAll(argv.subList(1, argv.size()));
+        return out;
     }
 
     /** Inherit cwd and the three streams; propagate the child's status. */

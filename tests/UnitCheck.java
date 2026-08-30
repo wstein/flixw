@@ -1217,6 +1217,34 @@ public final class UnitCheck {
                  normalizedValueTaking.toString());
 
         System.out.println("  ok   examples: verb-flags-before-<name> grammar");
+
+        // A bare trailing word after "run" can only ever mean a forgotten forwarding
+        // boundary -- Flix rejects the shape outright rather than reading it as a file, the
+        // one case examples' own dispatch() now shares with the root's autoRunBoundary.
+        if (flixw.autoRunBoundary(List.of("run", "foo"))
+                 .equals(List.of("run", "--", "foo"))) ok();
+        else bad("run: a bare trailing word gets -- inserted",
+                 flixw.autoRunBoundary(List.of("run", "foo")).toString());
+
+        // A leading flag is left alone: telling --entrypoint's value from the boundary
+        // needs the same value-taking-option knowledge examples' own splitVerbFlags has,
+        // which the root does not carry for every compiler verb.
+        if (flixw.autoRunBoundary(List.of("run", "--entrypoint", "Foo.main"))
+                 .equals(List.of("run", "--entrypoint", "Foo.main"))) ok();
+        else bad("run: a leading flag is not touched",
+                 flixw.autoRunBoundary(List.of("run", "--entrypoint", "Foo.main")).toString());
+
+        // Already has the boundary: inserting a second one would deliver an empty string as
+        // the example's own first argument.
+        if (flixw.autoRunBoundary(List.of("run", "--", "foo"))
+                 .equals(List.of("run", "--", "foo"))) ok();
+        else bad("run: an existing -- is not doubled",
+                 flixw.autoRunBoundary(List.of("run", "--", "foo")).toString());
+
+        // No trailing word at all -- nothing to insert a boundary in front of.
+        if (flixw.autoRunBoundary(List.of("run")).equals(List.of("run"))) ok();
+        else bad("run: no trailing word leaves the list untouched",
+                 flixw.autoRunBoundary(List.of("run")).toString());
     }
 
     // ---- 10: the command tree the completers are generated from -------------

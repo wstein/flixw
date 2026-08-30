@@ -682,11 +682,22 @@ which is what happened before this existed, and the compiler's own "Unknown opti
 clearer failure than flixw inventing one.
 
 **Everything after `<name>` is forwarded to the compiler verb verbatim, including a
-leading `--`.** Flix's own `run` rejects trailing words as unsupported "file arguments"
-unless `--` introduces them — `run foo` refuses to run at all; `run -- foo` delivers `foo`
-to `Sys.Env.Env.getArgs()`. `examples` does not interpret or strip that boundary; it is the
-compiler's own convention, typed by the caller exactly as `./flixw -- <verb> <args>` would
-be for the root project. This includes `--help`/`-h`: `examples --help` (no verb named yet)
+leading `--`** — with one exception, and it exists at the root too, for the same reason.
+Flix's own `run` rejects a bare trailing word outright as an unsupported "file argument"
+rather than trying to load it — `run foo` refuses to run at all; `run -- foo` delivers `foo`
+to `Sys.Env.Env.getArgs()`. `check`/`test` do not share this: the same shape there is a
+legitimate extra file to compile, rejected only if it is not one. So a missing `--` before
+a bare word can only ever be an omission for `run`, never a real choice being overridden,
+and both `./flixw run foo` and `./flixw examples run cli-tool foo` insert it rather than
+making the caller retype the one thing that position can mean — `check`/`build`/`test` are
+left exactly as typed. A leading flag is left alone either way, `--help`/`-h` included:
+telling `--entrypoint`'s value from the forwarding boundary needs the same value-taking-
+option knowledge `examples`' own flag scan has, which the root command does not carry for
+every compiler verb, so `./flixw run --entrypoint Foo.main foo` still needs `--` typed by
+hand.
+
+`--help`/`-h` gets its own rule regardless of the boundary above: `examples --help`
+(no verb named yet)
 answers with this wrapper's usage, but once a real verb is named, `--help`/`-h` is never
 intercepted, in any position — `examples run cli-tool --help`, `examples run --help
 cli-tool` and `examples run cli-tool -- --help` all reach the compiler or the example, never

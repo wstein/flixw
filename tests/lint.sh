@@ -578,13 +578,11 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3420          # examples defers --help to the compiler once a real verb is
-                             # named, in any position, closing a gap in that capability;
-                             # target: 2900
+MAX_CODE_LINES=3429          # ./flixw run inserts a forgotten -- before a bare trailing
+                             # word, the one shape only run rejects outright rather than
+                             # reading as a file; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 33
-MAX_BYTES=316009             # captureHelp normalizes \r\n from a Windows-run compiler's
-                             # --help before any consumer parses it (a correctness fix, not
-                             # a capability -- code lines did not move); target: 225000
+MAX_BYTES=317161             # same capability; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

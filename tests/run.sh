@@ -1691,6 +1691,16 @@ g 0 'check run test' "scopt usage line is still captured"       env FLIX_JAR="$w
 # --- process behaviour -----------------------------------------------------
 echo "process behaviour"
 t 42 "the child exit status is propagated"                      sh -c 'cd nested && ../flixw run'
+# A bare trailing word with no -- used to reach Flix's own "does not support file
+# arguments" rejection (exit 1) at the root exactly as it did under examples -- Main.flix
+# ignores its args, so 42 here proves the run actually happened rather than being rejected.
+t 42 "root: run inserts a forgotten -- before a bare word too"   sh -c '
+  cd nested && ../flixw run someArg'
+# A leading flag is left alone: autoRunBoundary cannot tell --entrypoint's value from the
+# forwarding boundary without the same flag-arity knowledge examples has, so this must fail
+# exactly as it did before -- on the entrypoint, not on a mangled argument list.
+g 1 "Entry point.*not found" "root: a leading flag is not touched by the -- insertion" sh -c '
+  cd nested && ../flixw run --entrypoint Bogus.main'
 if [ "$posix" != yes ]; then
   s "SIGTERM to stage 0 does not orphan the compiler"           "MSYS cannot signal a native JVM"
 else
@@ -2392,8 +2402,21 @@ t 87 "run with no name at all is refused"                         sh -c '
 # this also proves the "--" is forwarded, not stripped.
 g 0  '^AEtgYICyPB1X$' "run forwards a token after -- to the example" sh -c '
   cd "$1" && ./flixw examples run cli-tool -- AEtgYICyPB1X' sh "$ep"
+# A missing -- before a bare word can only ever be a forgotten boundary for run: Flix
+# rejects the shape outright ("does not support file arguments") rather than trying to read
+# it as a file, unlike check/test below. So this inserts it rather than making the caller
+# retype the one thing that position can mean, and must behave identically to typing it.
+g 0  '^AEtgYICyPB1X$' "run without -- before a bare word still reaches the example" sh -c '
+  cd "$1" && ./flixw examples run cli-tool AEtgYICyPB1X' sh "$ep"
 t 0  "check runs against the example, not the root project"       sh -c '
   cd "$1" && ./flixw examples check cli-tool' sh "$ep"
+# check has no such rescue: a bare trailing word there is a legitimate extra file to
+# compile, so inserting -- would silently turn "check this file too" into an ignored,
+# forwarded argument instead. It stays exactly as typed and fails as the compiler's own
+# file-argument handling would, not flixw's forwarding boundary.
+g 1  "must be a file\|Unrecognized file\|does not support file arguments" \
+     "check leaves a bare trailing word untouched (no auto --)" sh -c '
+  cd "$1" && ./flixw examples check cli-tool nonexistent-file.flix' sh "$ep"
 # --help only ever means "show flixw's usage" *before* a real verb is named -- examples,
 # alone among wrapper verbs, has a subordinate (the compiler) that answers --help far
 # better than a generic usage line once run/check/build/test is already in play. Reusing
