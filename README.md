@@ -484,10 +484,13 @@ examples` runs one against the root project's own selected Java and verified com
 ```
 
 Flags before `<name>` reach the compiler verb itself, the same as `./flixw run
---entrypoint Foo.main` at the root. Everything after `<name>` is forwarded exactly as
-typed, `--` included — Flix's own `run` needs it to tell trailing words from "file
+--entrypoint Foo.main` at the root. Everything after `<name>` is forwarded to the compiler
+verb, `--` included — Flix's own `run` needs it to tell trailing words from "file
 arguments" it does not support, the same as `./flixw -- run -- <args>` would for the root
-project itself.
+project itself. A missing `--` before a bare word is inserted automatically for `run`
+(never `check`/`build`/`test`, where the same shape is a legitimate extra file), but only
+when the pinned compiler is verified, unoverridden upstream Flix — see `docs/CONTRACT.md`
+for what that excludes and why.
 
 Fetched and cached the way the completion generator is, so there is no separate install
 step and no "unaudited third-party code" warning: this is flixw's own code, not a plugin.

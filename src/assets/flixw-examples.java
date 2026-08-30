@@ -17,11 +17,14 @@ import java.util.stream.Stream;
  * Renders {@code ./flixw examples ...} -- a wrapper-owned companion asset, not a plugin.
  *
  * <p>{@code java flixw-examples.java <root> <javaExe> <compilerJar> <jvmOptCount>
- * [jvmOpt...] <helpText> <verb> [args...]} -- the option count precedes the options
- * themselves so an arbitrary-length, already-tokenized list can sit between fixed
+ * [jvmOpt...] <helpText> <upstream> <verb> [args...]} -- the option count precedes the
+ * options themselves so an arbitrary-length, already-tokenized list can sit between fixed
  * positions with no delimiter to collide with a real option string. {@code <helpText>} is
  * the compiler's own captured {@code --help} (or an empty string if none was captured),
  * used only to tell a value-taking verb flag from the example name that follows it.
+ * {@code <upstream>} is {@code true} only when the pinned compiler is upstream Flix,
+ * unoverridden by {@code FLIX_JAR} -- verified once in stage 0, which already knows the
+ * lock's repository, rather than re-derived here from anything about the captured text.
  *
  * <p>Runs one of a project's {@code examples/<name>/} directories as its own consumer
  * package, against the root project's already-selected, already-verified Java and
@@ -81,13 +84,15 @@ final class flixwexamples {
         Path compilerJar = Paths.get(args[2]);
         int optCount = Integer.parseInt(args[3]);
         int helpAt = 4 + optCount;
-        if (helpAt + 1 >= args.length) {
+        int upstreamAt = helpAt + 1;
+        if (upstreamAt + 1 >= args.length) {
             System.err.println(protocolUsage());
             throw new Exit(87);
         }
         List<String> jvmOpts = List.of(args).subList(4, helpAt);
         String helpText = args[helpAt];
-        int verbAt = helpAt + 1;
+        boolean upstream = Boolean.parseBoolean(args[upstreamAt]);
+        int verbAt = upstreamAt + 1;
         String verb = args[verbAt];
         List<String> rest = List.of(args).subList(verbAt + 1, args.length);
 
@@ -101,7 +106,7 @@ final class flixwexamples {
             // run-the-example-as-a-test-of-the-root-package sense -- there is no such sense
             // here, since examples is its own namespace rather than a flag on `run`.
             case "run", "check", "build", "test" ->
-                dispatch(root, javaExe, compilerJar, jvmOpts, helpText, verb, rest);
+                dispatch(root, javaExe, compilerJar, jvmOpts, helpText, upstream, verb, rest);
             default -> {
                 System.err.println("flixw examples: unknown command " + q(verb));
                 System.err.println(usageText());
@@ -150,8 +155,8 @@ final class flixwexamples {
     static final int PROBE_CAP = 1 << 20;
 
     /**
-     * A verb's own flags, scoped to it rather than the flat top-level set, when the pinned
-     * compiler actually has real per-command help to scope them from.
+     * A verb's own flags, added to the flat top-level set rather than replacing it, when
+     * the pinned compiler actually has real per-command help to add anything from.
      *
      * <p>Stock Flix does not: every verb's {@code --help} echoes the identical top-level
      * screen ({@code flixw-help.java}'s {@code flix()} already relies on this exact
@@ -162,24 +167,43 @@ final class flixwexamples {
      * hand-maintained schema of every Flix release's flags would carry that same fact for
      * versions nobody using this project has ever pinned; asking the exact jar in hand
      * costs one subprocess and is never wrong about it.
+     *
+     * <p>A union, not a replacement: many real CLIs document a subcommand's own flags in
+     * its help and leave an inherited global one to the top level alone, the same reason
+     * {@code --entrypoint} does not repeat under every command in flix/flix's own layout.
+     * Replacing the flat set with the per-verb one whenever they differ at all would then
+     * forget every global flag the per-verb screen simply did not re-list, and {@code
+     * examples run --global VALUE <name>} would mistake {@code VALUE} for {@code <name>}.
      */
-    static Set<String> verbValueTaking(Path javaExe, Path jar, String verb, String helpText) {
-        String perVerb = probe(javaExe, jar, verb);
-        String top = helpText == null ? "" : helpText;
-        if (perVerb != null && !perVerb.strip().equals(top.strip()))
-            return valueTakingOptions(perVerb);
-        return valueTakingOptions(helpText);
+    static Set<String> verbValueTaking(Path javaExe, List<String> jvmOpts, Path jar,
+                                        String verb, String helpText) {
+        Set<String> top = valueTakingOptions(helpText);
+        String perVerb = probe(javaExe, jvmOpts, jar, verb);
+        if (perVerb == null || perVerb.strip().equals((helpText == null ? "" : helpText).strip()))
+            return top;
+        Set<String> union = new HashSet<>(top);
+        union.addAll(valueTakingOptions(perVerb));
+        return union;
     }
 
     /**
      * The compiler's answer to {@code <verb> --help}, or null if it cannot be had --
      * {@code flixw-help.java}'s own {@code probe}, duplicated rather than shared, since
-     * nothing here loads another asset's classes.
+     * nothing here loads another asset's classes. Takes the same {@code jvmOpts} the real
+     * launch does: a fork needing one just to start (e.g. {@code --enable-preview}) must
+     * not probe with a bare {@code java -jar} and silently fall back to the flat set for a
+     * reason that has nothing to do with per-command help existing or not.
      */
-    static String probe(Path javaExe, Path jar, String verb) {
+    static String probe(Path javaExe, List<String> jvmOpts, Path jar, String verb) {
         try {
-            ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), "-jar", jar.toString(),
-                                                    verb, "--help");
+            List<String> cmd = new ArrayList<>();
+            cmd.add(javaExe.toString());
+            cmd.addAll(jvmOpts);
+            cmd.add("-jar");
+            cmd.add(jar.toString());
+            cmd.add(verb);
+            cmd.add("--help");
+            ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(true);
             Process p = pb.start();
             StringBuffer b = new StringBuffer();
@@ -268,7 +292,7 @@ final class flixwexamples {
     }
 
     static void dispatch(Path root, Path javaExe, Path compilerJar, List<String> jvmOpts,
-                         String helpText, String verb, List<String> rest)
+                         String helpText, boolean upstream, String verb, List<String> rest)
             throws IOException, InterruptedException {
         // examples run [flags] <name> [-- args]: flags meant for the compiler verb itself
         // (./flixw run --entrypoint Foo.main at the root) precede <name>, the same order
@@ -279,7 +303,7 @@ final class flixwexamples {
         // spawning a subprocess just to compute a set splitVerbFlags will not look at would
         // cost every invocation for the benefit of none of them.
         Set<String> valueTaking = (!rest.isEmpty() && rest.get(0).startsWith("-"))
-            ? verbValueTaking(javaExe, compilerJar, verb, helpText) : Set.of();
+            ? verbValueTaking(javaExe, jvmOpts, compilerJar, verb, helpText) : Set.of();
         List<List<String>> split = splitVerbFlags(rest, valueTaking);
         List<String> verbFlags = split.get(0), afterFlags = split.get(1);
         if (afterFlags.isEmpty()) {
@@ -302,14 +326,16 @@ final class flixwexamples {
         // would silently break the one thing this command exists for.
         List<String> forward = afterFlags.subList(1, afterFlags.size());
         // Unlike check/test, where a bare trailing word is a legitimate extra file to
-        // compile, run has no such reading -- the compiler rejects one outright, so a
-        // missing -- here can only ever be an omission, never a real choice being
+        // compile, upstream run has no such reading -- the compiler rejects one outright,
+        // so a missing -- here can only ever be an omission, never a real choice being
         // overridden. Insert it rather than making the caller retype the one thing this
         // position can mean; check/build/test are left exactly as typed. A token that
         // already starts with "-" is left alone even for run: it might already be "--", or
         // it might be a flag like --help that must reach the compiler unwrapped, not a bare
-        // word to forward -- the same ambiguity autoRunBoundary declines at the root.
-        if ("run".equals(verb) && !forward.isEmpty() && !forward.get(0).startsWith("-")) {
+        // word to forward -- the same ambiguity stage 0's own autoRunBoundary declines.
+        // Gated on upstream: a fork's run may define its own positional operand, and this
+        // fact was verified against flix/flix alone, not against every fork or FLIX_JAR.
+        if (upstream && "run".equals(verb) && !forward.isEmpty() && !forward.get(0).startsWith("-")) {
             List<String> withBoundary = new ArrayList<>();
             withBoundary.add("--");
             withBoundary.addAll(forward);

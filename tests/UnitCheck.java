@@ -511,6 +511,24 @@ public final class UnitCheck {
                 new flixw.PluginDep("1.0.0", "b".repeat(64), null, "", "metrics")));
         eq("verb: the lock names the owner", "m", flixw.commandOwner(l, "metrics"));
         eq("verb: an unclaimed word has none", null, flixw.commandOwner(l, "nosuch"));
+
+        // isUpstream gates run's auto-- and help's option curation: both must apply only
+        // to a verified, unoverridden flix/flix pin, never to a fork or a FLIX_JAR override
+        // -- format(help) alone cannot tell a fork reusing scopt's layout from the real
+        // thing, so this is the actual provenance check both features rely on.
+        flixw.Lock explicit = new flixw.Lock("0.75.3", "https://x/f.jar", "a".repeat(64),
+            "flix/flix", null, null, java.util.Map.of());
+        flixw.Lock defaultRepo = new flixw.Lock("0.75.3", "https://x/f.jar", "a".repeat(64),
+            null, null, null, java.util.Map.of());
+        flixw.Lock fork = new flixw.Lock("0.75.3", "https://x/f.jar", "a".repeat(64),
+            "wstein/flix-fork", null, null, java.util.Map.of());
+        if (flixw.isUpstream(explicit, false) && flixw.isUpstream(defaultRepo, false)
+            && !flixw.isUpstream(explicit, true)
+            && !flixw.isUpstream(fork, false)
+            && !flixw.isUpstream(null, false)) ok();
+        else bad("isUpstream", "explicit=" + flixw.isUpstream(explicit, false)
+                             + " overridden=" + flixw.isUpstream(explicit, true)
+                             + " fork=" + flixw.isUpstream(fork, false));
     }
 
     /**

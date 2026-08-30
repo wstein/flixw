@@ -1014,6 +1014,18 @@ public final class flixw {
     static final String UPSTREAM_REPO = "flix/flix";
 
     /**
+     * Whether a fact verified against upstream Flix's own behaviour -- not its rendered
+     * {@code --help} layout, which any fork can reproduce trivially -- is safe to apply
+     * here. {@code FLIX_JAR} is excluded unconditionally: an override is announced as
+     * unverified and is explicitly not stock-compatibility evidence, the same reason
+     * {@link #reportOverrideGap} exists.
+     */
+    static boolean isUpstream(Lock lock, boolean override) {
+        return lock != null && !override
+            && (lock.repo() == null || lock.repo().equals(UPSTREAM_REPO));
+    }
+
+    /**
      * One usage line for `pin`, because four diagnostics quote it and the fourth was
      * already a release behind the first the last time one was written out by hand.
      */
@@ -2805,10 +2817,18 @@ public final class flixw {
                 // or unverified capture degrades to no known flags, exactly like verb capture
                 // itself falling back to BUILTIN_VERBS elsewhere.
                 String helpText = verbId == null ? "" : storedHelp(verbId);
+                // Whether the pinned compiler is upstream Flix, unoverridden -- a fact
+                // examples needs itself, for the same reason wrapperVerb's own "run" cannot
+                // apply autoRunBoundary to a fork's own positional operand without knowing
+                // it. Re-derived rather than threaded as a parameter: it is one cheap env
+                // lookup, and every other caller of wrapperVerb would otherwise carry a
+                // boolean only this one case reads.
+                boolean upstream = isUpstream(lock, env("FLIX_JAR") != null);
                 List<String> a = new ArrayList<>(List.of(root.toString(), jvm.exe().toString(),
                                                          jar.toString(), String.valueOf(opts.size())));
                 a.addAll(opts);
                 a.add(helpText == null ? "" : helpText);
+                a.add(String.valueOf(upstream));
                 a.addAll(rest.isEmpty() ? List.of("list") : rest);
                 System.exit(runAsset(asset, null, a));
             }
@@ -4776,12 +4796,18 @@ public final class flixw {
 
     /** Everything the renderer is given, so it re-gathers none of it; see {@link #helpTopic}. */
     static String helpContext(Path root, Lock lock, Path jar, Jvm jvm, List<String> compilerVerbs,
-                              String identity) {
+                              String identity, boolean override) {
         StringBuilder b = new StringBuilder();
         b.append("flixwVersion=").append(WRAPPER_VERSION).append('\n');
         b.append("projectRoot=").append(root == null ? "" : root).append('\n');
         b.append("cacheHome=").append(cacheHome()).append('\n');
         b.append("compilerVersion=").append(lock == null ? "" : lock.version()).append('\n');
+        // Whether the pinned compiler is upstream Flix, unoverridden -- verified once here,
+        // where the lock's repository is already known, rather than re-derived from
+        // anything about the rendered --help layout, which any fork can reproduce exactly.
+        // help flix <command>'s option curation is sourced from flix/flix's own code and
+        // must not apply to a fork or an unverified FLIX_JAR override.
+        b.append("upstream=").append(isUpstream(lock, override)).append('\n');
         b.append("compilerJar=").append(jar == null ? "" : jar).append('\n');
         b.append("javaExe=").append(jvm == null ? "" : jvm.exe()).append('\n');
         b.append("helpFile=")
@@ -4857,7 +4883,8 @@ public final class flixw {
             Path asset = ensureAsset(HELP_ASSET);
             Path picocli = ensureAsset(PICOCLI_ASSET);
             ctx = Files.createTempFile("flixw-help-", ".txt");
-            Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity),
+            Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity,
+                                                env("FLIX_JAR") != null),
                               StandardCharsets.UTF_8);
             List<String> a = new ArrayList<>(List.of(ctx.toString()));
             a.addAll(rest.subList(0, Math.min(3, rest.size())));
@@ -5279,7 +5306,7 @@ public final class flixw {
             toCompiler = true; forward = argv.subList(1, argv.size());
         } else if (first != null && compilerVerbs.contains(first)) {
             toCompiler = true;
-            if ("run".equals(first)) forward = autoRunBoundary(argv);
+            if ("run".equals(first) && isUpstream(lock, override)) forward = autoRunBoundary(argv);
         } else if (first != null && WRAPPER_VERBS.contains(first)) {
             toCompiler = false;
         } else if (pluginOwner != null) {
@@ -5700,14 +5727,18 @@ public final class flixw {
 
     /**
      * {@code run <word>}, with no leading flag and no {@code --} already, can only mean a
-     * forgotten forwarding boundary: unlike {@code check}/{@code test}, where the same shape
-     * is a legitimate extra file to compile, {@code run} rejects a bare trailing word
-     * outright ("does not support file arguments") rather than trying to load it, so there is
-     * no reading this could be overriding. A leading flag is left alone -- telling
-     * {@code --entrypoint}'s value from the boundary needs the same value-taking-option
-     * knowledge {@code examples}' own {@code splitVerbFlags} has, which would mean carrying
-     * that parser for every compiler verb here rather than the one place it already earns
-     * its keep.
+     * forgotten forwarding boundary <em>for upstream Flix</em>: unlike {@code check}/{@code
+     * test}, where the same shape is a legitimate extra file to compile, stock {@code run}
+     * rejects a bare trailing word outright ("does not support file arguments") rather than
+     * trying to load it. That fact was verified against flix/flix, not against every fork
+     * or {@code FLIX_JAR} override -- a fork's {@code run} may legitimately define its own
+     * positional operand, and inserting {@code --} in front of it would silently turn that
+     * operand into a forwarded program argument instead. Callers gate this on
+     * {@link #isUpstream}; it is not re-checked here; a leading flag is left alone
+     * regardless -- telling {@code --entrypoint}'s value from the boundary needs the same
+     * value-taking-option knowledge {@code examples}' own {@code splitVerbFlags} has, which
+     * would mean carrying that parser for every compiler verb here rather than the one
+     * place it already earns its keep.
      */
     static List<String> autoRunBoundary(List<String> argv) {
         if (argv.size() < 2 || argv.get(1).startsWith("-")) return argv;

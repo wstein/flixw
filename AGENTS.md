@@ -74,7 +74,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 416-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 419-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -86,8 +86,10 @@ renderers, 33 lock fixtures and the lock schema against the hand-written validat
 the bounds on `runCapture`, the four completion scripts with the note they read,
 `examples/` discovery and symlink containment, the verb-flags-before-`<name>` grammar
 (including a Windows-only regression: a `\r\n`-terminated `--help` silently lost every
-flag's arity until `captureHelp` started normalizing line endings), and `autoRunBoundary`
-— 420 assertions in total. Refresh the corpus with
+flag's arity until `captureHelp` started normalizing line endings), `autoRunBoundary`, and
+`isUpstream` (the provenance gate excluding a fork or `FLIX_JAR` override from both
+`autoRunBoundary` and `help flix <command>`'s option curation) — 421 assertions in total.
+Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
 `tests/schema/` holds locks filed under the verdict they are supposed to get: `valid/`,

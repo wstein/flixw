@@ -283,8 +283,11 @@ public final class Forkverb {
             return;
         }
         if (a.length == 2 && a[0].equals("run") && a[1].equals("--help")) {
+            // --common is deliberately NOT repeated here, the way a real subcommand
+            // screen often documents only its own flags and leaves an inherited global
+            // one to the top level -- verbValueTaking must still know --common takes a
+            // value from the top-level capture, not lose it because this text differs.
             System.out.println("Usage: flix run [options] <file>...");
-            System.out.println("  --common <value>       shared across every verb.");
             System.out.println("  --frobnicate <value>   only run has this one.");
             return;
         }
@@ -295,6 +298,32 @@ EOF
 javac -d "$work/forkverb" "$work/forkverb/Forkverb.java"
 printf 'Main-Class: Forkverb\n' > "$work/forkverb/mf"
 (cd "$work/forkverb" && jar cfm forkverb.jar mf Forkverb.class)
+
+# A scopt-layout fork with NO real per-command help (every <verb> --help echoes the exact
+# same text back, same as stock Flix) but a same-spelled flag with a different meaning --
+# the one shape that proves help's curation gate checks provenance, not just format(help).
+# Reached only via FLIX_JAR, which is never eligible for curation regardless of layout.
+mkdir -p "$work/scoptfork"
+cat > "$work/scoptfork/Scoptfork.java" <<'EOF'
+public final class Scoptfork {
+    static final String HELP =
+        "Usage: flix [init|check|run] [options] <file>...\n"
+      + "Command: init\n  creates a new project.\n"
+      + "Command: check\n  checks the current project for errors.\n"
+      + "Command: run\n  runs main for the current project.\n"
+      + "  --entrypoint <value>   a fork's own, unrelated meaning for this flag.\n";
+    public static void main(String[] a) {
+        if (a.length >= 1 && a[a.length - 1].equals("--help")) {
+            System.out.print(HELP);
+            return;
+        }
+        System.out.println("ran:" + String.join(",", a));
+    }
+}
+EOF
+javac -d "$work/scoptfork" "$work/scoptfork/Scoptfork.java"
+printf 'Main-Class: Scoptfork\n' > "$work/scoptfork/mf"
+(cd "$work/scoptfork" && jar cfm scoptfork.jar mf Scoptfork.class)
 
 # Three plugin formats, one echo: each prints every FLIXW_* variable the ABI promises
 # and the raw FLIXW_CONTEXT file body (newlines escaped, so a grep sees one line), so a
@@ -1618,6 +1647,14 @@ t 0  "help flix check excludes --yes, which only release reads" sh -c '
   ! ./flixw help flix check 2>/dev/null | grep -q -- "--yes"'
 g 0 'automatically answer yes to all prompts' \
   "help flix release keeps --yes" ./flixw help flix release
+# scoptfork renders exactly like stock Flix (every <verb> --help echoes the top level, so
+# there is no real per-command help to prefer) and reuses --entrypoint's exact spelling for
+# something unrelated to flix/flix's own meaning. format(help) alone cannot tell the two
+# apart; only isUpstream can, and FLIX_JAR is never eligible for it -- so curation must not
+# apply here, and --entrypoint (which real Flix's init would exclude) must stay visible.
+g 0 'a fork.s own, unrelated meaning' \
+  "help flix init does not curate a FLIX_JAR override, even in scopt layout" sh -c '
+  FLIX_JAR="$1/scoptfork/scoptfork.jar" ./flixw help flix init' sh "$work"
 t 89 "help flix rejects a command the compiler does not list"   ./flixw help flix nosuchverb
 t 89 "an unknown help topic is a usage error"                   ./flixw help nosuchtopic
 g 0 'topics: flix wrapper plugin task completion' \
@@ -1753,6 +1790,12 @@ t 42 "root: run inserts a forgotten -- before a bare word too"   sh -c '
 # exactly as it did before -- on the entrypoint, not on a mangled argument list.
 g 1 "Entry point.*not found" "root: a leading flag is not touched by the -- insertion" sh -c '
   cd nested && ../flixw run --entrypoint Bogus.main'
+# isUpstream excludes a FLIX_JAR override unconditionally, regardless of what the lock
+# names -- an override is announced as unverified and is explicitly not stock-compatibility
+# evidence, so a fork's run (which may define its own positional operand) must not have "--"
+# inserted in front of it just because it happens to be reached through this project's lock.
+g 0 '^ran:run,foo$' "root: a FLIX_JAR override is never eligible for auto --" sh -c '
+  cd "$1" && FLIX_JAR="$2/forkverb/forkverb.jar" ./flixw run foo' sh "$proj" "$work"
 if [ "$posix" != yes ]; then
   s "SIGTERM to stage 0 does not orphan the compiler"           "MSYS cannot signal a native JVM"
 else
@@ -2534,6 +2577,15 @@ g 0 '^ran:run,--frobnicate,X,--,hi$' \
    "a fork's real per-verb --help finds a flag the flat top-level help does not" sh -c '
   cd "$1" && FLIX_JAR="$2/forkverb/forkverb.jar" \
     ./flixw examples run --frobnicate X cli-tool -- hi' sh "$ep" "$work"
+# --common is a global flag forkverb's per-verb "run --help" does NOT repeat (the way a
+# subcommand screen often documents only its own flags). verbValueTaking must union the
+# per-verb answer with the flat top-level one rather than replace it -- otherwise --common
+# would be zero-arity here, "Y" mistaken for <name>, and this would fail with "no example
+# 'Y'" despite --common being a perfectly real, known value-taking flag.
+g 0 '^ran:run,--common,Y,--frobnicate,X,--,hi$' \
+   "a global flag the per-verb screen omits is still known, via the union" sh -c '
+  cd "$1" && FLIX_JAR="$2/forkverb/forkverb.jar" \
+    ./flixw examples run --common Y --frobnicate X cli-tool -- hi' sh "$ep" "$work"
 # Verb-agnostic dispatch: build and test need nothing beyond changing the working
 # directory and forwarding the verb, so a package's own build output and its own tests
 # are exactly what the compiler already does for the root project, unasked.

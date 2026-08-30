@@ -607,12 +607,16 @@ every `--Xbenchmark-*` flag) and so never belong on any named verb's screen.
 This never adds an option that is not already in the real capture, and never hides one
 from the *general* screen — `./flixw help flix` (no command), `./flixw completion`, and
 `FLIXW_CONTEXT` all still see every option the compiler actually offers; only the
-per-command curation narrows anything, and only after `format(help)` confirms this is
-stock Flix's own scopt layout. A fork that reuses Flix's flag spellings for different
-purposes would otherwise inherit a filter sourced from flix/flix's code, not its own — the
-same reason a fork with real, differing per-command help (`format`-independent, decided by
-byte-comparing `<verb> --help` against the top level) skips this path entirely and shows
-its own answer unedited.
+per-command curation narrows anything, and only when **both** of two independent facts
+hold: `format(help)` confirms this is scopt's rendered layout, and stage 0's own
+`isUpstream` — the lock's recorded repository, checked once where that fact is already
+known, not inferred from anything about the captured text — confirms the pinned compiler
+is flix/flix itself, unoverridden by `FLIX_JAR`. Layout alone was tried and rejected: a
+fork can reproduce scopt's exact rendering while giving `--entrypoint` or `--threads` a
+completely different meaning, so `format(help) == "scopt-v1"` proves the shape of the text,
+never whose compiler produced it. A fork with real, differing per-command help
+(`format`-independent, decided by byte-comparing `<verb> --help` against the top level)
+skips this path entirely regardless and shows its own answer unedited.
 
 Being sourced rather than inferred is also why this can go stale in one specific way: if
 Flix's own CLI structure changes — an option moves into a real `.children(...)` block, a
@@ -711,16 +715,24 @@ existed, and the compiler's own "Unknown option" is a clearer failure than flixw
 one.
 
 That knowledge comes from the pinned compiler itself, per verb, not from a schema flixw
-maintains. Stock Flix's own `<verb> --help` always echoes the identical top-level screen —
-the same byte-equality `help flix <command>` already relies on to tell "no real
-per-command help" from an answer worth using — so for it this is exactly the flat,
-top-level `--help` capture it always was, probed nowhere and unchanged. A fork with real
-per-command help answers differently per verb, and `examples` probes that verb's own
-`--help` (one extra subprocess, only when a leading flag needs disambiguating at all) to
-learn flags the top-level screen never mentions. A hand-maintained table of every Flix
-release's flags would need to know about versions nobody using this project has ever
-pinned and would still be a static guess about a fork; asking the exact jar already in
-hand is never wrong about it and costs nothing when there is no flag to disambiguate.
+maintains. The probe itself is not conditional on stock versus fork — only on there being a
+leading flag to disambiguate at all, the same short-circuit that skips it entirely for
+`examples run cli-tool` with nothing before `<name>`. When there is a flag, even stock
+Flix pays for one extra `<verb> --help` subprocess (with the same `FLIX_JVM_OPTS` the real
+launch gets, so a fork needing one just to start does not probe with a bare `java -jar` and
+fail for a reason that has nothing to do with per-command help existing); it is the
+*comparison* that then degrades for stock Flix, not the probing — its `<verb> --help`
+always echoes the identical top-level screen (the same byte-equality `help flix <command>`
+already relies on to tell "no real per-command help" from an answer worth using), so the
+result is exactly the flat, top-level `--help` capture it always was. A fork with real
+per-command help answers differently per verb, and what that answer adds is *added to* the
+flat set, never used to replace it — a subcommand screen that documents its own flags and
+leaves an inherited global one to the top level, the same thing flix/flix's own layout does
+with `--entrypoint`, must not make `examples run --global VALUE <name>` mistake `VALUE` for
+`<name>`. A hand-maintained table of every Flix release's flags would need to know about
+versions nobody using this project has ever pinned and would still be a static guess about
+a fork; asking the exact jar already in hand is never wrong about it and costs nothing when
+there is no flag to disambiguate.
 
 **Everything after `<name>` is forwarded to the compiler verb verbatim, including a
 leading `--`** — with one exception, and it exists at the root too, for the same reason.
@@ -736,6 +748,14 @@ telling `--entrypoint`'s value from the forwarding boundary needs the same value
 option knowledge `examples`' own flag scan has, which the root command does not carry for
 every compiler verb, so `./flixw run --entrypoint Foo.main foo` still needs `--` typed by
 hand.
+
+This was verified against flix/flix's own `run`, not against every fork or `FLIX_JAR`
+override, so it only applies when stage 0's own `isUpstream` says the pinned compiler is
+flix/flix, unoverridden — a fork's `run` may legitimately define its own positional
+operand, and silently turning that into a forwarded program argument would be exactly the
+kind of fork-invisible behaviour change this project exists to avoid. An override is
+never eligible by construction: it is announced as unverified and is explicitly not
+stock-compatibility evidence.
 
 `--help`/`-h` gets its own rule regardless of the boundary above: `examples --help`
 (no verb named yet)
