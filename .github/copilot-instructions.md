@@ -36,6 +36,7 @@ and `src/stage0/flixw.cmd` are shims that only locate a `java` and prefer the ca
   `010`/`011` advisory only). Diagnostics must name the repair command.
 - Degrade rather than brick: unparseable `flix --help`, an unwritable cache, or a missing
   `javac` each fall back silently instead of failing the command.
-- `docs/Flix_Bootstrap_Wrapper_Paper.md` is the normative design spec; keep code and paper in
-  step, or state which one you are deliberately letting lead.
+- `docs/Flix_Bootstrap_Wrapper_Paper.md` is the original design rationale, not kept in sync
+  with the implementation. `docs/CONTRACT.md` is the current, accurate description of what
+  ships; check there, not the paper.
 - Conventional Commits (`feat:`, `docs:`, `refactor:`, `chore:`).

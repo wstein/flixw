@@ -19,10 +19,12 @@ Change guidance here first; update the pointers only when a constraint in them i
 executes an **unmodified stock `flix.jar`** pinned by the project. It is not a Flix fork,
 plugin, or official tool.
 
-`docs/Flix_Bootstrap_Wrapper_Paper.md` (design paper, Revision 6) is the normative spec.
-Appendix A is pseudocode for `realMain`, Appendix B the evaluation matrix, Appendix C the
-diagnostic table. Change behaviour there and in code together, or say explicitly which one
-you are deliberately letting lead.
+`docs/Flix_Bootstrap_Wrapper_Paper.md` (design paper, Revision 6) is the original design
+rationale — Appendix A is pseudocode for `realMain`, Appendix B the evaluation matrix,
+Appendix C the diagnostic table — but it is not kept in sync with the implementation and is
+not the place to check what ships. `docs/CONTRACT.md` is that place: where the two
+disagree, CONTRACT.md is current and the paper is historical evidence of the original
+design (see "Known rough edges" below).
 
 ## Commands
 
