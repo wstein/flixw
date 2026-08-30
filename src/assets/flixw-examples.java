@@ -105,7 +105,21 @@ final class flixwexamples {
             // "test" means what it says for a package with its own @Test defs, not Cargo's
             // run-the-example-as-a-test-of-the-root-package sense -- there is no such sense
             // here, since examples is its own namespace rather than a flag on `run`.
-            case "run", "check", "build", "test" ->
+            //
+            // Every local, side-effect-free build verb is listed explicitly rather than
+            // accepted as any word dispatch() has not seen -- an unbounded pass-through
+            // would forward a typo to the compiler as readily as a real verb, one layer
+            // later than the "unknown command" this asset can already give directly.
+            // init is excluded on purpose: it creates a *new* project, and every verb here
+            // is reached through discover()/known.contains(name), which already requires
+            // the example to exist. release is excluded too: it pushes to GitHub using
+            // the example's own manifest, an external, stateful action no other verb here
+            // takes, and not something a generic relay should trigger by name alone. repl,
+            // lsp and lsp-vscode are long-running/interactive rather than a batch command
+            // with an exit code, which is the shape every other verb here shares.
+            case "run", "check", "build", "build-classes", "build-jar", "build-fatjar",
+                 "build-pkg", "clean", "doc", "format", "outdated", "eff-check", "eff-lock",
+                 "test" ->
                 dispatch(root, javaExe, compilerJar, jvmOpts, helpText, upstream, verb, rest);
             default -> {
                 System.err.println("flixw examples: unknown command " + q(verb));
@@ -394,11 +408,13 @@ final class flixwexamples {
 
     static String protocolUsage() {
         return "usage: java flixw-examples.java <root> <javaExe> <compilerJar>"
-             + " <jvmOptCount> [jvmOpt...] <helpText> <verb> [args...]";
+             + " <jvmOptCount> [jvmOpt...] <helpText> <upstream> <verb> [args...]";
     }
 
     static String usageText() {
         return "usage: ./flixw examples list"
-             + "\n       or: ./flixw examples run|check|build|test [flags] <name> [-- args]";
+             + "\n       or: ./flixw examples <verb> [flags] <name> [-- args]"
+             + "\n       verbs: run check build build-classes build-jar build-fatjar"
+             + " build-pkg clean doc format outdated eff-check eff-lock test";
     }
 }

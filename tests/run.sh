@@ -2595,6 +2595,37 @@ t 0  "build compiles the example into its own build/ directory"   sh -c '
 # loosely around the escape codes rather than as one literal substring.
 g 0  'Passed:.*1.*Failed:.*0' "test runs the example's own tests"  sh -c '
   cd "$1" && ./flixw examples test cli-tool' sh "$ep"
+# Every local, side-effect-free compiler verb dispatch() already handled mechanically --
+# only the switch in body() had to learn their names. init/release/repl/lsp/lsp-vscode are
+# deliberately not in that switch (see the comment there); these are the ones that are.
+t 0  "build-classes writes class files into the example's own build/" sh -c '
+  cd "$1" && ./flixw examples build-classes cli-tool &&
+  [ -n "$(find examples/cli-tool/build -name "*.class" -print -quit)" ]' sh "$ep"
+t 0  "build-jar writes the example's own artifact/" sh -c '
+  cd "$1" && ./flixw examples build-jar cli-tool &&
+  [ -f examples/cli-tool/artifact/cli-tool.jar ]' sh "$ep"
+t 0  "build-fatjar writes the example's own artifact/" sh -c '
+  cd "$1" && ./flixw examples build-fatjar cli-tool &&
+  [ -f examples/cli-tool/artifact/cli-tool.jar ]' sh "$ep"
+t 0  "build-pkg writes the example's own .fpkg" sh -c '
+  cd "$1" && ./flixw examples build-pkg cli-tool &&
+  [ -f examples/cli-tool/artifact/cli-tool.fpkg ]' sh "$ep"
+t 0  "clean removes the example's own build/, not the root project's" sh -c '
+  cd "$1" && ./flixw examples build cli-tool &&
+  ./flixw examples clean cli-tool &&
+  [ ! -d examples/cli-tool/build ]' sh "$ep"
+t 0  "doc writes the example's own build/doc/" sh -c '
+  cd "$1" && ./flixw examples doc cli-tool &&
+  [ -f examples/cli-tool/build/doc/index.html ]' sh "$ep"
+t 0  "format reaches the example, not the root project"   sh -c '
+  cd "$1" && ./flixw examples format cli-tool' sh "$ep"
+g 0  'up to date' "outdated checks the example's own dependencies" sh -c '
+  cd "$1" && ./flixw examples outdated cli-tool' sh "$ep"
+t 0  "eff-lock writes the example's own effects.lock" sh -c '
+  cd "$1" && ./flixw examples eff-lock cli-tool &&
+  [ -f examples/cli-tool/effects.lock ]' sh "$ep"
+t 0  "eff-check reads the example's own effects.lock"              sh -c '
+  cd "$1" && ./flixw examples eff-check cli-tool' sh "$ep"
 
 # Probed rather than gated on the platform, same reasoning as the symlinked-launcher case
 # above: a host that can make links still runs these.

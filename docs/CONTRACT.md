@@ -694,13 +694,25 @@ other subcommand exits 89, naming the known examples, if `<name>` is not one of 
 companion-asset convention `help` already uses for "no help topic" and "no plugin", not a
 `FLIXWnnn` code: an asset's own diagnostics are not stage 0's numbered registry.
 
-**Dispatch is verb-agnostic.** `run`, `check`, `build` and `test` all reach the same code
-path — change the compiler's working directory, forward what follows `<name>` — so `build`
-needs no opinion from this wrapper about where its artifact goes (`examples/<name>/build/`,
-Flix's own convention, exactly as it would be for the root project) and `test` means what
-it says for a package with its own `@Test` definitions, not Cargo's sense of running an
+**Dispatch is verb-agnostic.** `run`, `check`, `build`, `build-classes`, `build-jar`,
+`build-fatjar`, `build-pkg`, `clean`, `doc`, `format`, `outdated`, `eff-check`, `eff-lock`
+and `test` all reach the same code path — change the compiler's working directory, forward
+what follows `<name>` — so `build` needs no opinion from this wrapper about where its
+artifact goes (`examples/<name>/build/`, Flix's own convention, exactly as it would be for
+the root project) and `test` means what it says for a package with its own `@Test`
+definitions, not Cargo's sense of running an
 example as a test of the root package: there is no such sense here, since `examples` is its
 own command rather than a flag riding `run`.
+
+Three kinds of compiler verb are deliberately not in that list. `init` creates a *new*
+project, and every verb here is reached through `discover()`/`known.contains(name)`, which
+already requires the example to exist — there is nothing for it to do. `release` pushes to
+GitHub using the example's own manifest, an external, stateful action no other verb here
+takes; a generic relay should not trigger that by name alone. `repl`, `lsp` and
+`lsp-vscode` are long-running or interactive rather than a batch command with an exit
+code, the shape every verb above shares. None of the three is a `FLIXWnnn` refusal — they
+simply are not accepted words, the same "unknown command" every other unrecognised verb
+gets.
 
 **Flags before `<name>` reach the compiler verb itself**, mirroring
 `./flixw run --entrypoint Foo.main` at the root: `examples run --entrypoint Foo.main

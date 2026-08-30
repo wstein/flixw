@@ -481,7 +481,14 @@ examples` runs one against the root project's own selected Java and verified com
 ./flixw examples check cli-tool
 ./flixw examples build cli-tool
 ./flixw examples test cli-tool
+./flixw examples doc cli-tool
+./flixw examples build-fatjar cli-tool
 ```
+
+Any local, side-effect-free compiler verb works the same way — `build-classes`,
+`build-jar`, `build-pkg`, `clean`, `format`, `outdated`, `eff-check` and `eff-lock`
+included. `init`, `release` and the interactive `repl`/`lsp`/`lsp-vscode` are not accepted:
+see `docs/CONTRACT.md` for why each is excluded.
 
 Flags before `<name>` reach the compiler verb itself, the same as `./flixw run
 --entrypoint Foo.main` at the root. Everything after `<name>` is forwarded to the compiler
