@@ -212,6 +212,13 @@ final class flixwexamples {
         List<List<String>> split = splitVerbFlags(rest, valueTaking);
         List<String> verbFlags = split.get(0), afterFlags = split.get(1);
         if (afterFlags.isEmpty()) {
+            // "examples run --help" alone -- nothing left over to be <name> once --help/-h
+            // is peeled off as a flag. Contradicting "never intercepted, in any position"
+            // for the one flag that needs no example directory to answer is worse than the
+            // small inconsistency of running it from root instead of an example's own
+            // directory, which --help cannot tell apart anyway.
+            if (verbFlags.contains("--help") || verbFlags.contains("-h"))
+                launch(root, javaExe, compilerJar, jvmOpts, verb, verbFlags, List.of());
             System.err.println("flixw examples: " + verb + " needs a name -- known: "
                              + String.join(" ", discover(root)));
             throw new Exit(87);
@@ -242,10 +249,19 @@ final class flixwexamples {
             throw new Exit(89);
         }
 
-        // Same shape stage 0's own launch() uses for the root project's compiler: options
-        // between the executable and -jar, so "options for the compiler JVM" means the
-        // same thing here as it does for ./flixw run -- already validated and tokenized
-        // by stage 0's jvmOpts(), never re-parsed from a raw string in this asset.
+        launch(dir, javaExe, compilerJar, jvmOpts, verb, verbFlags, forward);
+    }
+
+    /**
+     * Same shape stage 0's own {@code launch()} uses for the root project's compiler: options
+     * between the executable and {@code -jar}, so "options for the compiler JVM" means the
+     * same thing here as it does for {@code ./flixw run} -- already validated and tokenized by
+     * stage 0's {@code jvmOpts()}, never re-parsed from a raw string in this asset. Never
+     * returns: the compiler's exit code becomes this process's own either way.
+     */
+    static void launch(Path dir, Path javaExe, Path compilerJar, List<String> jvmOpts,
+                        String verb, List<String> verbFlags, List<String> forward)
+            throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(javaExe.toString());
         cmd.addAll(jvmOpts);

@@ -2408,6 +2408,17 @@ g 0  'The Flix Programming Language' "run --help cli-tool (flag before <name>) a
 g 0  'usage: ./flixw examples' "examples --help is still flixw's own usage" sh -c '
   cd "$1" && ./flixw examples --help' sh "$ep"
 
+# "run --help" alone, with no <name> at all, used to fall through splitVerbFlags peeling
+# --help off as a zero-arity flag and finding nothing left over for <name> -- "run needs a
+# name", flixw's own message, exactly the interception "never intercepted, in any position"
+# says should not happen. --help needs no example directory to answer, so it runs from root
+# rather than refusing.
+g 0  'The Flix Programming Language' "run --help with no name reaches the compiler instead of refusing" sh -c '
+  cd "$1" && ./flixw examples run --help' sh "$ep"
+# A non-help flag with no name still has nowhere to run against, so it still refuses.
+t 87 "run --yes with no name still refuses (only --help/-h bypasses it)" sh -c '
+  cd "$1" && ./flixw examples run --yes' sh "$ep"
+
 # A slot for compiler-verb flags before <name>, mirroring ./flixw run --entrypoint Foo.main
 # at the root. Telling a value-taking flag from <name> needs the compiler's own captured
 # --help: --entrypoint takes a value (real Entry Point error proves the pair reached the

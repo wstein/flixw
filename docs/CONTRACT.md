@@ -695,6 +695,15 @@ this wrapper's usage. `examples`, alone among wrapper verbs, has a subordinate t
 answers at exit 0 regardless of subcommand, the same known quirk `help flix <command>`
 already documents — so flixw defers rather than repeating a worse answer.
 
+`examples run --help`, with no `<name>` at all, is the one shape of this that needs its own
+rule rather than falling out of the flag scan: `--help`/`-h` still gets peeled off as a
+flag, and normally what is left over must be `<name>` — but here nothing is left, and
+`--help` does not need an example's directory to answer, so refusing with "needs a name"
+would be flixw inventing an error for a question it could have just answered. It runs from
+the project root instead of `examples/<name>/` in this one case, which the compiler cannot
+tell apart since `--help` reads nothing project-specific either way. Any other flag with no
+`<name>` still refuses — there is no directory to run *that* against.
+
 The compiler's *working directory* changes to `examples/<name>/`; nothing else does. Java
 selection, the compiler jar (including a `FLIX_JAR` override) and its digest verification
 all remain the root project's — `examples` reads no manifest of its own and performs no
