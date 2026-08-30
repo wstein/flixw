@@ -591,6 +591,35 @@ Flix does not currently produce a good unknown-command message — `flix doctro`
 `Unrecognized file extension: 'doctro'.` on stdout — so routing there is correct but not
 generous.
 
+## Help
+
+`./flixw help flix <command>` curates which of the compiler's options it shows, for stock
+Flix's own scopt-based CLI specifically. Every option is grammatically global in that
+parser — there is no `.children(...)` scoping any option to `run` rather than `check`, and
+the compiler's own `--help` draws no distinction between them either — so this is not
+extracted from anything Flix documents. It is sourced directly from flix/flix's `Main.scala`
+and `Bootstrap.scala` (verified against 0.75.3): which options feed the compile-options bag
+every command except `init`, `clean` and `build-pkg` constructs, which resolve dependencies
+via `Bootstrap.bootstrap` (every command except `init`), which answer a confirmation prompt
+only `release` asks (`--yes`), and which are read only with no command at all (`--listen`,
+every `--Xbenchmark-*` flag) and so never belong on any named verb's screen.
+
+This never adds an option that is not already in the real capture, and never hides one
+from the *general* screen — `./flixw help flix` (no command), `./flixw completion`, and
+`FLIXW_CONTEXT` all still see every option the compiler actually offers; only the
+per-command curation narrows anything, and only after `format(help)` confirms this is
+stock Flix's own scopt layout. A fork that reuses Flix's flag spellings for different
+purposes would otherwise inherit a filter sourced from flix/flix's code, not its own — the
+same reason a fork with real, differing per-command help (`format`-independent, decided by
+byte-comparing `<verb> --help` against the top level) skips this path entirely and shows
+its own answer unedited.
+
+Being sourced rather than inferred is also why this can go stale in one specific way: if
+Flix's own CLI structure changes — an option moves into a real `.children(...)` block, a
+command starts reading one it did not before — this curation will not notice on its own.
+`./flixw -- <verb> --help` always reaches the compiler directly for the unedited, current
+answer regardless, named in every curated screen for exactly this reason.
+
 ## Completion
 
 `./flixw completion bash|zsh|fish|pwsh` prints a TAB-completion script on stdout.

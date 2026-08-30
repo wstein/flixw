@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -586,15 +587,72 @@ final class flixwhelp {
             throw new Exit(89);
         }
 
+        // Curation only where format(help) confirms this is stock Flix's own scopt layout
+        // -- a fork with the same command names but different semantics for a same-spelled
+        // flag would otherwise inherit a filter derived from flix/flix's source, not its
+        // own. Never adds anything not already in the real capture; only omits what the
+        // source shows this verb provably never reads.
+        boolean curated = format(help).equals("scopt-v1");
         CommandSpec s = base("./flixw " + name,
             known.get(name).isEmpty() ? "(the compiler's help gives no description)"
                                       : known.get(name),
             "",
-            "Flix " + version + " publishes only a top-level --help, so the line above is all"
-          + " it documents for this command. `./flixw -- " + name + " --help` reaches the"
-          + " compiler directly and prints that same top-level screen.");
-        addOptions(s, help);
+            curated
+              ? "Flix " + version + " publishes only a top-level --help; every option below"
+              + " is grammatically global there too, so the list is curated from flix/flix's"
+              + " own source (verified against 0.75.3) to what " + name + " actually reads,"
+              + " not from anything the compiler's own text distinguishes. `./flixw -- "
+              + name + " --help` reaches the compiler directly and prints its full,"
+              + " undivided screen."
+              : "Flix " + version + " publishes only a top-level --help, so the line above is"
+              + " all it documents for this command. `./flixw -- " + name + " --help` reaches"
+              + " the compiler directly and prints that same top-level screen.");
+        addOptions(s, help, curated ? name : null);
         render(s);
+    }
+
+    /**
+     * Flags read only through the compile-options bag ({@code Flix().setOptions(...)}),
+     * which {@code init}, {@code clean} and {@code build-pkg} never construct at all --
+     * traced directly against flix/flix's {@code Main.scala} (v0.75.3), not inferred from
+     * {@code --help} text, which draws no distinction between them whatsoever. Every one of
+     * these is grammatically global in the compiler's own scopt parser -- none of this is a
+     * real per-command partition Flix defines -- so a verb loses one only when the source
+     * proves it is never read there. The experimental {@code -X} flags that feed the same
+     * {@code Options(...)} constructor belong here too -- {@code --Xlib}, {@code
+     * --Xno-deprecated}, {@code --Xprint-phases}, {@code --Xsummary}, {@code
+     * --Xsubeffecting}, {@code --Xnewmono} -- distinct from the {@code --Xbenchmark-*}
+     * flags below, which are not.
+     */
+    static final Set<String> COMPILE_OPTIONS = Set.of(
+        "--entrypoint", "--threads", "--top", "--Xlib", "--Xno-deprecated",
+        "--Xprint-phases", "--Xsummary", "--Xsubeffecting", "--Xnewmono");
+
+    /** Flags read only when a command resolves dependencies via {@code Bootstrap.bootstrap},
+     *  which {@code init} alone never calls. */
+    static final Set<String> BOOTSTRAP_OPTIONS = Set.of("--github-token", "--no-install");
+
+    /** The two verbs that resolve dependencies but never construct a compiler instance --
+     *  {@link #BOOTSTRAP_OPTIONS} apply, {@link #COMPILE_OPTIONS} do not. */
+    static final Set<String> NON_COMPILING = Set.of("clean", "build-pkg");
+
+    /** {@code --yes} answers a confirmation prompt {@code Bootstrap.release} alone asks. */
+    static final String CONFIRMATION_VERB = "release";
+
+    /** Read only with no command at all ({@code Command.None}) -- each one is checked in
+     *  that branch specifically and nowhere a named verb's own handler runs, so none of
+     *  them is ever applicable to any named verb, on any per-command screen. */
+    static final Set<String> NO_COMMAND_OPTIONS = Set.of("--listen",
+        "--Xbenchmark-code-size", "--Xbenchmark-incremental", "--Xbenchmark-phases",
+        "--Xbenchmark-frontend", "--Xbenchmark-throughput");
+
+    static boolean appliesToVerb(String flag, String verb) {
+        if (NO_COMMAND_OPTIONS.contains(flag)) return false;
+        if (flag.equals("--yes")) return verb.equals(CONFIRMATION_VERB);
+        if (verb.equals("init"))
+            return !COMPILE_OPTIONS.contains(flag) && !BOOTSTRAP_OPTIONS.contains(flag);
+        if (NON_COMPILING.contains(verb)) return !COMPILE_OPTIONS.contains(flag);
+        return true;
     }
 
     /**
@@ -615,7 +673,17 @@ final class flixwhelp {
     }
 
     static void addOptions(CommandSpec s, String help) {
-        for (String[] o : options(help).values()) {
+        addOptions(s, help, null);
+    }
+
+    /** {@code verb} narrows to {@link #appliesToVerb}; null keeps every captured option,
+     *  which is what the root tree (shared by completion and the top-level screen) needs --
+     *  a completer must offer everything a bare {@code ./flixw <verb>} accepts, not one
+     *  command's curated subset. */
+    static void addOptions(CommandSpec s, String help, String verb) {
+        for (Map.Entry<String, String[]> e : options(help).entrySet()) {
+            String[] o = e.getValue();
+            if (verb != null && !appliesToVerb(e.getKey(), verb)) continue;
             List<String> names = new ArrayList<>();
             if (!o[0].isEmpty()) names.add(o[0]);
             if (!o[1].isEmpty()) names.add(o[1]);

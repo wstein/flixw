@@ -1598,6 +1598,26 @@ g 0 'checks the current project for errors' \
 # Flix 0.75 answers `check --help` with the *top-level* help and exit 0. Saying so is the
 # whole point: without it the top-level screen gets rendered under a "check" heading.
 g 0 'only a top-level' "help flix says when there is no per-command help" ./flixw help flix check
+# The curated per-command option list, sourced from flix/flix's own Main.scala rather than
+# guessed from --help text (which draws no distinction at all): init constructs neither a
+# compiler instance nor a Bootstrap, so it is the sharpest cut -- every option this
+# specific to a verb's actual reachable code is a real, sourced fact, not an inference from
+# what the flat text happens to list.
+t 0  "help flix init excludes options init's own code never reads" sh -c '
+  out=$(./flixw help flix init) &&
+  ! printf "%s" "$out" | grep -q -- "--entrypoint" &&
+  ! printf "%s" "$out" | grep -q -- "--threads" &&
+  ! printf "%s" "$out" | grep -q -- "--github-token" &&
+  ! printf "%s" "$out" | grep -q -- "--Xbenchmark-code-size" &&
+  printf "%s" "$out" | grep -q -- "--json"'
+g 0 'specifies the main entry point' \
+  "help flix run keeps the options run actually reads" ./flixw help flix run
+# --yes answers a confirmation prompt only Bootstrap.release asks; every other verb drops
+# it, the one flag whose curation runs the opposite direction from clean/build-pkg's.
+t 0  "help flix check excludes --yes, which only release reads" sh -c '
+  ! ./flixw help flix check 2>/dev/null | grep -q -- "--yes"'
+g 0 'automatically answer yes to all prompts' \
+  "help flix release keeps --yes" ./flixw help flix release
 t 89 "help flix rejects a command the compiler does not list"   ./flixw help flix nosuchverb
 t 89 "an unknown help topic is a usage error"                   ./flixw help nosuchtopic
 g 0 'topics: flix wrapper plugin task completion' \
