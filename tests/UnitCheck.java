@@ -611,6 +611,64 @@ public final class UnitCheck {
     }
 
     /**
+     * A truth table over {@code appliesToVerb}, one row per rule sourced from flix/flix's
+     * {@code Main.scala}/{@code Bootstrap.scala} (verified against 0.75.3) rather than
+     * inferred from {@code --help} text. Each row is a fact about a specific verb's actual
+     * reachable code, not a generalisation from the others -- {@code init} excludes both
+     * tiers, {@code clean}/{@code build-pkg} keep bootstrap options but not compile ones,
+     * {@code release} is the one verb that gains {@code --yes} rather than losing something,
+     * and the {@code --Xbenchmark-*}/{@code --listen} flags never belong to any named verb
+     * at all, regardless of which one is asked.
+     */
+    static void curationTruthTable() {
+        Object[][] rows = {
+            // flag, verb, expected
+            {"--entrypoint", "run", true},
+            {"--entrypoint", "init", false},
+            {"--entrypoint", "clean", false},
+            {"--entrypoint", "build-pkg", false},
+            {"--threads", "check", true},
+            {"--top", "test", true},
+            {"--Xlib", "build", true},
+            {"--Xlib", "clean", false},
+            {"--Xno-deprecated", "init", false},
+            {"--github-token", "run", true},
+            {"--github-token", "clean", true},
+            {"--github-token", "build-pkg", true},
+            {"--github-token", "init", false},
+            {"--no-install", "clean", true},
+            {"--no-install", "init", false},
+            {"--yes", "release", true},
+            {"--yes", "check", false},
+            {"--yes", "init", false},
+            {"--yes", "clean", false},
+            {"--listen", "run", false},
+            {"--listen", "init", false},
+            {"--listen", "release", false},
+            {"--Xbenchmark-code-size", "run", false},
+            {"--Xbenchmark-incremental", "init", false},
+            {"--Xbenchmark-phases", "clean", false},
+            {"--Xbenchmark-frontend", "release", false},
+            {"--Xbenchmark-throughput", "check", false},
+            {"--json", "init", true},
+            {"--help", "clean", true},
+            {"--version", "run", true},
+        };
+        int wrong = 0;
+        for (Object[] row : rows) {
+            String flag = (String) row[0], verb = (String) row[1];
+            boolean want = (Boolean) row[2];
+            boolean got = flixwhelp.appliesToVerb(flag, verb);
+            if (got != want) {
+                wrong++;
+                bad("curation: " + flag + " x " + verb,
+                    "wanted " + want + ", got " + got);
+            }
+        }
+        if (wrong == 0) ok();
+    }
+
+    /**
      * `wrapper --upgrade` warms every companion asset of the release it moves to, and
      * reads which ones those are out of that release's own SHA256SUMS rather than a list
      * compiled into this stage 0. An upgrade runs in the *old* wrapper, so a hard-coded
@@ -1327,6 +1385,7 @@ public final class UnitCheck {
         releaseChannel();
         releaseAssets();
         optionRows();
+        curationTruthTable();
         pluginDescription();
         declaredVerbs();
         upgradeUrls();

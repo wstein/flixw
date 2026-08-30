@@ -88,7 +88,8 @@ the bounds on `runCapture`, the four completion scripts with the note they read,
 (including a Windows-only regression: a `\r\n`-terminated `--help` silently lost every
 flag's arity until `captureHelp` started normalizing line endings), `autoRunBoundary`, and
 `isUpstream` (the provenance gate excluding a fork or `FLIX_JAR` override from both
-`autoRunBoundary` and `help flix <command>`'s option curation) — 421 assertions in total.
+`autoRunBoundary` and `help flix <command>`'s option curation), and a truth table over
+every curated option/verb rule — 422 assertions in total.
 Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 

@@ -213,6 +213,11 @@ final class flixwexamples {
                     int n;
                     while (b.length() < PROBE_CAP && (n = in.read(buf)) > 0)
                         b.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+                    // Reaching the cap ends the child now, the same as runCapture's own
+                    // reader: closing the pipe alone does not, since a writer that ignores
+                    // the error keeps going and still costs the whole PROBE_SECONDS timeout
+                    // below, for output already being discarded.
+                    if (b.length() >= PROBE_CAP) { p.destroy(); p.destroyForcibly(); }
                 } catch (IOException ignored) { }
             });
             reader.setDaemon(true);
