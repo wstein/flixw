@@ -1,4 +1,6 @@
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -6,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -83,7 +86,7 @@ final class flixwexamples {
             throw new Exit(87);
         }
         List<String> jvmOpts = List.of(args).subList(4, helpAt);
-        Set<String> valueTaking = valueTakingOptions(args[helpAt]);
+        String helpText = args[helpAt];
         int verbAt = helpAt + 1;
         String verb = args[verbAt];
         List<String> rest = List.of(args).subList(verbAt + 1, args.length);
@@ -98,7 +101,7 @@ final class flixwexamples {
             // run-the-example-as-a-test-of-the-root-package sense -- there is no such sense
             // here, since examples is its own namespace rather than a flag on `run`.
             case "run", "check", "build", "test" ->
-                dispatch(root, javaExe, compilerJar, jvmOpts, valueTaking, verb, rest);
+                dispatch(root, javaExe, compilerJar, jvmOpts, helpText, verb, rest);
             default -> {
                 System.err.println("flixw examples: unknown command " + q(verb));
                 System.err.println(usageText());
@@ -138,6 +141,67 @@ final class flixwexamples {
             if (longOpt != null) out.add(longOpt);
         }
         return out;
+    }
+
+    /** Bounds matching {@code flixw-help.java}'s own {@code probe} -- the same subprocess,
+     *  the same reasons: real help is small and fast, and a JAR that is not the Flix
+     *  compiler must not be able to wedge this on either count. */
+    static final long PROBE_SECONDS = 30;
+    static final int PROBE_CAP = 1 << 20;
+
+    /**
+     * A verb's own flags, scoped to it rather than the flat top-level set, when the pinned
+     * compiler actually has real per-command help to scope them from.
+     *
+     * <p>Stock Flix does not: every verb's {@code --help} echoes the identical top-level
+     * screen ({@code flixw-help.java}'s {@code flix()} already relies on this exact
+     * byte-equality to tell "no per-command help" from a real answer), so for it this
+     * degrades to exactly today's flat {@link #valueTakingOptions}, unchanged. A fork with
+     * real per-command help answers differently per verb, and only then is there anything a
+     * per-verb probe could learn that the flat set does not already know -- a versioned,
+     * hand-maintained schema of every Flix release's flags would carry that same fact for
+     * versions nobody using this project has ever pinned; asking the exact jar in hand
+     * costs one subprocess and is never wrong about it.
+     */
+    static Set<String> verbValueTaking(Path javaExe, Path jar, String verb, String helpText) {
+        String perVerb = probe(javaExe, jar, verb);
+        String top = helpText == null ? "" : helpText;
+        if (perVerb != null && !perVerb.strip().equals(top.strip()))
+            return valueTakingOptions(perVerb);
+        return valueTakingOptions(helpText);
+    }
+
+    /**
+     * The compiler's answer to {@code <verb> --help}, or null if it cannot be had --
+     * {@code flixw-help.java}'s own {@code probe}, duplicated rather than shared, since
+     * nothing here loads another asset's classes.
+     */
+    static String probe(Path javaExe, Path jar, String verb) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), "-jar", jar.toString(),
+                                                    verb, "--help");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            StringBuffer b = new StringBuffer();
+            Thread reader = new Thread(() -> {
+                try (InputStream in = p.getInputStream()) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while (b.length() < PROBE_CAP && (n = in.read(buf)) > 0)
+                        b.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+                } catch (IOException ignored) { }
+            });
+            reader.setDaemon(true);
+            reader.start();
+            if (!p.waitFor(PROBE_SECONDS, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return null;
+            }
+            reader.join(1000);
+            return b.toString().replace("\r\n", "\n").replace('\r', '\n');
+        } catch (IOException | InterruptedException e) {
+            return null;
+        }
     }
 
     /**
@@ -204,11 +268,18 @@ final class flixwexamples {
     }
 
     static void dispatch(Path root, Path javaExe, Path compilerJar, List<String> jvmOpts,
-                         Set<String> valueTaking, String verb, List<String> rest)
+                         String helpText, String verb, List<String> rest)
             throws IOException, InterruptedException {
         // examples run [flags] <name> [-- args]: flags meant for the compiler verb itself
         // (./flixw run --entrypoint Foo.main at the root) precede <name>, the same order
         // the root command already uses, rather than needing to hide behind the name.
+        //
+        // Only probed when there is a leading flag to disambiguate at all: the common case
+        // (examples run cli-tool, nothing before <name>) never consults valueTaking, so
+        // spawning a subprocess just to compute a set splitVerbFlags will not look at would
+        // cost every invocation for the benefit of none of them.
+        Set<String> valueTaking = (!rest.isEmpty() && rest.get(0).startsWith("-"))
+            ? verbValueTaking(javaExe, compilerJar, verb, helpText) : Set.of();
         List<List<String>> split = splitVerbFlags(rest, valueTaking);
         List<String> verbFlags = split.get(0), afterFlags = split.get(1);
         if (afterFlags.isEmpty()) {

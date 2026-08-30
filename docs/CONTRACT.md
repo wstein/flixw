@@ -672,14 +672,26 @@ own command rather than a flag riding `run`.
 **Flags before `<name>` reach the compiler verb itself**, mirroring
 `./flixw run --entrypoint Foo.main` at the root: `examples run --entrypoint Foo.main
 cli-tool` runs `cli-tool` with that entry point, the same as it would for the root
-project. Telling a value-taking flag (`--entrypoint <class>`) from `<name>` needs the
-compiler's own captured `--help` — without it, `--entrypoint Foo.main` and `<name>` look
-identical, two bare words in a row. The scan stops at the first token that is not a known
-or plausible flag, which is `<name>`, or at a bare `--`, which can never be one. A flag
-this project's cached `--help` does not recognise is treated as taking no value rather than
-refused: guessing wrong there is no worse than the flag being mistaken for `<name>` outright,
-which is what happened before this existed, and the compiler's own "Unknown option" is a
-clearer failure than flixw inventing one.
+project. Telling a value-taking flag (`--entrypoint <class>`) from `<name>` needs to know
+the verb's own flags — without that, `--entrypoint Foo.main` and `<name>` look identical,
+two bare words in a row. The scan stops at the first token that is not a known or plausible
+flag, which is `<name>`, or at a bare `--`, which can never be one. A flag not recognised as
+value-taking is treated as taking no value rather than refused: guessing wrong there is no
+worse than the flag being mistaken for `<name>` outright, which is what happened before this
+existed, and the compiler's own "Unknown option" is a clearer failure than flixw inventing
+one.
+
+That knowledge comes from the pinned compiler itself, per verb, not from a schema flixw
+maintains. Stock Flix's own `<verb> --help` always echoes the identical top-level screen —
+the same byte-equality `help flix <command>` already relies on to tell "no real
+per-command help" from an answer worth using — so for it this is exactly the flat,
+top-level `--help` capture it always was, probed nowhere and unchanged. A fork with real
+per-command help answers differently per verb, and `examples` probes that verb's own
+`--help` (one extra subprocess, only when a leading flag needs disambiguating at all) to
+learn flags the top-level screen never mentions. A hand-maintained table of every Flix
+release's flags would need to know about versions nobody using this project has ever
+pinned and would still be a static guess about a fork; asking the exact jar already in
+hand is never wrong about it and costs nothing when there is no flag to disambiguate.
 
 **Everything after `<name>` is forwarded to the compiler verb verbatim, including a
 leading `--`** — with one exception, and it exists at the root too, for the same reason.

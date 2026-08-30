@@ -264,6 +264,38 @@ javac -d "$work/sleeper" "$work/sleeper/Sleeper.java"
 printf 'Main-Class: Sleeper\n' > "$work/sleeper/mf"
 (cd "$work/sleeper" && jar cfm sleeper.jar mf Sleeper.class)
 
+# A JAR with real per-command help, unlike stock Flix: its "run --help" differs from its
+# top-level "--help" by declaring an extra value-taking flag ("--frobnicate <value>") the
+# generic screen never mentions. examples' verbValueTaking only has a reason to probe a
+# verb's own help at all because a fork can do this -- stock Flix's per-command "help" is
+# always byte-identical to the top level, which is what flixw-help.java's own probe()
+# already relies on to tell "no real per-command help" apart from an answer worth using.
+mkdir -p "$work/forkverb"
+cat > "$work/forkverb/Forkverb.java" <<'EOF'
+public final class Forkverb {
+    public static void main(String[] a) {
+        if (a.length == 1 && a[0].equals("--help")) {
+            System.out.println("Usage: flix [init|check|run] [options] <file>...");
+            System.out.println("Command: init");
+            System.out.println("Command: check");
+            System.out.println("Command: run");
+            System.out.println("  --common <value>   shared across every verb.");
+            return;
+        }
+        if (a.length == 2 && a[0].equals("run") && a[1].equals("--help")) {
+            System.out.println("Usage: flix run [options] <file>...");
+            System.out.println("  --common <value>       shared across every verb.");
+            System.out.println("  --frobnicate <value>   only run has this one.");
+            return;
+        }
+        System.out.println("ran:" + String.join(",", a));
+    }
+}
+EOF
+javac -d "$work/forkverb" "$work/forkverb/Forkverb.java"
+printf 'Main-Class: Forkverb\n' > "$work/forkverb/mf"
+(cd "$work/forkverb" && jar cfm forkverb.jar mf Forkverb.class)
+
 # Three plugin formats, one echo: each prints every FLIXW_* variable the ABI promises
 # and the raw FLIXW_CONTEXT file body (newlines escaped, so a grep sees one line), so a
 # test can assert the ABI actually delivers correct context without parsing JSON in a
@@ -2473,6 +2505,15 @@ t 0  "examples respects a FLIX_JAR override, not just the lock's own pin" sh -c 
   jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}")
   cp "$jar" "$1/my-build.jar"
   FLIX_JAR="$1/my-build.jar" ./flixw examples run cli-tool' sh "$ep"
+# forkverb's run --help differs from its top-level --help by one flag (--frobnicate) that
+# only exists for run -- stock Flix never gives verbValueTaking a reason to prefer the
+# per-verb probe over the flat set, so this is the one case that actually exercises it.
+# Without it, --frobnicate is zero-arity, "X" is mistaken for <name>, and this fails with
+# "no example 'X'" instead of reaching the fake compiler with cli-tool correctly resolved.
+g 0 '^ran:run,--frobnicate,X,--,hi$' \
+   "a fork's real per-verb --help finds a flag the flat top-level help does not" sh -c '
+  cd "$1" && FLIX_JAR="$2/forkverb/forkverb.jar" \
+    ./flixw examples run --frobnicate X cli-tool -- hi' sh "$ep" "$work"
 # Verb-agnostic dispatch: build and test need nothing beyond changing the working
 # directory and forwarding the verb, so a package's own build output and its own tests
 # are exactly what the compiler already does for the root project, unasked.
