@@ -1,7 +1,7 @@
 // flixw unit checks -- the parts of stage 0 the shell suite cannot reach from outside.
 //
 //   javac -d <out> src/stage0/flixw.java src/assets/flixw-help.java src/assets/flixw-jdk.java \
-//         src/assets/flixw-examples.java tests/UnitCheck.java
+//         src/assets/flixw-examples.java src/assets/flixw-local.java tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
 // Compiled and run by tests/run.sh; not a separate CI entry point. The groups, in the
@@ -696,6 +696,131 @@ public final class UnitCheck {
 
         if (!flixw.ownsEditorJar(link, null)) ok();
         else bad("editor-jar: with no recorded preference, a regular file is a stranger's", "owned");
+    }
+
+    /**
+     * {@code flixw-local.java}'s manifest reading and {@code packages.toml} round-trip --
+     * the pure logic behind {@code local add/list/remove}, exercised with no compiler and
+     * no overlay, the same way {@link #editorJarPrefs} exercises the editor-jar file
+     * format without a real cache or JAR.
+     */
+    static void localOverrides() throws IOException {
+        String pkg = "[package]\n"
+                   + "name        = \"demo\"\n"
+                   + "version     = \"1.2.3\"\n"
+                   + "repository  = \"github:acme/demo\"\n"
+                   + "flix        = \"0.75.3\"\n";
+        eq("local: packageField reads repository", "github:acme/demo",
+           flixwlocal.packageField(pkg, "repository"));
+        eq("local: packageField reads version", "1.2.3", flixwlocal.packageField(pkg, "version"));
+        eq("local: packageField is absent when the field is absent", null,
+           flixwlocal.packageField(pkg, "modules"));
+
+        String deps = "[dependencies]\n"
+                    + "\"github:acme/demo\" = \"1.2.3\"\n"
+                    + "\"github:acme/other\" = { version = \"4.5.6\", security = \"unrestricted\" }\n";
+        eq("local: dependencyVersion reads a bare-string entry", "1.2.3",
+           flixwlocal.dependencyVersion(deps, "github:acme/demo"));
+        eq("local: dependencyVersion reads an inline-table entry", "4.5.6",
+           flixwlocal.dependencyVersion(deps, "github:acme/other"));
+        eq("local: dependencyVersion is absent for an undeclared coordinate", null,
+           flixwlocal.dependencyVersion(deps, "github:acme/nope"));
+
+        Path root = Files.createTempDirectory("flixw-local-uc-");
+        if (flixwlocal.readOverrides(root).isEmpty()) ok();
+        else bad("local: no packages.toml means no overrides", "found some");
+
+        java.util.Map<String, String> overrides = new java.util.LinkedHashMap<>();
+        overrides.put("github:acme/demo", "/checkouts/demo");
+        flixwlocal.writeOverrides(root, overrides);
+        java.util.Map<String, String> got = flixwlocal.readOverrides(root);
+        eq("local: packages.toml round-trips one override", "{github:acme/demo=/checkouts/demo}",
+           got.toString());
+
+        overrides.put("github:acme/other", "/checkouts/other");
+        flixwlocal.writeOverrides(root, overrides);
+        eq("local: a second override is written alongside the first", "2",
+           String.valueOf(flixwlocal.readOverrides(root).size()));
+
+        overrides.remove("github:acme/demo");
+        flixwlocal.writeOverrides(root, overrides);
+        java.util.Map<String, String> afterRemove = flixwlocal.readOverrides(root);
+        eq("local: removing one override leaves the other", "{github:acme/other=/checkouts/other}",
+           afterRemove.toString());
+
+        // A path containing a literal quote or backslash -- plausible on Windows, where
+        // every path separator is one -- must round-trip rather than corrupting the file
+        // or being read back truncated at the first embedded quote.
+        Path oddRoot = Files.createTempDirectory("flixw-local-uc-odd-");
+        java.util.Map<String, String> odd = new java.util.LinkedHashMap<>();
+        odd.put("github:acme/demo", "C:\\Users\\a\"b\\checkouts\\demo");
+        flixwlocal.writeOverrides(oddRoot, odd);
+        eq("local: a path with a quote and a backslash round-trips", odd.toString(),
+           flixwlocal.readOverrides(oddRoot).toString());
+
+        // Table-scoping: a same-named field in the wrong table must not be read as
+        // [package]'s or [dependencies]'s own -- the whole reason packageField/
+        // dependencyVersion read tableBlock() rather than the raw manifest text.
+        String scoped = "[dependencies]\n"
+                       + "version = \"9.9.9\"\n"
+                       + "[package]\n"
+                       + "name        = \"demo\"\n"
+                       + "version     = \"1.2.3\"\n"
+                       + "repository  = \"github:acme/demo\"\n";
+        eq("local: packageField ignores a same-named field in [dependencies]", "1.2.3",
+           flixwlocal.packageField(scoped, "version"));
+        String scoped2 = "[package]\n"
+                        + "\"github:acme/demo\" = \"9.9.9\"\n"
+                        + "[dependencies]\n"
+                        + "\"github:acme/demo\" = \"1.2.3\"\n";
+        eq("local: dependencyVersion ignores a same-named entry in [package]", "1.2.3",
+           flixwlocal.dependencyVersion(scoped2, "github:acme/demo"));
+
+        // Fail-closed reading: a file this writer would never produce must refuse rather
+        // than read back as "no overrides", which a subsequent add/remove would then
+        // silently overwrite, discarding whatever the corruption had not already lost.
+        Path badRoot = Files.createTempDirectory("flixw-local-uc-bad-");
+        Files.createDirectories(badRoot.resolve(".flixw").resolve("local"));
+        Files.writeString(badRoot.resolve(".flixw").resolve("local").resolve("packages.toml"),
+                "this is not a packages.toml at all\n");
+        try {
+            flixwlocal.readOverrides(badRoot);
+            bad("local: a malformed packages.toml fails closed", "read without throwing");
+        } catch (flixwlocal.Exit e) { ok(); }
+
+        Path danglingRoot = Files.createTempDirectory("flixw-local-uc-dangling-");
+        Files.createDirectories(danglingRoot.resolve(".flixw").resolve("local"));
+        Files.writeString(danglingRoot.resolve(".flixw").resolve("local").resolve("packages.toml"),
+                "[overrides.\"github:acme/demo\"]\n");
+        try {
+            flixwlocal.readOverrides(danglingRoot);
+            bad("local: a header with no path fails closed", "read without throwing");
+        } catch (flixwlocal.Exit e) { ok(); }
+
+        // safeSegment: the last line of defence before a coordinate/version becomes a
+        // filesystem path segment in seedOverride -- COORDINATE's character class alone
+        // accepts ".." as a segment, so this is what actually stops the climb.
+        if (flixwlocal.safeSegment("flix-cubesolve") && flixwlocal.safeSegment("0.4.5")) ok();
+        else bad("local: an ordinary segment is safe", "rejected");
+        if (!flixwlocal.safeSegment("..") && !flixwlocal.safeSegment(".")
+                && !flixwlocal.safeSegment("a/b") && !flixwlocal.safeSegment("a\\b")
+                && !flixwlocal.safeSegment("")) ok();
+        else bad("local: a traversal or separator segment is unsafe", "accepted");
+
+        // "github:../.." passes COORDINATE's own character class (it allows '.' and '-'
+        // in a segment, and does not itself exclude ".."), so seedOverride is the actual
+        // last line of defence against a coordinate that would otherwise climb out of
+        // overlay/lib/github via Path.resolve("..") -- proven end to end, not just that
+        // the character class matches or does not.
+        if (flixwlocal.COORDINATE.matcher("github:../..").matches()) ok();
+        else bad("local: COORDINATE alone does not exclude '..'", "unexpectedly rejected");
+        Path traversalPkg = Files.createTempDirectory("flixw-local-uc-traversal-");
+        Files.writeString(traversalPkg.resolve("flix.toml"), "[package]\nversion = \"..\"\n");
+        try {
+            flixwlocal.seedOverride(Files.createTempDirectory("flixw-local-uc-overlay-"),
+                "github:../..", traversalPkg.resolve("nonexistent.fpkg"), traversalPkg);
+            bad("local: seedOverride refuses a traversal-shaped coordinate", "did not throw");
+        } catch (flixwlocal.Exit e) { ok(); }
     }
 
     /**
@@ -1421,6 +1546,7 @@ public final class UnitCheck {
         declaredVerbs();
         upgradeUrls();
         upgradeTarget();
+        localOverrides();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }

@@ -75,14 +75,14 @@ relfixture=$work/release
 mkdir -p "$relfixture"
 cp "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
    "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
-   "$root/src/assets/flixw-examples.java" \
+   "$root/src/assets/flixw-examples.java" "$root/src/assets/flixw-local.java" \
    "$relfixture/"
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$relfixture" && sha256sum flixw.java flixw-jdk.java \
-     flixw-setup.java flixw-inspect.java flixw-help.java flixw-examples.java > SHA256SUMS)
+  (cd "$relfixture" && sha256sum flixw.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
+     flixw-help.java flixw-examples.java flixw-local.java > SHA256SUMS)
 else
-  (cd "$relfixture" && shasum -a 256 flixw.java flixw-jdk.java \
-     flixw-setup.java flixw-inspect.java flixw-help.java flixw-examples.java > SHA256SUMS)
+  (cd "$relfixture" && shasum -a 256 flixw.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
+     flixw-help.java flixw-examples.java flixw-local.java > SHA256SUMS)
 fi
 # The renderer's picocli rides the fixture exactly as it rides a real release, so the
 # suite exercises the same ensureAsset path a user takes rather than a special case.
@@ -1901,7 +1901,7 @@ echo "unit checks"
 # release publishes -- staged into tests/.work above, beside the release fixture.
 javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/src/assets/flixw-help.java" \
   "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-examples.java" \
-  "$root/tests/UnitCheck.java"
+  "$root/src/assets/flixw-local.java" "$root/tests/UnitCheck.java"
 set +e
 java -cp "$work/unit:$picocli_jar" UnitCheck "$root/tests/corpus" "$root/tests/schema"
 unit_rc=$?
@@ -2706,6 +2706,205 @@ else
 fi
 rm -rf "$ep/examples"      # see the rm -rf note above; same Git Bash copy-not-link case
 mv "$ep/examples.real" "$ep/examples"
+
+# --- local -------------------------------------------------------------------
+# npm link / Cargo [patch] for a project's declared GitHub dependency, without ever
+# editing flix.toml: a disposable overlay seeds Flix's own resolver-cache hierarchy
+# (lib/github/<owner>/<repo>/<version>/<repo>-<version>.fpkg + .toml) with a locally
+# built .fpkg. flix-cubesolve's own scripts/qualify-local-overlay.sh --characterize
+# proved the resolver reads that hierarchy with zero network access and zero manifest
+# edits, for a coordinate that need not even exist on GitHub -- both coordinates below
+# are make-believe, and no case in this section reaches the network for either.
+echo "local"
+lpkg=$work/localpkg
+rm -rf "$lpkg" && mkdir -p "$lpkg/src"
+cat > "$lpkg/flix.toml" <<EOF
+[package]
+name        = "localpkg"
+description = "a synthetic package this project overrides"
+version     = "1.0.0"
+repository  = "github:flixw-test/localpkg"
+flix        = "$version"
+authors     = ["t"]
+modules     = ["LocalPkg"]
+EOF
+cat > "$lpkg/src/LocalPkg.flix" <<'FLIX'
+mod LocalPkg {
+    pub def greet(): String = "hello from local pkg"
+}
+FLIX
+git init -q "$lpkg"
+
+lp=$work/localproj
+rm -rf "$lp" && mkdir -p "$lp/src"
+java "$root/src/assets/flixw-setup.java" setup "$lp" >/dev/null 2>&1
+git init -q "$lp"
+cat > "$lp/flix.toml" <<EOF
+[package]
+name        = "localconsumer"
+description = "depends on localpkg"
+version     = "0.1.0"
+repository  = "github:flixw-test/localconsumer"
+flix        = "$version"
+authors     = ["t"]
+
+[dependencies]
+"github:flixw-test/localpkg" = "1.0.0"
+EOF
+cat > "$lp/src/Main.flix" <<'FLIX'
+def main(): Unit \ IO = println(LocalPkg.greet())
+
+@Test
+def testLocalOwnsItsOwnTests(): Unit \ Assert =
+    Assert.assertEq(expected = 1, 1)
+FLIX
+
+# Bookkeeping (add/list/remove/status) needs no compiler at all -- the same "works
+# before any project has ever been pinned" precedent plugin install already sets --
+# but an overlay verb still launches one, so it refuses exactly like examples does.
+t 0  "list needs no pinned compiler at all" sh -c '
+  cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
+t 88 "an overlay verb still needs a pinned compiler before it can run anything" sh -c '
+  cd "$1" && ./flixw local run' sh "$lp"
+
+(cd "$lp" && ./flixw pin "$version" >/dev/null 2>&1)
+
+g 0  'usage: \./flixw local' "local --help answers instead of running" sh -c '
+  cd "$1" && ./flixw local --help' sh "$lp"
+t 0  "list is quiet with no overrides yet" sh -c '
+  cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
+t 89 "an overlay verb with no overrides yet is refused" sh -c '
+  cd "$1" && ./flixw local run' sh "$lp"
+
+# Validation, each against a scratch package built to fail exactly one check -- the
+# same "one refusal per fixture" shape the plugin and examples sections above use.
+g 89 'does not declare a dependency' "add refuses an undeclared coordinate" sh -c '
+  d=$(mktemp -d); mkdir -p "$d/src"
+  sed "s#flixw-test/localpkg#flixw-test/undeclared#" "$2/flix.toml" > "$d/flix.toml"
+  cd "$1" && ./flixw local add "$d"' sh "$lp" "$lpkg"
+g 89 'version mismatch' "add refuses a version that does not match the manifest" sh -c '
+  d=$(mktemp -d); mkdir -p "$d/src"
+  sed "s/1\.0\.0/9.9.9/" "$2/flix.toml" > "$d/flix.toml"
+  cd "$1" && ./flixw local add "$d"' sh "$lp" "$lpkg"
+g 89 'cannot override this project with itself' "add refuses overriding a project with itself" sh -c '
+  cd "$1" && ./flixw local add .' sh "$lp"
+g 89 'has no flix.toml' "add refuses a path with no manifest" sh -c '
+  cd "$1" && ./flixw local add "$(mktemp -d)"' sh "$lp"
+# "github:../.." passes COORDINATE's own character class (it permits "." and "-" in a
+# segment and does not itself exclude ".."), so this is the end-to-end proof that
+# seedOverride's own re-validation -- not just this pattern -- is what actually refuses
+# a coordinate shaped to climb out of overlay/lib/github via Path.resolve("..").
+g 89 'not safe to use as a cache path' "add refuses a traversal-shaped coordinate" sh -c '
+  d=$(mktemp -d); mkdir -p "$d/src"
+  sed "s#flixw-test/localpkg#../..#" "$2/flix.toml" > "$d/flix.toml"
+  cd "$1" && ./flixw local add "$d"' sh "$lp" "$lpkg"
+
+g 0  'added github:flixw-test/localpkg' "add accepts a matching override" sh -c '
+  cd "$1" && ./flixw local add "$2"' sh "$lp" "$lpkg"
+g 89 'already overridden' "add refuses a second override of the same coordinate" sh -c '
+  cd "$1" && ./flixw local add "$2"' sh "$lp" "$lpkg"
+
+# Override-to-override edges: a package that itself depends on an already-overridden
+# coordinate is refused, because buildPackage() builds each override standalone, in its
+# own checkout's dependency cache -- it would resolve the other override's *remote*
+# version, not the override, silently. localpkg is already an active override of $lp
+# at this point, so a second package depending on it is exactly this edge.
+lpkg2=$work/localpkg2
+rm -rf "$lpkg2" && mkdir -p "$lpkg2/src"
+cat > "$lpkg2/flix.toml" <<EOF
+[package]
+name        = "localpkg2"
+description = "depends on localpkg, itself an active override -- must be refused"
+version     = "1.0.0"
+repository  = "github:flixw-test/localpkg2"
+flix        = "$version"
+authors     = ["t"]
+
+[dependencies]
+"github:flixw-test/localpkg" = "1.0.0"
+EOF
+cat >> "$lp/flix.toml" <<EOF
+"github:flixw-test/localpkg2" = "1.0.0"
+EOF
+g 89 'already a local override' "add refuses a package depending on an active override" sh -c '
+  cd "$1" && ./flixw local add "$2"' sh "$lp" "$lpkg2"
+
+# The reverse edge: localpkg (the active override) depending on the coordinate being
+# added, checked from the other side -- lpkg2's own dependency on localpkg is removed
+# first, so this test cannot pass merely by re-triggering the first direction above.
+cat > "$lpkg2/flix.toml" <<EOF
+[package]
+name        = "localpkg2"
+description = "no dependency of its own -- only localpkg depends on this one"
+version     = "1.0.0"
+repository  = "github:flixw-test/localpkg2"
+flix        = "$version"
+authors     = ["t"]
+EOF
+cp "$lpkg/flix.toml" "$work/lpkg-flix.toml.bak"
+cat >> "$lpkg/flix.toml" <<EOF
+
+[dependencies]
+"github:flixw-test/localpkg2" = "1.0.0"
+EOF
+g 89 'already a local override' "add refuses when an active override depends on it" sh -c '
+  cd "$1" && ./flixw local add "$2"' sh "$lp" "$lpkg2"
+cp "$work/lpkg-flix.toml.bak" "$lpkg/flix.toml"
+# Not a real dependency of $lp -- remove it so later overlay-verb tests never need to
+# resolve it, either via override or the network.
+sed -i.bak '/localpkg2/d' "$lp/flix.toml" && rm -f "$lp/flix.toml.bak"
+
+g 0  'github:flixw-test/localpkg' "list shows the active override" sh -c '
+  cd "$1" && ./flixw local list' sh "$lp"
+g 0  'ok       matches what this project declares' "status confirms the version still agrees" sh -c '
+  cd "$1" && ./flixw local status' sh "$lp"
+g 0  '1 local dependency override' "doctor surfaces the override as advisory state" sh -c '
+  cd "$1" && ./flixw doctor' sh "$lp"
+
+g 0  '^hello from local pkg$' "run launches the overlay against the local package" sh -c '
+  cd "$1" && ./flixw local run' sh "$lp"
+t 0  "check runs inside the overlay" sh -c '
+  cd "$1" && ./flixw local check' sh "$lp"
+t 0  "test runs the consumer's own tests inside the overlay" sh -c '
+  cd "$1" && ./flixw local test' sh "$lp"
+t 0  "build compiles inside the overlay" sh -c '
+  cd "$1" && ./flixw local build' sh "$lp"
+t 0  "build-pkg produces a package inside the overlay" sh -c '
+  cd "$1" && ./flixw local build-pkg' sh "$lp"
+t 0  "build-jar produces a package inside the overlay" sh -c '
+  cd "$1" && ./flixw local build-jar' sh "$lp"
+t 0  "build-fatjar produces a package inside the overlay" sh -c '
+  cd "$1" && ./flixw local build-fatjar' sh "$lp"
+t 0  "doc runs inside the overlay" sh -c '
+  cd "$1" && ./flixw local doc' sh "$lp"
+# The overlay is a disposable temporary directory: none of the above may write into the
+# real project's own tree, which is the entire point of never mutating flix.toml.
+t 0  "none of the overlay verbs touched the real project's own build/artifact/lib" sh -c '
+  cd "$1" && [ ! -e build ] && [ ! -e artifact ] && [ ! -d lib/github ]' sh "$lp"
+# The regression this specifically guards: an earlier implementation ran build-pkg
+# directly inside the overridden package's own checkout, deleting its artifact/*.fpkg
+# first -- destructive to exactly the checkout the whole feature exists to leave alone.
+t 0  "the overridden package's own checkout is untouched too" sh -c '
+  cd "$1" && [ ! -e artifact ] && [ ! -e build ]' sh "$lpkg"
+
+# Arity: each bookkeeping verb takes exactly the arguments it documents, not "at least".
+g 87 'add takes exactly one path' "add rejects extra operands" sh -c '
+  cd "$1" && ./flixw local add "$2" extra' sh "$lp" "$lpkg"
+g 87 'list takes no arguments' "list rejects extra operands" sh -c '
+  cd "$1" && ./flixw local list extra' sh "$lp"
+g 87 'remove takes exactly one coordinate' "remove rejects extra operands" sh -c '
+  cd "$1" && ./flixw local remove github:flixw-test/localpkg extra' sh "$lp"
+g 87 'status takes no arguments' "status rejects extra operands" sh -c '
+  cd "$1" && ./flixw local status extra' sh "$lp"
+
+t 89 "an unknown local verb is refused" sh -c '
+  cd "$1" && ./flixw local release' sh "$lp"
+g 89 'no override for' "remove refuses an unknown coordinate" sh -c '
+  cd "$1" && ./flixw local remove github:flixw-test/nope' sh "$lp"
+g 0  'removed github:flixw-test/localpkg' "remove drops the override" sh -c '
+  cd "$1" && ./flixw local remove github:flixw-test/localpkg' sh "$lp"
+t 0  "list is quiet again after remove" sh -c '
+  cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
 
 # --- tasks ---------------------------------------------------------------
 # npm's `scripts`, not a new verb per task: .flixw/tasks.toml is hand-edited, never

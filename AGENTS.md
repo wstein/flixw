@@ -76,7 +76,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 441-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 476-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -91,8 +91,10 @@ the bounds on `runCapture`, the four completion scripts with the note they read,
 flag's arity until `captureHelp` started normalizing line endings), `autoRunBoundary`, and
 `isUpstream` (the provenance gate excluding a fork or `FLIX_JAR` override from both
 `autoRunBoundary` and `help flix <command>`'s option curation), a truth table over every
-curated option/verb rule, and the `.flixw/local/editor-jar.toml` round-trip `ownsEditorJar`
-reads to tell its own prior write from a stranger's file — 427 assertions in total.
+curated option/verb rule, the `.flixw/local/editor-jar.toml` round-trip `ownsEditorJar`
+reads to tell its own prior write from a stranger's file, and `flixw-local.java`'s
+manifest reading (`[package]` fields, bare-string and inline-table `[dependencies]`
+entries) and `.flixw/local/packages.toml` round-trip — 446 assertions in total.
 Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
@@ -313,7 +315,7 @@ it, and a change that would make an existing lock unreadable does.
 
 Order in `realMain` (paper §4.8): `--wrapper-*` flags → `install` (first contact only) →
 drift check → `./flixw -- args` forced pass-through → verb in the captured compiler verb set →
-verb in `WRAPPER_VERBS` (`pin info doctor validate help plugin task examples`) → otherwise the
+verb in `WRAPPER_VERBS` (`pin info doctor validate help plugin task examples local`) → otherwise the
 compiler, so Flix owns unknown-command diagnostics. Wrapper verbs therefore retire
 *automatically*, one at a time, as Flix implements them; a displaced verb prints a
 deprecation notice. `FLIX_BACKEND=wrapper|compiler` forces a side during a transition.
@@ -404,6 +406,7 @@ requires a resolvable project root, and both of these have to answer without one
 | `src/assets/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 | `src/assets/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
 | `src/assets/flixw-examples.java` | `examples [list \| <verb>]`, `<verb>` any local build verb | see below — a different reason from the three above |
+| `src/assets/flixw-local.java` | `local add\|list\|remove\|status\|<verb>` | overrides a declared GitHub dependency with a local checkout — see "Local overrides" below |
 
 **`examples` was never a migration candidate; it was designed as an asset from the start,
 for a reason the table above doesn't cover.** `examples/<name>/` is a real, separate Flix
@@ -426,6 +429,40 @@ the table's other three are.
 data, not a generated script" below for the shape, which is now shared. The version is a
 parameter for one reason: `wrapper --upgrade` warms the assets of the release it is
 upgrading *to*, from the stage 0 it is upgrading *from*.
+
+#### Local overrides
+
+**v1, experimental, cacheless.** `./flixw local add <path>` overrides a declared GitHub
+dependency with an uncommitted local checkout — `npm link` / Cargo's `[patch]` for
+`flix.toml`, without ever editing it. `./flixw local <verb>` (`run check build build-jar
+build-fatjar build-pkg test doc`) then launches that verb inside a disposable temporary
+directory: the consumer's tracked `src/`/`test/`/`flix.toml`, its already-resolved
+dependency cache, and a freshly built `.fpkg` for each overridden package, seeded at
+exactly `lib/github/<owner>/<repo>/<version>/<repo>-<version>.fpkg` beside a `.toml`
+sidecar. That hierarchy is not this project's invention: it is where Flix's own resolver
+already looks before ever reaching the network, confirmed by running
+`flix-cubesolve/scripts/qualify-local-overlay.sh --characterize` against a real
+compiler — the dependency must still be declared in the consumer's own `flix.toml`, a
+loose `lib/*.fpkg` outside that exact hierarchy is ignored, and the version is checked
+strictly, not silently accepted. The overlay is deleted the moment the launched verb
+exits; nothing about the real project's own `lib/`, `artifact/`, or `flix.toml` is ever
+written to — nor is the *overridden package's own checkout*: `build-pkg` runs in a
+private, disposable copy of it, seeded with its own already-resolved dependency cache,
+never in the real directory `add` was pointed at. `add` refuses a duplicate, missing,
+version-mismatched, self-referential, or override-to-override (a package depending on an
+already-overridden coordinate, or vice versa — building either standalone would resolve
+the other's *remote* version, silently) override before anything is cached; `local
+list`/`remove`/`status` are pure bookkeeping over `.flixw/local/packages.toml`
+(`[overrides."github:owner/repo"] path = "..."`, machine-specific, gitignored) and touch
+neither the compiler nor the network — nor, unlike the overlay verbs, does dispatch
+require one to be pinned at all, the same "works before any project has ever been pinned"
+precedent `plugin install` already sets.
+
+Explicitly out of scope for v1: caching a built overlay (every run rebuilds every
+overridden package fresh — the conservative default until the mechanism has seen real
+use), and transitive local overrides (an overridden package's own local overrides, if it
+has any, are not honored while it is being built as someone else's override — building it
+directly, as `local` always does, resolves its dependencies for real).
 
 **The asset cache is keyed by version string, not content hash — a real sharp edge for
 local development.** `<cache>/wrapper/assets/<version>/` names a released version, and

@@ -95,7 +95,7 @@ public final class flixw {
     static final int HELP_CAP = 1 << 20;
 
     static final List<String> WRAPPER_VERBS =
-        List.of("pin", "info", "doctor", "validate", "help", "plugin", "task", "examples");
+        List.of("pin", "info", "doctor", "validate", "help", "plugin", "task", "examples", "local");
 
     /**
      * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
@@ -1044,6 +1044,12 @@ public final class flixw {
         + "\n          or: ./flixw examples <verb> [flags] <name> [-- args]"
         + "\n          verbs: run check build build-classes build-jar build-fatjar"
         + " build-pkg clean doc format outdated eff-check eff-lock test";
+
+    static final String LOCAL_USAGE =
+          "usage: ./flixw local add <path>   (override a declared GitHub dependency)"
+        + "\n          or: ./flixw local list | remove <coordinate> | status"
+        + "\n          or: ./flixw local <verb> [-- args]"
+        + "\n          verbs: run check build build-jar build-fatjar build-pkg test doc";
 
     /**
      * {@code --help}/{@code -h} anywhere in a wrapper verb's own arguments, the same way a
@@ -2853,8 +2859,60 @@ public final class flixw {
                 a.addAll(rest.isEmpty() ? List.of("list") : rest);
                 System.exit(runAsset(asset, null, a));
             }
+            // A companion asset overriding a declared GitHub dependency with an uncommitted
+            // local checkout -- npm link / Cargo [patch] for a project's own flix.toml,
+            // without ever editing it. dispatchLocal, not this case directly, decides
+            // whether a pinned compiler is required: bookkeeping (add/list/remove/status)
+            // never launches one, so it must not be gated on there being one, the same
+            // "works before any project has ever been pinned" precedent `plugin install`
+            // already sets.
+            case "local" -> dispatchLocal(root, jar, jvm, rest);
             default -> throw w009("no wrapper implementation for " + q(verb));
         }
+    }
+
+    /** Bookkeeping verbs never launch a compiler, and -- like {@code plugin install},
+     *  which works before any project has ever been pinned -- must not require one just
+     *  because they happen to live in the same asset as the verbs that do. */
+    static final Set<String> LOCAL_BOOKKEEPING_VERBS = Set.of("add", "list", "remove", "status");
+
+    static void dispatchLocal(Path root, Path jar, Jvm jvm, List<String> rest) {
+        if (!rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
+            System.out.println(LOCAL_USAGE); return;
+        }
+        boolean bookkeeping = !rest.isEmpty() && LOCAL_BOOKKEEPING_VERBS.contains(rest.get(0));
+        if (!bookkeeping && (jar == null || jvm == null))
+            throw w009("local needs a pinned, reachable compiler"
+                     + "\n       run: ./flixw pin <version>");
+        Path asset = ensureAsset(LOCAL_ASSET);
+        List<String> opts = jvmOpts();
+        List<String> a = new ArrayList<>(List.of(root.toString(),
+                jvm == null ? "" : jvm.exe().toString(),
+                jar == null ? "" : jar.toString(), String.valueOf(opts.size())));
+        a.addAll(opts);
+        a.add("standalone");
+        a.addAll(rest);
+        System.exit(runAsset(asset, null, a));
+    }
+
+    /**
+     * The coordinates {@code .flixw/local/packages.toml} names, for {@code check}'s
+     * advisory line -- not a general reader. The full format (including each entry's
+     * {@code path}) lives once, in {@code flixw-local.java}, which owns writing it too;
+     * this reads only the table headers, since that is all a doctor line needs to say.
+     */
+    static Map<String, String> readLocalOverrides(Path root) {
+        Map<String, String> out = new LinkedHashMap<>();
+        Path f = root.resolve(WRAPPER_DIR).resolve("local").resolve("packages.toml");
+        if (!Files.isRegularFile(f)) return out;
+        Pattern header = Pattern.compile("^\\[overrides\\.\"([^\"]+)\"\\]$");
+        try {
+            for (String raw : Files.readAllLines(f, StandardCharsets.UTF_8)) {
+                Matcher h = header.matcher(raw.strip());
+                if (h.matches()) out.put(h.group(1), "");
+            }
+        } catch (IOException ignored) { return new LinkedHashMap<>(); }
+        return out;
     }
 
     // ---- plugins ------------------------------------------------------------
@@ -3973,6 +4031,21 @@ public final class flixw {
             }
         }
 
+        // Advisory only, and deliberately not re-validated here (whether the override still
+        // exists, still matches, still builds) -- that judgement belongs to the overlay
+        // engine that actually runs it, `./flixw local status`, not to a second reader of
+        // the same file that could disagree with it about what "still valid" means. This
+        // exists so a project with an active override is not silently building against one
+        // without saying so.
+        if (root != null) {
+            Map<String, String> overrides = readLocalOverrides(root);
+            if (!overrides.isEmpty())
+                System.out.println("warn  " + overrides.size() + " local dependency override"
+                                 + (overrides.size() == 1 ? "" : "s") + " active: "
+                                 + String.join(", ", overrides.keySet())
+                                 + " (./flixw local status)");
+        }
+
         // Checked against the machine-wide cache alone -- a directory read, nothing about
         // this reaches the network. A warn, not a FAIL: the project still builds without
         // it, only `flixw plugin <name>` would fail, and doctor says so without stopping
@@ -5005,6 +5078,10 @@ public final class flixw {
     /** Runs a project's {@code examples/<name>/}; see the {@code "examples"} case in
      *  {@link #wrapperVerb}. */
     static final String EXAMPLES_ASSET = "flixw-examples.java";
+
+    /** Overrides a declared GitHub dependency with a local checkout; see the {@code
+     *  "local"} case in {@link #wrapperVerb}. */
+    static final String LOCAL_ASSET = "flixw-local.java";
 
     /**
      * picocli, published as a flixw release asset like every other companion.

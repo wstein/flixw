@@ -19,7 +19,7 @@ and `src/stage0/flixw.cmd` are shims that only locate a `java` and prefer the ca
 - **Never vendor picocli, or any other library, into `src/stage0/flixw.java`.** It imports
   nothing and stays dependency-free; picocli is used only by the `flixw-help.java`
   companion asset, fetched as a verified release asset, never committed to a project.
-- `help`, `completion <shell>`, `wrapper --install-jdk` and `examples` are answered by
+- `help`, `completion <shell>`, `wrapper --install-jdk`, `examples` and `local` are answered by
   companion assets (`src/assets/flixw-*.java`), not stage 0 itself — fetched, digest-verified
   and cached the way `wrapper --upgrade` fetches `flixw.java`. `ensureAsset(name, version)`
   is the one way stage 0 reaches any of them; add a new command there, not by growing

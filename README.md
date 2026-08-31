@@ -502,6 +502,30 @@ for what that excludes and why.
 Fetched and cached the way the completion generator is, so there is no separate install
 step and no "unaudited third-party code" warning: this is flixw's own code, not a plugin.
 
+## Local overrides
+
+**v1, experimental, cacheless.** `./flixw local` overrides a declared GitHub dependency
+with an uncommitted local checkout — `npm link` / Cargo's `[patch]` for `flix.toml`,
+without ever editing it:
+
+```console
+./flixw local add ../flix-orbit64
+./flixw local run
+./flixw local status
+./flixw local remove github:wstein/flix-orbit64
+```
+
+`add` checks the local checkout's own manifest against what your project declares — the
+coordinate, and the version — before writing anything, and refuses a mismatch, a
+duplicate, overriding a project with itself, or an override depending on another one.
+Every overlay verb (`run check build build-jar build-fatjar build-pkg test doc`) runs
+inside a disposable temporary directory seeded with a freshly built copy of the
+overridden package — itself built in a second, private, disposable copy, never in your
+own checkout — at exactly the path Flix's own resolver already reads a cached dependency
+from. Neither your project's own `flix.toml`/`lib`/`artifact` nor the overridden
+package's own are ever touched. See `docs/CONTRACT.md` for the full rules, including
+what v1 does not yet do (a cache, and transitive local overrides).
+
 ## Editor integration
 
 Every `./flixw pin` keeps `./flix.jar` pointing at the compiler it just verified — the
@@ -610,7 +634,8 @@ flixw/
 │   ├── flixw-inspect.java     the cache inventory behind `info --verbose`
 │   ├── flixw-help.java        the help renderer and TAB-completion generator
 │   ├── flixw-examples.java    runs examples/<name>/ for `./flixw examples`
-│   │                          — the five companion assets: published per release, fetched
+│   ├── flixw-local.java       overrides a declared GitHub dependency for `./flixw local`
+│   │                          — the six companion assets: published per release, fetched
 │   │                            on first use, digest-verified, never committed to a project
 │   ├── flixw                  POSIX shim — finds a Java, prefers the compiled stage 0
 │   └── flixw.cmd              cmd.exe shim — the same, without a POSIX shell

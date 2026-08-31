@@ -19,6 +19,7 @@ flixw.cmd                    cmd.exe shim
 .flixw/.sccignore            keeps the vendored wrapper out of scc's line counts
 .flixw/local/java            the JDK this machine resolved to; NOT committed
 .flixw/local/editor-jar.toml a per-machine ./flix.jar preference; NOT committed
+.flixw/local/packages.toml   active `local` overrides, if any; NOT committed
 flix.jar                     for the VS Code Flix extension; NOT committed, see below
 ```
 
@@ -486,8 +487,8 @@ reached only when no explicit setting exists and the running JVM is unusable.
    not an operation here — see "Completion" below.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
-4. Otherwise, if it is `pin`, `info`, `doctor`, `validate`, `help`, `plugin`, `task` or
-   `examples`, the wrapper implements it. `plugin` and `task` are namespaces rather than
+4. Otherwise, if it is `pin`, `info`, `doctor`, `validate`, `help`, `plugin`, `task`,
+   `examples` or `local`, the wrapper implements it. `plugin` and `task` are namespaces rather than
    bare verbs — `plugin <name>`/`task <name>` — so only those two words are subject to
    this rule; a third-party plugin's own name can never collide with a future compiler
    verb.
@@ -811,6 +812,51 @@ advertised demo command on a fresh clone or in CI.
 Symlinks are defended against twice, the same way plugin names are: `examples/` itself
 resolving outside the project root is refused before anything is listed, and a selected
 `<name>` resolving outside the real `examples/` directory is refused before anything runs.
+
+## Local overrides
+
+**v1, experimental, cacheless.** `./flixw local` overrides a declared GitHub dependency
+with an uncommitted local checkout — `npm link` / Cargo's `[patch]` for `flix.toml`,
+without ever editing it:
+
+```console
+./flixw local add ../flix-orbit64
+./flixw local list
+./flixw local status
+./flixw local run
+./flixw local check
+./flixw local remove github:wstein/flix-orbit64
+```
+
+`add <path>` reads the local checkout's own `flix.toml` (its `[package]` `repository` and
+`version`) and refuses before anything is written: a coordinate this project does not
+declare in `[dependencies]`, a version that does not match what this project depends on,
+overriding a project with itself, a path with no manifest, a coordinate already
+overridden, or an override-to-override edge — a package that itself depends on an
+already-overridden coordinate, or an already-overridden package that depends on the one
+being added. Either edge is refused because each override is built standalone, in its
+own checkout's dependency cache: building it would resolve the other override's *remote*,
+committed version rather than the override, silently. `list`/`remove`/`status` are pure
+bookkeeping over `.flixw/local/packages.toml` (machine-specific, gitignored), require no
+pinned compiler at all, and touch neither the compiler nor the network.
+
+Every overlay verb (`run check build build-jar build-fatjar build-pkg test doc`) launches
+inside a disposable temporary directory: the consumer's tracked `src/`/`test/`/
+`flix.toml`, its already-resolved dependency cache, and a freshly built `.fpkg` for each
+overridden package, seeded at exactly `lib/github/<owner>/<repo>/<version>/
+<repo>-<version>.fpkg` beside a `.toml` sidecar — the exact hierarchy Flix's own resolver
+already reads before ever reaching the network, with the dependency still required in
+`flix.toml`, a loose `lib/*.fpkg` outside that hierarchy ignored, and the version checked
+strictly. Each overridden package is itself built in a *second*, private disposable
+directory — never in the checkout `add` was pointed at — seeded the same way with that
+package's own already-resolved dependency cache, so building it needs no network merely
+because it is a copy rather than the real thing. The outer overlay is deleted the moment
+the launched verb exits; the real project's own `lib/`, `artifact/` and `flix.toml`, and
+the overridden package's own, are never written to.
+
+Out of scope for v1: caching a built overlay (every run rebuilds every overridden package
+fresh), and transitive local overrides (an overridden package's own local overrides, if
+it has any, are not honored while it is being built as someone else's override).
 
 ## Editor integration
 
