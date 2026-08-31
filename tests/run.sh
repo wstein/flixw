@@ -991,6 +991,55 @@ g 83 'lock.toml pins java' "an explicit JDK against the pin is refused" sh -c '
   JAVA_HOME=$2 ./flixw -- --version; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work" "$(dirname "$(dirname "$realjava")")"
 
+# --- ./flix.jar for the VS Code Flix extension ------------------------------
+echo "editor jar"
+ej=$work/editorjar
+rm -rf "$ej" && mkdir -p "$ej"
+git init -q "$ej"
+java "$root/src/assets/flixw-setup.java" setup "$ej" >/dev/null 2>&1
+(cd "$ej" && ./flixw pin "$version" >/dev/null 2>&1)
+# A real symlink on every platform that permits one -- probed, not gated, the same
+# reasoning every other ln -s-dependent case in this suite uses.
+if (cd "$ej" && ln -sf .flixw/lock.toml probe-link 2>/dev/null) && [ -L "$ej/probe-link" ]; then
+  rm -f "$ej/probe-link"
+  t 0  "pin creates a real symlink to the cached compiler" sh -c '
+    cd "$1" && [ -L flix.jar ]' sh "$ej"
+  g 0  'link.*matches the pinned compiler' "doctor reports the link as current" sh -c '
+    cd "$1" && ./flixw doctor' sh "$ej"
+else
+  s "pin creates a real symlink to the cached compiler" "ln -s does not link here"
+  s "doctor reports the link as current"                "ln -s does not link here"
+fi
+t 0  "/flix.jar is gitignored"                                  sh -c '
+  cd "$1" && grep -qx "/flix.jar" .gitignore' sh "$ej"
+# A file this project'"'"'s flixw did not create is never silently replaced -- the one
+# safety property every other part of this feature exists around.
+t 0  "a foreign flix.jar is left alone by a re-pin" sh -c '
+  cd "$1" && rm -f flix.jar && echo "not a jar" > flix.jar &&
+  ./flixw pin "$2" >/dev/null 2>&1 &&
+  [ "$(cat flix.jar)" = "not a jar" ]' sh "$ej" "$version"
+g 0  "not created by this project" "the note names why it was left alone" sh -c '
+  cd "$1" && ./flixw pin "$2"' sh "$ej" "$version"
+# --editor-jar=copy is explicit authorization to replace even a foreign file.
+t 0  "--editor-jar=copy overrides a foreign file" sh -c '
+  cd "$1" && ./flixw pin --editor-jar=copy >/dev/null 2>&1 &&
+  [ "$(cat flix.jar)" != "not a jar" ]' sh "$ej"
+rm -f "$ej/.flixw/local/editor-jar.toml"
+t 0  "off removes an existing link and records the preference" sh -c '
+  cd "$1" && [ -e flix.jar ] &&
+  ./flixw pin --editor-jar=off >/dev/null 2>&1 &&
+  [ ! -e flix.jar ] && grep -q "mode = \"off\"" .flixw/local/editor-jar.toml' sh "$ej"
+t 0  "off is remembered across a later pin, with no version given" sh -c '
+  cd "$1" && ./flixw pin "$2" >/dev/null 2>&1 && [ ! -e flix.jar ]' sh "$ej" "$version"
+t 0  "doctor says nothing about flix.jar once opted out"       sh -c '
+  cd "$1" && ! ./flixw doctor 2>&1 | grep -qi "\./flix\.jar"' sh "$ej"
+t 0  "--editor-jar=copy re-enables it without a version"       sh -c '
+  cd "$1" && ./flixw pin --editor-jar=copy >/dev/null 2>&1 && [ -e flix.jar ]' sh "$ej"
+g 0  "matches the pinned compiler" "doctor confirms the managed copy is current" sh -c '
+  cd "$1" && ./flixw doctor' sh "$ej"
+g 87 "editor-jar" "--editor-jar rejects a value that is not copy or off" sh -c '
+  cd "$1" && ./flixw pin --editor-jar=maybe' sh "$ej"
+
 # --- the resolved-JDK note ------------------------------------------------
 echo "resolved-JDK note"
 # Stage 0 leaves the shim a note naming the JDK this project resolved to, so the next run

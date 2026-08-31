@@ -11,13 +11,15 @@ already owns. Five of the six are byte-identical across every project using a gi
 project.
 
 ```text
-flixw                 POSIX shim
-flixw.cmd             cmd.exe shim
-.flixw/flixw.java     stage 0
-.flixw/lock.toml      the pin: version, URL, SHA-256
-.flixw/.gitignore     keeps .flixw/local/ out of git
-.flixw/.sccignore     keeps the vendored wrapper out of scc's line counts
-.flixw/local/java     the JDK this machine resolved to; NOT committed
+flixw                        POSIX shim
+flixw.cmd                    cmd.exe shim
+.flixw/flixw.java            stage 0
+.flixw/lock.toml             the pin: version, URL, SHA-256
+.flixw/.gitignore            keeps .flixw/local/ out of git
+.flixw/.sccignore            keeps the vendored wrapper out of scc's line counts
+.flixw/local/java            the JDK this machine resolved to; NOT committed
+.flixw/local/editor-jar.toml a per-machine ./flix.jar preference; NOT committed
+flix.jar                     for the VS Code Flix extension; NOT committed, see below
 ```
 
 The installer also merges a marked block into `.gitattributes` — the seventh file, and the
@@ -809,6 +811,49 @@ advertised demo command on a fresh clone or in CI.
 Symlinks are defended against twice, the same way plugin names are: `examples/` itself
 resolving outside the project root is refused before anything is listed, and a selected
 `<name>` resolving outside the real `examples/` directory is refused before anything runs.
+
+## Editor integration
+
+Every successful `./flixw pin` keeps `./flix.jar` at the project root pointing at exactly
+the compiler it just verified — the one filename the official VS Code Flix extension
+checks for at a workspace root, before its own global cache and before it ever downloads
+anything itself. flixw never reads this file; it exists solely for that extension. It is
+never committed — `/flix.jar` is added to `.gitignore` the same run it first appears.
+
+**A symlink is tried first, always**, regardless of any recorded preference: it costs
+nothing to keep current, and it silently upgrades a machine off the copy fallback below the
+moment its symlink privilege changes, with no separate action. A hard link is tried next,
+for a machine without that privilege, but only ever succeeds on the same volume as the
+compiler cache, which a project directory has no reason to be. Only once both fail does
+this ever consider a plain copy, which can go stale the moment a later pin moves the
+digest — `doctor` checks a copy's digest against the current pin for exactly that reason,
+and reports it as a **managed copy**, distinct from a link.
+
+**A copy is never silent.** With neither link possible, an interactive run is asked:
+`[y] once  [n] skip  [a] always for this checkout`. `y` copies for this pin only; `n` skips
+and asks again next time; `a` copies and records the choice in
+`.flixw/local/editor-jar.toml` (`mode = "copy"`), so every later pin copies without asking.
+A non-interactive run (`System.console() == null` — CI included) never prompts and never
+copies on its own; `./flixw pin --editor-jar=copy` is the explicit, one-time way to record
+the same choice from a script. `./flixw pin --editor-jar=off` records the opposite
+choice — flixw stops touching `./flix.jar` at all, and removes one it owns rather than
+leaving it to go stale with nothing to say so. Either flag works with or without a compiler
+version: `./flixw pin --editor-jar=copy` alone changes only this preference, exactly like
+`./flixw pin --java <version>` changes only the java pin.
+
+**A file this project's own flixw did not create is never silently replaced.** Ownership is
+a symlink resolving into this machine's compiler cache, or a regular file whose digest
+matches what `.flixw/local/editor-jar.toml` last recorded — anything else, a user's own
+`flix.jar` dropped there for a nightly or custom build, is left alone with a note naming
+why, unless `--editor-jar=copy` is passed explicitly: typing that flag is the same kind of
+authorization typing a version at all is for changing the compiler.
+
+`doctor` reports one of: no `./flix.jar` yet, a link or managed copy that matches the
+pinned compiler, one that does not (stale — re-run `pin`, or `pin --editor-jar=copy`), or a
+foreign file not being kept in sync. Always a `warn`, never a `FAIL`: this is a convenience
+for one editor extension, and its absence or staleness affects nothing this wrapper builds.
+`doctor --fix` backfills the link even without a version change, for a fresh clone that
+never runs `pin` itself because the version was already chosen and committed.
 
 ## Plugins and tasks
 

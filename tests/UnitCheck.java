@@ -669,6 +669,36 @@ public final class UnitCheck {
     }
 
     /**
+     * {@code .flixw/local/editor-jar.toml} round-trips, and {@code ownsEditorJar} is the
+     * one check standing between a future {@code ./flixw pin --editor-jar=copy} and
+     * silently overwriting a file this project's flixw never created.
+     */
+    static void editorJarPrefs() throws IOException {
+        Path root = Files.createTempDirectory("flixw-editorjar-uc-");
+        flixw.writeEditorJarPref(root, "copy", "a".repeat(64));
+        flixw.EditorJarPref pref = flixw.readEditorJarPref(root);
+        if (pref != null && pref.mode().equals("copy") && pref.sha256().equals("a".repeat(64))) ok();
+        else bad("editor-jar: pref round-trips", String.valueOf(pref));
+
+        Path bare = Files.createTempDirectory("flixw-editorjar-uc-bare-");
+        if (flixw.readEditorJarPref(bare) == null) ok();
+        else bad("editor-jar: no file means no preference", "found one");
+
+        Path link = root.resolve("flix.jar");
+        Files.writeString(link, "stub jar bytes");
+        flixw.writeEditorJarPref(root, "copy", flixw.sha256(link));
+        if (flixw.ownsEditorJar(link, flixw.readEditorJarPref(root))) ok();
+        else bad("editor-jar: a copy matching the recorded digest is owned", "not owned");
+
+        flixw.writeEditorJarPref(root, "copy", "b".repeat(64));
+        if (!flixw.ownsEditorJar(link, flixw.readEditorJarPref(root))) ok();
+        else bad("editor-jar: a copy not matching the recorded digest is a stranger's", "owned");
+
+        if (!flixw.ownsEditorJar(link, null)) ok();
+        else bad("editor-jar: with no recorded preference, a regular file is a stranger's", "owned");
+    }
+
+    /**
      * `wrapper --upgrade` warms every companion asset of the release it moves to, and
      * reads which ones those are out of that release's own SHA256SUMS rather than a list
      * compiled into this stage 0. An upgrade runs in the *old* wrapper, so a hard-coded
@@ -1386,6 +1416,7 @@ public final class UnitCheck {
         releaseAssets();
         optionRows();
         curationTruthTable();
+        editorJarPrefs();
         pluginDescription();
         declaredVerbs();
         upgradeUrls();

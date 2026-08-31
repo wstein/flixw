@@ -502,6 +502,17 @@ for what that excludes and why.
 Fetched and cached the way the completion generator is, so there is no separate install
 step and no "unaudited third-party code" warning: this is flixw's own code, not a plugin.
 
+## Editor integration
+
+Every `./flixw pin` keeps `./flix.jar` pointing at the compiler it just verified — the
+file the official VS Code Flix extension checks for at a workspace root before its own
+download. A symlink is tried first, then a hard link; only if neither is possible does
+this ever ask about a plain copy (`[y] once  [n] skip  [a] always`), and it never copies
+silently — `./flixw pin --editor-jar=copy` or `--editor-jar=off` set the choice explicitly,
+which is what CI needs since it never prompts. Never committed (`/flix.jar` is gitignored
+automatically), and never a file this project's flixw did not create: see
+`docs/CONTRACT.md` for the full rules.
+
 ## Plugins and tasks
 
 Two ways to extend what `./flixw` runs, both opt-in. `pin`, `info`, `doctor`, `validate`

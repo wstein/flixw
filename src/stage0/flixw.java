@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -1031,6 +1032,7 @@ public final class flixw {
      */
     static final String PIN_USAGE =
           "usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]"
+        + " [--editor-jar=copy|off]"
         + "\n          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)"
         + "\n          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)";
 
@@ -1163,8 +1165,11 @@ public final class flixw {
             return false;
         }
     }
-    /** What one `pin` command line asks for; `parsePin` is the only thing that builds it. */
-    record Pin(String repo, String version, String java, boolean clearJava, boolean refresh) {}
+    /** What one `pin` command line asks for; `parsePin` is the only thing that builds it.
+     *  {@code editorJar} is {@code null} (no preference given this run), {@code "copy"} or
+     *  {@code "off"}. */
+    record Pin(String repo, String version, String java, boolean clearJava, boolean refresh,
+               String editorJar) {}
 
     /**
      * {@code ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]}, or
@@ -1178,7 +1183,7 @@ public final class flixw {
      * nothing about it looked wrong.
      */
     static Pin parsePin(List<String> args, Lock existing) {
-        String repo = null, version = null, java = null, clearJava = null;
+        String repo = null, version = null, java = null, clearJava = null, editorJar = null;
         boolean repoGiven = false, refresh = false;
         for (int i = 0; i < args.size(); i++) {
             String a = args.get(i);
@@ -1191,6 +1196,11 @@ public final class flixw {
                 if (v.equals("none")) clearJava = "yes"; else { validateJavaPin(v, "pin"); java = v; }
             } else if (a.equals("--refresh")) {
                 refresh = true;
+            } else if (a.startsWith("--editor-jar=")) {
+                if (editorJar != null) throw w009("pin: two --editor-jar values given");
+                editorJar = a.substring("--editor-jar=".length());
+                if (!editorJar.equals("copy") && !editorJar.equals("off"))
+                    throw w008("pin: --editor-jar must be 'copy' or 'off', not " + q(editorJar));
             } else if (a.startsWith("--")) {
                 throw w008("pin: unknown option " + q(a) + "\n       " + PIN_USAGE);
             } else if (a.contains("/")) {
@@ -1220,7 +1230,7 @@ public final class flixw {
             // --refresh rewrites the lock from the lock. Everything else on this line
             // changes what the lock says, and doing one of the two silently is how a
             // repair loses the pin it was asked to preserve.
-            if (version != null || repoGiven || java != null || clearJava != null)
+            if (version != null || repoGiven || java != null || clearJava != null || editorJar != null)
                 throw w008("pin: --refresh takes no other arguments -- it rewrites the lock"
                          + " in the shape flixw " + WRAPPER_VERSION + " writes,"
                          + "\n       from the values already in it, without moving the pin"
@@ -1228,11 +1238,12 @@ public final class flixw {
             if (existing == null)
                 throw w002("pin: --refresh needs a lock that parses"
                          + "\n       run: ./flixw pin <version>");
-            return new Pin(null, null, null, false, true);
+            return new Pin(null, null, null, false, true, null);
         }
-        // A compiler version is required unless this is only a Java pin, in which case
-        // the compiler stays exactly as it was -- rewriting the lock is not repinning it.
-        if (version == null && java == null && clearJava == null)
+        // A compiler version is required unless this only changes the java pin or the
+        // editor-jar preference, in which case the compiler stays exactly as it was --
+        // rewriting the lock, or a local preference file, is not repinning it.
+        if (version == null && java == null && clearJava == null && editorJar == null)
             throw w002("pin: no version\n       " + PIN_USAGE);
         // Naming a repository without a version was accepted and then quietly dropped: a
         // --java-only pin rewrites one line and does not re-resolve the compiler, so the
@@ -1243,14 +1254,15 @@ public final class flixw {
                      + " that compiler\n       for example: ./flixw pin " + repo
                      + " <version> --java " + (java == null ? MIN_JAVA + "" : java));
         if (version == null && existing == null)
-            throw w002("pin: --java needs an existing lock, or a compiler version to write"
-                     + " one\n       for example: ./flixw pin 0.75.2 --java " + MIN_JAVA);
+            throw w002("pin: --java or --editor-jar needs an existing lock, or a compiler"
+                     + " version to write one\n       for example: ./flixw pin 0.75.2 --java "
+                     + MIN_JAVA);
         // Normalized before validation, so the lock records the version rather than the tag
         // it was typed as, and two spellings of one release cannot produce two locks.
         if (version != null) version = validateVersion(stripTagPrefix(version), "pin");
         if (repo == null) repo = existing != null && existing.repo() != null
                                ? existing.repo() : UPSTREAM_REPO;
-        return new Pin(repo, version, java, clearJava != null, false);
+        return new Pin(repo, version, java, clearJava != null, false, editorJar);
     }
 
     // ---- acquisition ------------------------------------------------------
@@ -2715,7 +2727,14 @@ public final class flixw {
                 for (String a : rest)
                     if (!a.equals("--fix"))
                         throw w008("./flixw doctor: unknown option " + q(a) + "\n       " + DOCTOR_USAGE);
-                if (fix) { updateWrapper(root); System.out.println(); }   // asset + lock
+                // asset + lock, and the editor link -- a fresh clone that never runs `pin`
+                // itself (the version was already chosen and committed) would otherwise
+                // never get one at all.
+                if (fix) {
+                    updateWrapper(root);
+                    if (jar != null && Files.isRegularFile(jar)) maintainEditorJar(root, jar, null);
+                    System.out.println();
+                }
                 report(root, lock, jar, jvm, compilerVerbs, askedVersion(lock));
                 System.out.println();
                 int bad = check(root, lock, jar, jvm);
@@ -3923,6 +3942,37 @@ public final class flixw {
         }
         if (jar != null && Files.isRegularFile(jar)) System.out.println("ok    cached compiler digest");
 
+        // A warn, never a FAIL: this is a convenience for the VS Code Flix extension, which
+        // checks a workspace root for exactly this filename before its own global cache and
+        // before it ever downloads anything -- flixw itself never reads it, and its absence
+        // or staleness affects nothing this wrapper builds.
+        if (root != null && lock != null && jar != null && Files.isRegularFile(jar)) {
+            Path editorJar = root.resolve("flix.jar");
+            EditorJarPref pref = readEditorJarPref(root);
+            if (pref == null || !pref.mode().equals("off")) {
+                if (!Files.exists(editorJar, LinkOption.NOFOLLOW_LINKS))
+                    System.out.println("warn  no ./flix.jar for the VS Code Flix extension"
+                                     + " (./flixw pin --editor-jar=copy, or re-run ./flixw pin)");
+                else if (!Files.isReadable(editorJar))
+                    System.out.println("warn  ./flix.jar is a broken link"
+                                     + " (./flixw pin --editor-jar=copy)");
+                else {
+                    boolean managed = Files.isSymbolicLink(editorJar)
+                        || (pref != null && pref.mode().equals("copy"));
+                    String kind = Files.isSymbolicLink(editorJar) ? "link" : "managed copy";
+                    if (sha256(editorJar).equals(lock.sha256()))
+                        System.out.println("ok    ./flix.jar (" + kind + ") matches the pinned compiler");
+                    else if (managed)
+                        System.out.println("warn  ./flix.jar (" + kind + ") does not match the pinned"
+                                         + " compiler (./flixw pin --editor-jar=copy, or re-run"
+                                         + " ./flixw pin)");
+                    else
+                        System.out.println("warn  ./flix.jar exists and was not created by this"
+                                         + " project's flixw; it is not being kept in sync");
+                }
+            }
+        }
+
         // Checked against the machine-wide cache alone -- a directory read, nothing about
         // this reaches the network. A warn, not a FAIL: the project still builds without
         // it, only `flixw plugin <name>` would fail, and doctor says so without stopping
@@ -4016,6 +4066,183 @@ public final class flixw {
         } catch (IOException ignored) { }
     }
 
+    // ---- ./flix.jar for the VS Code Flix extension ----------------------------
+
+    /**
+     * {@code .flixw/local/editor-jar.toml}: a per-machine preference for how {@code
+     * ./flix.jar} -- the file the official VS Code Flix extension checks for at a
+     * workspace root, before its own global cache and before it ever downloads anything
+     * itself -- is kept in sync with the pin. Not a lock setting and never committed:
+     * whether a symlink is even permitted, and which volume the cache lives on relative to
+     * the project, both vary by machine, so this belongs beside {@code .flixw/local/java}.
+     */
+    static Path editorJarPrefsFile(Path root) {
+        return root.resolve(WRAPPER_DIR).resolve("local").resolve("editor-jar.toml");
+    }
+
+    record EditorJarPref(String mode, String sha256) {}
+
+    static EditorJarPref readEditorJarPref(Path root) {
+        Path f = editorJarPrefsFile(root);
+        if (!Files.isRegularFile(f)) return null;
+        String mode = null, sha = null;
+        try {
+            for (String line : Files.readAllLines(f, StandardCharsets.UTF_8)) {
+                String t = line.strip();
+                int eq = t.indexOf('=');
+                if (eq < 0) continue;
+                String key = t.substring(0, eq).strip();
+                String val = t.substring(eq + 1).strip().replaceAll("^\"|\"$", "");
+                if (key.equals("mode")) mode = val; else if (key.equals("sha256")) sha = val;
+            }
+        } catch (IOException e) { return null; }
+        return mode == null ? null : new EditorJarPref(mode, sha);
+    }
+
+    static void writeEditorJarPref(Path root, String mode, String sha256) {
+        try {
+            Path f = editorJarPrefsFile(root);
+            Files.createDirectories(f.getParent());
+            writeAtomic(f, "mode = \"" + mode + "\"\n"
+                          + (sha256 == null ? "" : "sha256 = \"" + sha256 + "\"\n"));
+        } catch (IOException e) {
+            tr("cannot write .flixw/local/editor-jar.toml: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Whether {@code link} is a file this project's own flixw put there -- a symlink
+     * resolving into this machine's compiler cache, or a regular file (a copy, or a hard
+     * link, indistinguishable from one on disk) whose digest matches what was last
+     * recorded here. Anything else is a stranger's file, real or coincidental, and is
+     * never silently replaced.
+     */
+    static boolean ownsEditorJar(Path link, EditorJarPref pref) {
+        try {
+            if (Files.isSymbolicLink(link)) {
+                Path real = link.toRealPath();
+                Path compilers = cacheHome().resolve("compilers").toRealPath();
+                return real.startsWith(compilers);
+            }
+            return pref != null && pref.sha256() != null && pref.sha256().equals(sha256(link));
+        } catch (IOException e) { return false; }
+    }
+
+    /** A symlink (or, with {@code hard}, a hard link) at {@code link}, replacing whatever
+     *  was there atomically. False on any failure -- wrong privilege, unsupported, a
+     *  different volume for a hard link -- never thrown, since every one of those is this
+     *  method's caller trying the next option, not a reason to fail the pin that got here. */
+    static boolean tryEditorJarLink(Path link, Path target, boolean hard) {
+        try {
+            Files.createDirectories(link.getParent());
+            Path tmp = Files.createTempFile(link.getParent(), ".flix.jar-", ".part");
+            Files.delete(tmp);
+            if (hard) Files.createLink(tmp, target); else Files.createSymbolicLink(tmp, target);
+            Files.move(tmp, link, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (IOException | UnsupportedOperationException e) { return false; }
+    }
+
+    /** One line, appended if missing -- {@code /flix.jar} is generated, machine-specific
+     *  state, the same reason {@code .flixw/local/} itself is never committed. No marked
+     *  block: unlike {@code .gitattributes}, this is one static line with nothing to
+     *  regenerate, so "already present" is the only question worth asking. */
+    static void ensureGitignored(Path root, String line) {
+        try {
+            Path gi = root.resolve(".gitignore");
+            String cur = Files.isRegularFile(gi) ? Files.readString(gi, StandardCharsets.UTF_8) : "";
+            if (cur.lines().anyMatch(l -> l.strip().equals(line))) return;
+            String next = (cur.isEmpty() || cur.endsWith("\n") ? cur : cur + "\n") + line + "\n";
+            writeAtomic(gi, next);
+        } catch (IOException e) {
+            tr("cannot add " + line + " to .gitignore: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Keeps {@code ./flix.jar} pointing at exactly the JAR this pin just verified, for the
+     * one consumer that looks for it: the official VS Code Flix extension, which checks a
+     * workspace root before its own global cache and before it ever downloads anything.
+     * flixw itself never reads this file.
+     *
+     * <p>A symlink is tried first, always, regardless of any recorded preference -- it
+     * costs nothing to keep current, and once a machine's symlink privilege changes this
+     * silently upgrades it off the copy fallback with no separate action. A hard link is
+     * tried next, for Windows without that privilege, but only succeeds on the same volume
+     * as the cache, which a project directory has no reason to be. Only once both fail does
+     * this ever fall back to a plain copy, which can go stale the moment a future pin moves
+     * the digest -- {@code doctor} checks a copy's digest against the current pin for
+     * exactly that reason. {@code requestedMode} is {@code --editor-jar}'s value this run,
+     * or null; it, and only it, can authorise replacing a file this project's flixw did not
+     * create.
+     */
+    static void maintainEditorJar(Path root, Path jar, String requestedMode) {
+        ensureGitignored(root, "/flix.jar");
+        EditorJarPref pref = readEditorJarPref(root);
+        Path link = root.resolve("flix.jar");
+        if ("off".equals(requestedMode)) {
+            // A link or copy already there is flixw's own to remove -- left in place, it
+            // would go stale at the very next pin with nothing to say so, which is worse
+            // than absent: VS Code would keep using a compiler this project moved past. A
+            // foreign file is never touched, opting out or not.
+            if (Files.exists(link, LinkOption.NOFOLLOW_LINKS) && ownsEditorJar(link, pref)) {
+                try { Files.delete(link); } catch (IOException e) { tr("cannot remove flix.jar: " + e.getMessage()); }
+            }
+            writeEditorJarPref(root, "off", null);
+            return;
+        }
+        if (requestedMode == null && pref != null && pref.mode().equals("off")) return;
+        // An explicit non-off request supersedes a stale "off" on disk immediately, not
+        // only once a copy is actually written: otherwise a link succeeding here (tried
+        // first, same as ever) would leave the old preference file still saying "off",
+        // and every later pin -- and doctor -- would keep treating a newly working link as
+        // an opt-out nobody asked for any more.
+        if (requestedMode != null && pref != null && pref.mode().equals("off")) {
+            try { Files.deleteIfExists(editorJarPrefsFile(root)); } catch (IOException ignored) { }
+            pref = null;
+        }
+        boolean exists = Files.exists(link, LinkOption.NOFOLLOW_LINKS);
+        if (exists && !ownsEditorJar(link, pref) && !"copy".equals(requestedMode)) {
+            System.err.println("flixw: note: ./flix.jar exists and was not created by this"
+                             + " project's flixw -- leave it, or run"
+                             + " ./flixw pin --editor-jar=copy to replace it");
+            return;
+        }
+
+        if (tryEditorJarLink(link, jar, false)) return;
+        if (tryEditorJarLink(link, jar, true)) return;
+
+        boolean copy = "copy".equals(requestedMode) || (pref != null && pref.mode().equals("copy"));
+        boolean persist = "copy".equals(requestedMode);
+        if (!copy && requestedMode == null && System.console() != null) {
+            System.err.print("flixw: could not link ./flix.jar for VS Code (a different volume"
+                            + " than the cache, or no symlink privilege). Create a managed copy"
+                            + " instead? [y] once  [n] skip  [a] always for this checkout: ");
+            System.err.flush();
+            String answer;
+            try { answer = new java.io.BufferedReader(new java.io.InputStreamReader(System.in))
+                                .readLine(); } catch (IOException e) { answer = null; }
+            answer = answer == null ? "n" : answer.strip().toLowerCase();
+            if (answer.equals("a")) { copy = true; persist = true; }
+            else if (answer.equals("y")) copy = true;
+            else return;                                // "n" or anything else: ask again next pin
+        }
+        if (!copy) {
+            if (requestedMode == null && System.console() == null)
+                tr("flix.jar could not be linked for VS Code, and this run is"
+                 + " non-interactive; re-run with --editor-jar=copy to make a managed copy");
+            return;
+        }
+        try {
+            Path tmp = Files.createTempFile(root, ".flix.jar-", ".part");
+            Files.copy(jar, tmp, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(tmp, link, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            if (persist) writeEditorJarPref(root, "copy", sha256(link));
+        } catch (IOException e) {
+            tr("cannot copy flix.jar for VS Code: " + e.getMessage());
+        }
+    }
+
     static void pin(Path root, Pin what) {
         if (what.refresh()) { refreshPin(root); return; }
         String repo = what.repo(), version = what.version(), java = what.java();
@@ -4032,20 +4259,37 @@ public final class flixw {
         // Carry the java pin unless this run changes it: `pin 0.75.3` on a project that
         // pinned java 21 must not silently unpin the Java as well.
         String javaPin = clearJava ? null : (java != null ? java : had == null ? null : had.java());
-        // A --java-only run rewrites one line and touches nothing else: no download, no
-        // digest, no network. Repinning the compiler is a different request.
+        // A --java-only (or --editor-jar-only) run rewrites one line, or one local
+        // preference file, and touches nothing else: no download, no digest, no network.
+        // Repinning the compiler is a different request.
         if (version == null) {
             if (had == null)
-                throw w002("pin: --java needs a lock that parses"
+                throw w002("pin: --java or --editor-jar needs a lock that parses"
                          + "\n       run: ./flixw pin <version> --java <version>");
             String lock = lockText(WRAPPER_VERSION, had.repo() == null ? UPSTREAM_REPO : had.repo(),
                                    had.version(), had.url(), had.sha256(), had.reportedVersion(),
                                    javaPin, had.plugins());
             try { writeAtomic(lockFile0, lock); }
             catch (IOException e) { throw w009("pin failed: " + why(e)); }
-            System.err.println(javaPin == null
-                ? "flixw: unpinned java; the newest tested JDK will be used"
-                : "flixw: pinned java " + javaPin);
+            // Said only when java was actually part of this request -- an --editor-jar-only
+            // run rewrites the lock in the same shape regardless (so the two preferences
+            // can never quietly drift into disagreeing formats), but that is not something
+            // to announce as a java-pin change nobody asked for.
+            if (java != null || clearJava)
+                System.err.println(javaPin == null
+                    ? "flixw: unpinned java; the newest tested JDK will be used"
+                    : "flixw: pinned java " + javaPin);
+            if (what.editorJar() != null) {
+                // Already-cached: acquire() here is a local digest re-check, not a fetch --
+                // the same compiler this project already ran is presumably already present.
+                try {
+                    Path jar = acquire(had);
+                    maintainEditorJar(root, jar, what.editorJar());
+                } catch (Fail e) {
+                    System.err.println("flixw: note: could not reach the pinned compiler to"
+                                     + " update ./flix.jar: " + e.getMessage());
+                }
+            }
             warnMissingJava(javaPin);
             return;
         }
@@ -4128,6 +4372,11 @@ public final class flixw {
             if (floor != null && !olderOrSame(triple(floor), triple(version)))
                 System.err.println("       note: flix.toml asks for " + floor + " or newer,"
                                  + " so this lock will not run until one of them moves");
+            // Only against the real cache entry: if the move into it failed above and
+            // `jar` is not a regular file, linking against `tmp` would dangle the moment
+            // this method's own finally block deletes it -- the same "an unwritable cache
+            // stays silent" degrade every other cache-dependent feature already takes.
+            if (Files.isRegularFile(jar)) maintainEditorJar(root, jar, what.editorJar());
         } catch (IOException e) {
             if (snapshot) restore(lockFile, oldLock);
             throw w009("pin failed: " + why(e));
