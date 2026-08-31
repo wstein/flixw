@@ -1042,6 +1042,7 @@ public final class flixw {
     static final String EXAMPLES_USAGE =
           "usage: ./flixw examples list"
         + "\n          or: ./flixw examples <verb> [flags] <name> [-- args]"
+        + "\n          or: ./flixw examples local <verb> <name> [-- args]"
         + "\n          verbs: run check build build-classes build-jar build-fatjar"
         + " build-pkg clean doc format outdated eff-check eff-lock test";
 
@@ -2823,6 +2824,15 @@ public final class flixw {
                 if (!rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
                     System.out.println(EXAMPLES_USAGE); return;
                 }
+                // "examples local <verb> <name>" is not this asset's business at all: it
+                // shares nothing with running examples/<name>/ against its own declared
+                // dependencies except the word "examples", so it is routed to the local-
+                // override engine directly rather than threaded through this one as a
+                // special case -- one overlay implementation, not two that could drift.
+                if (!rest.isEmpty() && rest.get(0).equals("local")) {
+                    dispatchLocal(root, jar, jvm, true, rest.subList(1, rest.size()));
+                    return;
+                }
                 // info/doctor/validate answer with jar==null/jvm==null on purpose -- that is
                 // how a broken project is diagnosed. examples has no such use: it exists to
                 // launch a compiler, so without one there is nothing for it to do.
@@ -2866,7 +2876,7 @@ public final class flixw {
             // never launches one, so it must not be gated on there being one, the same
             // "works before any project has ever been pinned" precedent `plugin install`
             // already sets.
-            case "local" -> dispatchLocal(root, jar, jvm, rest);
+            case "local" -> dispatchLocal(root, jar, jvm, false, rest);
             default -> throw w009("no wrapper implementation for " + q(verb));
         }
     }
@@ -2876,13 +2886,41 @@ public final class flixw {
      *  because they happen to live in the same asset as the verbs that do. */
     static final Set<String> LOCAL_BOOKKEEPING_VERBS = Set.of("add", "list", "remove", "status");
 
-    static void dispatchLocal(Path root, Path jar, Jvm jvm, List<String> rest) {
+    /**
+     * Shared by the {@code "local"} case and {@code examples}'s {@code local} sub-route --
+     * one dispatch to {@link #LOCAL_ASSET} either way, since the overlay engine itself does
+     * not care which of the two invoked it. {@code forExample} selects the argv grammar:
+     * {@code local <verb> [args]} versus {@code examples local <verb> <name> [args]}.
+     */
+    static void dispatchLocal(Path root, Path jar, Jvm jvm, boolean forExample, List<String> rest) {
+        String usage = forExample ? EXAMPLES_USAGE : LOCAL_USAGE;
         if (!rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
-            System.out.println(LOCAL_USAGE); return;
+            System.out.println(usage); return;
         }
-        boolean bookkeeping = !rest.isEmpty() && LOCAL_BOOKKEEPING_VERBS.contains(rest.get(0));
+        String mode;
+        List<String> verbAndArgs;
+        if (forExample) {
+            if (rest.size() < 2)
+                throw w009("examples local needs a verb and an example name" + "\n       " + usage);
+            // This grammar is this wrapper's own, not the compiler's -- unlike "examples
+            // run --entrypoint Foo.main cli-tool", there is no per-verb flag-arity probe
+            // here to tell a value-taking flag from <name>, so a flag in either position
+            // is refused outright rather than silently read as the example name.
+            if (rest.get(0).startsWith("-") || rest.get(1).startsWith("-"))
+                throw w009("examples local: expected '<verb> <name>', not a flag in either position"
+                         + "\n       " + usage);
+            mode = "example:" + rest.get(1);
+            verbAndArgs = new ArrayList<>();
+            verbAndArgs.add(rest.get(0));
+            verbAndArgs.addAll(rest.subList(2, rest.size()));
+        } else {
+            mode = "standalone";
+            verbAndArgs = rest;
+        }
+        boolean bookkeeping = mode.equals("standalone") && !verbAndArgs.isEmpty()
+                           && LOCAL_BOOKKEEPING_VERBS.contains(verbAndArgs.get(0));
         if (!bookkeeping && (jar == null || jvm == null))
-            throw w009("local needs a pinned, reachable compiler"
+            throw w009((forExample ? "examples local" : "local") + " needs a pinned, reachable compiler"
                      + "\n       run: ./flixw pin <version>");
         Path asset = ensureAsset(LOCAL_ASSET);
         List<String> opts = jvmOpts();
@@ -2890,8 +2928,8 @@ public final class flixw {
                 jvm == null ? "" : jvm.exe().toString(),
                 jar == null ? "" : jar.toString(), String.valueOf(opts.size())));
         a.addAll(opts);
-        a.add("standalone");
-        a.addAll(rest);
+        a.add(mode);
+        a.addAll(verbAndArgs);
         System.exit(runAsset(asset, null, a));
     }
 
@@ -5080,7 +5118,8 @@ public final class flixw {
     static final String EXAMPLES_ASSET = "flixw-examples.java";
 
     /** Overrides a declared GitHub dependency with a local checkout; see the {@code
-     *  "local"} case in {@link #wrapperVerb}. */
+     *  "local"} case in {@link #wrapperVerb} and the {@code examples local} routing in
+     *  the {@code "examples"} case. */
     static final String LOCAL_ASSET = "flixw-local.java";
 
     /**

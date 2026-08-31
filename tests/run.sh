@@ -2739,24 +2739,23 @@ lp=$work/localproj
 rm -rf "$lp" && mkdir -p "$lp/src"
 java "$root/src/assets/flixw-setup.java" setup "$lp" >/dev/null 2>&1
 git init -q "$lp"
+# No [dependencies] yet: buildPackage() builds this project directly in its own checkout
+# (never through a disposable overlay, since it *is* the override target for "examples
+# local" below), so it must compile standalone before the localpkg dependency -- resolved
+# only inside an overlay, once an override seeds it -- is introduced further down.
 cat > "$lp/flix.toml" <<EOF
 [package]
 name        = "localconsumer"
-description = "depends on localpkg"
+description = "depended on by an example below, and later overridden with localpkg"
 version     = "0.1.0"
 repository  = "github:flixw-test/localconsumer"
 flix        = "$version"
 authors     = ["t"]
-
-[dependencies]
-"github:flixw-test/localpkg" = "1.0.0"
 EOF
-cat > "$lp/src/Main.flix" <<'FLIX'
-def main(): Unit \ IO = println(LocalPkg.greet())
-
-@Test
-def testLocalOwnsItsOwnTests(): Unit \ Assert =
-    Assert.assertEq(expected = 1, 1)
+cat > "$lp/src/LocalConsumer.flix" <<'FLIX'
+mod LocalConsumer {
+    pub def hello(): String = "hello from consumer"
+}
 FLIX
 
 # Bookkeeping (add/list/remove/status) needs no compiler at all -- the same "works
@@ -2775,6 +2774,67 @@ t 0  "list is quiet with no overrides yet" sh -c '
   cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
 t 89 "an overlay verb with no overrides yet is refused" sh -c '
   cd "$1" && ./flixw local run' sh "$lp"
+
+# --- examples local --------------------------------------------------------
+# The same overlay engine, reached through "examples", with the implicit override being
+# the root project itself rather than one named by .flixw/local/packages.toml. Run before
+# localconsumer gains its own dependency below: buildPackage() here compiles
+# localconsumer directly, unaided by any override of its own.
+mkdir -p "$lp/examples/local-example/src"
+cat > "$lp/examples/local-example/flix.toml" <<EOF
+[package]
+name        = "local-example"
+description = "depends on localconsumer, the root project itself"
+version     = "0.1.0"
+flix        = "$version"
+authors     = ["t"]
+
+[dependencies]
+"github:flixw-test/localconsumer" = "0.1.0"
+EOF
+cat > "$lp/examples/local-example/src/Main.flix" <<'FLIX'
+def main(): Unit \ IO = println(LocalConsumer.hello())
+FLIX
+
+g 0  'usage: ./flixw examples' "examples local --help answers instead of running" sh -c '
+  cd "$1" && ./flixw examples local --help' sh "$lp"
+g 89 "no example 'nosuch'" "examples local refuses an unknown example name" sh -c '
+  cd "$1" && ./flixw examples local run nosuch' sh "$lp"
+g 0  '^hello from consumer$' "examples local runs the example against the root project itself" sh -c '
+  cd "$1" && ./flixw examples local run local-example' sh "$lp"
+
+# A version mismatch here is the example's own manifest disagreeing with the root
+# project's current version -- the same rule add() enforces, applied without a
+# packages.toml entry to read it from.
+cp "$lp/examples/local-example/flix.toml" "$work/local-example-flix.toml.bak"
+sed -i.bak 's/0\.1\.0"$/9.9.9"/' "$lp/examples/local-example/flix.toml"
+rm -f "$lp/examples/local-example/flix.toml.bak"
+g 89 'version mismatch' "examples local refuses when the example's declared version disagrees" sh -c '
+  cd "$1" && ./flixw examples local run local-example' sh "$lp"
+cp "$work/local-example-flix.toml.bak" "$lp/examples/local-example/flix.toml"
+
+# --- local, continued: an actual dependency to override --------------------
+# examples local's own buildPackage() ran directly in $lp above (it *is* the override
+# target there) and legitimately left artifact/ and lib/ behind -- exactly what running
+# build-pkg in this project by hand would do. Cleared here so the "no mutation" assertion
+# below is checking the standalone verbs that follow, not that earlier, unrelated build.
+rm -rf "${lp:?}/artifact" "${lp:?}/lib" "${lp:?}/build"
+
+# Only now does localconsumer gain a real dependency -- every override verb below runs
+# inside a disposable overlay (never buildPackage()'d directly), so this is safe to add
+# without touching the standalone case above.
+cat >> "$lp/flix.toml" <<EOF
+
+[dependencies]
+"github:flixw-test/localpkg" = "1.0.0"
+EOF
+cat > "$lp/src/Main.flix" <<'FLIX'
+def main(): Unit \ IO = println(LocalPkg.greet())
+
+@Test
+def testLocalOwnsItsOwnTests(): Unit \ Assert =
+    Assert.assertEq(expected = 1, 1)
+FLIX
 
 # Validation, each against a scratch package built to fail exactly one check -- the
 # same "one refusal per fixture" shape the plugin and examples sections above use.
@@ -2905,6 +2965,14 @@ g 0  'removed github:flixw-test/localpkg' "remove drops the override" sh -c '
   cd "$1" && ./flixw local remove github:flixw-test/localpkg' sh "$lp"
 t 0  "list is quiet again after remove" sh -c '
   cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
+
+# examples local has no per-verb flag-arity probe of its own (unlike "examples run
+# --entrypoint Foo.main <name>"), so a flag in either position is refused outright
+# rather than silently misread as the example name.
+g 88 "expected '<verb> <name>'" "examples local refuses a flag before the verb" sh -c '
+  cd "$1" && ./flixw examples local --entrypoint run local-example' sh "$lp"
+g 88 "expected '<verb> <name>'" "examples local refuses a flag where the name belongs" sh -c '
+  cd "$1" && ./flixw examples local run --entrypoint' sh "$lp"
 
 # --- tasks ---------------------------------------------------------------
 # npm's `scripts`, not a new verb per task: .flixw/tasks.toml is hand-edited, never

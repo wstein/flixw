@@ -579,12 +579,13 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3652          # the "local" verb: override a declared GitHub dependency with
+MAX_CODE_LINES=3675          # the "local" verb: override a declared GitHub dependency with
                              # an uncommitted local checkout (npm link / Cargo [patch] for
-                             # flix.toml, without editing it), plus doctor/validate surfacing
-                             # active overrides as advisory state; target: 2900
+                             # flix.toml, without editing it), "examples local <verb> <name>"
+                             # routing to the same overlay engine, and doctor/validate
+                             # surfacing active overrides as advisory state; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 33
-MAX_BYTES=338658             # same capability; target: 225000
+MAX_BYTES=341256             # same capability; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

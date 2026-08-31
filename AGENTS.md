@@ -76,7 +76,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 476-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 482-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -406,7 +406,7 @@ requires a resolvable project root, and both of these have to answer without one
 | `src/assets/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 | `src/assets/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
 | `src/assets/flixw-examples.java` | `examples [list \| <verb>]`, `<verb>` any local build verb | see below — a different reason from the three above |
-| `src/assets/flixw-local.java` | `local add\|list\|remove\|status\|<verb>` | overrides a declared GitHub dependency with a local checkout — see "Local overrides" below |
+| `src/assets/flixw-local.java` | `local add\|list\|remove\|status\|<verb>`, `examples local <verb> <name>` | overrides a declared GitHub dependency with a local checkout — see "Local overrides" below |
 
 **`examples` was never a migration candidate; it was designed as an asset from the start,
 for a reason the table above doesn't cover.** `examples/<name>/` is a real, separate Flix
@@ -457,6 +457,15 @@ list`/`remove`/`status` are pure bookkeeping over `.flixw/local/packages.toml`
 neither the compiler nor the network — nor, unlike the overlay verbs, does dispatch
 require one to be pinned at all, the same "works before any project has ever been pinned"
 precedent `plugin install` already sets.
+
+`./flixw examples local <verb> <name>` reaches the same overlay engine with one
+difference: the implicit, single override is the root project itself, not an entry in
+`packages.toml` — so an `examples/<name>/` that depends on a *released* build of its own
+root project (the ordinary case `examples/` exists for) can instead be run against that
+root's uncommitted local source. Routed directly from stage 0's `"examples"` case to
+`LOCAL_ASSET`, bypassing `flixw-examples.java` entirely: the two commands share nothing
+but the word "examples", and duplicating the overlay engine across two assets is exactly
+the drift "one overlay implementation, not two" exists to avoid.
 
 Explicitly out of scope for v1: caching a built overlay (every run rebuilds every
 overridden package fresh — the conservative default until the mechanism has seen real

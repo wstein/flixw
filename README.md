@@ -513,6 +513,7 @@ without ever editing it:
 ./flixw local run
 ./flixw local status
 ./flixw local remove github:wstein/flix-orbit64
+./flixw examples local run cli-tool
 ```
 
 `add` checks the local checkout's own manifest against what your project declares — the
@@ -523,8 +524,10 @@ inside a disposable temporary directory seeded with a freshly built copy of the
 overridden package — itself built in a second, private, disposable copy, never in your
 own checkout — at exactly the path Flix's own resolver already reads a cached dependency
 from. Neither your project's own `flix.toml`/`lib`/`artifact` nor the overridden
-package's own are ever touched. See `docs/CONTRACT.md` for the full rules, including
-what v1 does not yet do (a cache, and transitive local overrides).
+package's own are ever touched. `./flixw examples local <verb> <name>` reaches the same
+engine with the root project itself as the implicit override, for an example that
+normally depends on a released build of it. See `docs/CONTRACT.md` for the full rules,
+including what v1 does not yet do (a cache, and transitive local overrides).
 
 ## Editor integration
 

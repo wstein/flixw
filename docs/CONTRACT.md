@@ -826,6 +826,7 @@ without ever editing it:
 ./flixw local run
 ./flixw local check
 ./flixw local remove github:wstein/flix-orbit64
+./flixw examples local run cli-tool
 ```
 
 `add <path>` reads the local checkout's own `flix.toml` (its `[package]` `repository` and
@@ -853,6 +854,11 @@ package's own already-resolved dependency cache, so building it needs no network
 because it is a copy rather than the real thing. The outer overlay is deleted the moment
 the launched verb exits; the real project's own `lib/`, `artifact/` and `flix.toml`, and
 the overridden package's own, are never written to.
+
+`./flixw examples local <verb> <name>` reaches the same engine with the implicit,
+single override being the root project itself — so an `examples/<name>/` that normally
+depends on a *released* build of its own root project can instead be run against that
+root's uncommitted local source.
 
 Out of scope for v1: caching a built overlay (every run rebuilds every overridden package
 fresh), and transitive local overrides (an overridden package's own local overrides, if

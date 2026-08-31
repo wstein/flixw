@@ -16,15 +16,21 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Renders {@code ./flixw local ...} -- a wrapper-owned companion asset, not a plugin.
+ * Renders {@code ./flixw local ...} and {@code ./flixw examples local ...} -- a
+ * wrapper-owned companion asset, not a plugin.
  *
  * <p>
  * {@code java flixw-local.java <root> <javaExe> <compilerJar> <jvmOptCount>
  * [jvmOpt...] <mode> <verb> [args...]} -- the option count precedes the options
  * themselves, the same convention {@code flixw-examples.java} uses, so an
  * arbitrary-length, already-tokenized list can sit between fixed positions with
- * no delimiter to collide with a real option string. {@code <mode>} is always
- * {@code standalone} for now: overrides come from {@code .flixw/local/packages.toml}.
+ * no
+ * delimiter to collide with a real option string. {@code <mode>} is
+ * {@code standalone}
+ * (overrides come from {@code .flixw/local/packages.toml}) or
+ * {@code example:<name>}
+ * (the single, implicit override is the root project itself, the consumer is
+ * {@code examples/<name>/}).
  *
  * <p>
  * The mechanism this asset automates is proven, not invented: Flix's own
@@ -60,6 +66,7 @@ final class flixwlocal {
     private flixwlocal() {
     }
 
+    static final Pattern NAME = Pattern.compile("[a-z][a-z0-9-]*");
     static final Pattern COORDINATE = Pattern.compile("github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+");
 
     /**
@@ -128,25 +135,52 @@ final class flixwlocal {
         String verb = args[verbAt];
         List<String> rest = List.of(args).subList(verbAt + 1, args.length);
 
-        if (!mode.equals("standalone")) {
+        if (mode.equals("standalone")) {
+            switch (verb) {
+                case "add" -> add(root, rest);
+                case "list" -> list(root, rest);
+                case "remove" -> remove(root, rest);
+                case "status" -> status(root, rest);
+                default -> {
+                    requireOverlayVerb(verb);
+                    requireCompiler(javaExe, compilerJar);
+                    Map<String, String> overrides = readOverrides(root);
+                    if (overrides.isEmpty()) {
+                        System.err.println("flixw local: no overrides -- run: ./flixw local add <path>");
+                        throw new Exit(89);
+                    }
+                    runOverlay(root, root, javaExe, compilerJar, jvmOpts, overrides, verb, rest);
+                }
+            }
+        } else if (mode.startsWith("example:")) {
+            requireOverlayVerb(verb);
+            requireCompiler(javaExe, compilerJar);
+            String name = mode.substring("example:".length());
+            // The same defence flixw-examples.java applies to its own <name>: the grammar
+            // check first (this asset cannot call into that one -- each companion asset is
+            // compiled and loaded in isolation, so the check is duplicated, not shared), then
+            // re-derive the real path and check it did not escape examples/ via a symlink,
+            // even after both directory checks above already passed.
+            if (!NAME.matcher(name).matches()) {
+                System.err.println("flixw examples local: no example " + q(name));
+                throw new Exit(89);
+            }
+            Path examplesDir = realExamplesDir(root);
+            Path exampleDir = examplesDir.resolve(name);
+            if (!Files.isDirectory(exampleDir) || !Files.isRegularFile(exampleDir.resolve("flix.toml"))) {
+                System.err.println("flixw examples local: no example " + q(name));
+                throw new Exit(89);
+            }
+            Path realExampleDir = exampleDir.toRealPath();
+            if (!realExampleDir.startsWith(examplesDir)) {
+                System.err.println("flixw examples local: " + q(name) + " escapes examples/ (symlink?)");
+                throw new Exit(89);
+            }
+            Map<String, String> overrides = exampleOverride(root, realExampleDir);
+            runOverlay(root, realExampleDir, javaExe, compilerJar, jvmOpts, overrides, verb, rest);
+        } else {
             System.err.println(protocolUsage());
             throw new Exit(87);
-        }
-        switch (verb) {
-            case "add" -> add(root, rest);
-            case "list" -> list(root, rest);
-            case "remove" -> remove(root, rest);
-            case "status" -> status(root, rest);
-            default -> {
-                requireOverlayVerb(verb);
-                requireCompiler(javaExe, compilerJar);
-                Map<String, String> overrides = readOverrides(root);
-                if (overrides.isEmpty()) {
-                    System.err.println("flixw local: no overrides -- run: ./flixw local add <path>");
-                    throw new Exit(89);
-                }
-                runOverlay(root, root, javaExe, compilerJar, jvmOpts, overrides, verb, rest);
-            }
         }
     }
 
@@ -156,6 +190,26 @@ final class flixwlocal {
                              + "\n       run: ./flixw pin <version>");
             throw new Exit(89);
         }
+    }
+
+    /**
+     * {@code root/examples}, resolved and checked against a symlink escaping the project
+     * root -- the same defence {@code flixw-examples.java}'s own {@code realExamplesDir}
+     * applies, duplicated here for the reason given above.
+     */
+    static Path realExamplesDir(Path root) throws IOException {
+        Path exDir = root.resolve("examples");
+        if (!Files.isDirectory(exDir)) {
+            System.err.println("flixw examples local: no examples/ directory");
+            throw new Exit(89);
+        }
+        Path real = exDir.toRealPath();
+        Path realRoot = root.toRealPath();
+        if (!real.startsWith(realRoot)) {
+            System.err.println("flixw examples local: 'examples' escapes the project root (symlink?)");
+            throw new Exit(89);
+        }
+        return real;
     }
 
     static void requireOverlayVerb(String verb) {
@@ -458,6 +512,51 @@ final class flixwlocal {
         return p.exitValue() == 0 ? out : "";
     }
 
+    // ---- examples local: the current repository as the implicit override ------
+
+    /**
+     * The root project's own coordinate, standing in for
+     * {@code .flixw/local/packages.toml}
+     * -- there is exactly one candidate local package here, the checkout
+     * {@code examples/}
+     * lives in, so there is nothing to disambiguate the way a standalone override
+     * needs a
+     * path to name. Still refuses exactly what {@link #add} would: the example must
+     * actually declare this coordinate, at the version the root project is
+     * currently at.
+     */
+    static Map<String, String> exampleOverride(Path root, Path exampleDir) throws IOException {
+        Path rootToml = root.resolve("flix.toml");
+        if (!Files.isRegularFile(rootToml))
+            throw notDeclared(exampleDir, "the root project has no flix.toml");
+        String rootText = Files.readString(rootToml, StandardCharsets.UTF_8);
+        String coordinate = packageField(rootText, "repository");
+        String rootVersion = packageField(rootText, "version");
+        if (coordinate == null)
+            throw notDeclared(exampleDir, "the root project's flix.toml declares no repository");
+
+        String exText = Files.readString(exampleDir.resolve("flix.toml"), StandardCharsets.UTF_8);
+        String wantVersion = dependencyVersion(exText, coordinate);
+        if (wantVersion == null)
+            throw notDeclared(exampleDir, exampleDir.getFileName() + " does not depend on " + coordinate);
+        if (!wantVersion.equals(rootVersion)) {
+            System.err.println("flixw examples local: version mismatch -- " + exampleDir.getFileName()
+                    + " depends on " + coordinate + " " + wantVersion
+                    + ", but the root project is at " + rootVersion);
+            System.err.println("       Flix's own resolver checks the version strictly;"
+                    + " align flix.toml's version before running this");
+            throw new Exit(89);
+        }
+        Map<String, String> overrides = new LinkedHashMap<>();
+        overrides.put(coordinate, root.toAbsolutePath().normalize().toString());
+        return overrides;
+    }
+
+    static Exit notDeclared(Path exampleDir, Object why) {
+        System.err.println("flixw examples local: " + why);
+        return new Exit(89);
+    }
+
     // ---- flix.toml reading: two fields, one table, nothing else ---------------
 
     /**
@@ -512,8 +611,9 @@ final class flixwlocal {
             stageConsumer(consumerDir, overlay);
             // The consumer's own cache covers its direct dependencies; an overridden local
             // package's transitive dependencies are resolved in *its* checkout, not the
-            // consumer's, so its cache is seeded too -- otherwise a package with its own
-            // dependencies would need the network merely because it is being overridden.
+            // consumer's -- "examples local", whose consumer (an examples/<name>/ that has
+            // never been run before) usually has no cache of its own at all, is exactly the
+            // case this second source exists for.
             seedExistingCache(consumerDir, overlay, overrides.keySet());
             for (String pkgPath : overrides.values())
                 seedExistingCache(Paths.get(pkgPath), overlay, overrides.keySet());
@@ -591,15 +691,16 @@ final class flixwlocal {
 
     /**
      * {@code build-pkg}, in a private, disposable copy of the package -- never in
-     * {@code pkgPath} itself. Building in place would mean deleting the package owner's
-     * own {@code artifact/*.fpkg} first (needed so "exactly one" below is meaningful),
-     * racing a concurrent build the owner might have running, and writing into a tree
-     * this feature's whole point is to leave untouched -- doubly so once an override
-     * target can itself be the invoking project root. The workspace gets its own copy of
-     * {@code pkgPath}'s already-resolved dependency cache (its transitive Flix and Maven
-     * dependencies), the same way {@link #stageConsumer}/{@link #seedExistingCache} seed
-     * the outer overlay, so building it does not need the network merely because it is
-     * being copied rather than built in place.
+     * {@code pkgPath} itself. An earlier version ran {@code build-pkg} directly in the
+     * real checkout, deleting its existing {@code artifact/*.fpkg} first: that raced a
+     * concurrent build the package's own owner might have running, and for
+     * {@code examples local} the override target *is* the invoking project root, so it
+     * would have meant this asset writing into the very tree the whole feature exists
+     * to leave untouched. The workspace gets its own copy of {@code pkgPath}'s already-
+     * resolved dependency cache (its transitive Flix and Maven dependencies), the same
+     * way {@link #stageConsumer}/{@link #seedExistingCache} seed the outer overlay,
+     * so building it does not need the network merely because it is being copied
+     * rather than built in place.
      *
      * <p>Returns a private temporary file, not a path under {@code pkgPath}'s own
      * {@code artifact/} -- the caller deletes it once {@link #seedOverride} has copied
@@ -732,6 +833,7 @@ final class flixwlocal {
     static String usageText() {
         return "usage: ./flixw local add <path> | list | remove <coordinate> | status"
              + "\n       or: ./flixw local <verb> [-- args]"
+             + "\n       or: ./flixw examples local <verb> <name> [-- args]"
              + "\n       verbs: " + String.join(" ", OVERLAY_VERBS);
     }
 }
