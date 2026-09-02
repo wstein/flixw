@@ -90,7 +90,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 486-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 488-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -748,16 +748,16 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/stage0/flixw.java` | 3719 | 2900 |
+| code lines in `src/stage0/flixw.java` | 3722 | 2900 |
 | comment density | 34% | ≥25% floor |
-| bytes | 345962 | 225000 |
+| bytes | 346529 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
 number a reader checks against is then the one nothing is holding. The code-line ceiling
-last moved for `--upgrade --pre-release`, which reaches a release still finishing
-`verify`'s regression suite before `promote` marks it latest -- see the publish/verify/
-promote pipeline described above and `.github/workflows/release.yaml`.
+last moved to give a bare `./flixw local` the same default `list` behaviour a bare
+`./flixw examples` already had, closing the gap where it instead built an incomplete
+`flixw-local.java` invocation and let the asset's own internal usage message leak out.
 
 The first cut against these was JDK provisioning, out to `src/assets/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is

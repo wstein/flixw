@@ -841,6 +841,9 @@ without ever editing it:
 ./flixw examples local run cli-tool
 ```
 
+A bare `./flixw local` is the same as `./flixw local list`, the same way a bare `./flixw
+examples` is `examples list`: `list` needs no pinned compiler, so neither does the bare form.
+
 `add <path>` reads the local checkout's own `flix.toml` (its `[package]` `repository` and
 `version`) and refuses before anything is written: a coordinate this project does not
 declare in `[dependencies]`, a version that does not match what this project depends on,

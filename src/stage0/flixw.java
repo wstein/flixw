@@ -2913,6 +2913,14 @@ public final class flixw {
             verbAndArgs = new ArrayList<>();
             verbAndArgs.add(rest.get(0));
             verbAndArgs.addAll(rest.subList(2, rest.size()));
+        } else if (rest.isEmpty()) {
+            // Bare `./flixw local`, same as bare `./flixw examples`: list what is already
+            // there rather than build an incomplete protocol call. Without this, an empty
+            // `rest` reached the asset with no verb token at all, and the asset's own
+            // defensive check for that -- a call stage 0 is never supposed to make -- was
+            // what the user actually saw, an internal argv contract leaking as a diagnostic.
+            mode = "standalone";
+            verbAndArgs = List.of("list");
         } else {
             mode = "standalone";
             verbAndArgs = rest;

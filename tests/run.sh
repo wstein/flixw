@@ -2795,6 +2795,8 @@ FLIX
 # but an overlay verb still launches one, so it refuses exactly like examples does.
 t 0  "list needs no pinned compiler at all" sh -c '
   cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
+t 0  "a bare local needs no pinned compiler either, defaulting to list" sh -c '
+  cd "$1" && [ "$(./flixw local)" = "(no local overrides)" ]' sh "$lp"
 t 88 "an overlay verb still needs a pinned compiler before it can run anything" sh -c '
   cd "$1" && ./flixw local run' sh "$lp"
 
@@ -2804,6 +2806,12 @@ g 0  'usage: \./flixw local' "local --help answers instead of running" sh -c '
   cd "$1" && ./flixw local --help' sh "$lp"
 t 0  "list is quiet with no overrides yet" sh -c '
   cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
+# A bare `./flixw local` used to build an incomplete protocol call to flixw-local.java --
+# no verb at all -- so the asset's own defensive "wrong number of args" usage, meant for a
+# stage 0 bug rather than a user, leaked straight to the terminal. It now defaults to
+# `list`, the same way a bare `./flixw examples` defaults to `list` there.
+t 0  "a bare local defaults to list, not the asset's internal usage" sh -c '
+  cd "$1" && [ "$(./flixw local)" = "(no local overrides)" ]' sh "$lp"
 t 89 "an overlay verb with no overrides yet is refused" sh -c '
   cd "$1" && ./flixw local run' sh "$lp"
 
