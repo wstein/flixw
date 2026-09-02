@@ -62,7 +62,7 @@ import java.util.regex.Pattern;
  */
 public final class flixw {
 
-    static final String WRAPPER_VERSION = "0.30.0";
+    static final String WRAPPER_VERSION = "0.30.1";
     static final String WRAPPER_DIR = ".flixw";
     static final int MIN_JAVA = 21;
     /**
