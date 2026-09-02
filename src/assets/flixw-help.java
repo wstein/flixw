@@ -442,7 +442,8 @@ final class flixwhelp {
     static void wrapperOptions(CommandSpec s) {
         s.addOption(OptionSpec.builder("--version").description("the wrapper version").build());
         s.addOption(OptionSpec.builder("--upgrade")
-                    .description("move this project to the newest published flixw, or to --upgrade <version>").build());
+                    .description("move this project to the newest published flixw, or to"
+                                + " --upgrade <version>; --pre-release for one not yet promoted").build());
         s.addOption(OptionSpec.builder("--install-jdk")
                     .description("fetch a verified Temurin into the cache").build());
         s.addOption(OptionSpec.builder("--purge")
@@ -524,6 +525,7 @@ final class flixwhelp {
             case "plugin" -> "install, upgrade, list, remove and run verified third-party commands.";
             case "task" -> ".flixw/tasks.toml's aliases.";
             case "examples" -> "run, check, build or test an examples/<name> package against this project's compiler.";
+            case "local" -> "override a declared GitHub dependency with an uncommitted local checkout.";
             case "wrapper" -> "--version, --upgrade, --install-jdk, --purge, --schema.";
             case "completion" -> "a TAB-completion script for bash, zsh, fish or pwsh.";
             default -> "";

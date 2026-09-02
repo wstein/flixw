@@ -1670,6 +1670,13 @@ g 0 'bash zsh fish pwsh' "completion offers the shell names"     ./flixw complet
 # list was written twice and only one copy was changed.
 t 0 "help wrapper does not advertise the removed --completion" sh -c '
   ! ./flixw help wrapper 2>/dev/null | grep -q -- "--completion"'
+# `local` shipped in WRAPPER_VERBS without a wrapperDesc() entry, so it rendered with a
+# blank description in both screens below -- UnitCheck's wrapperVerbDescriptions() catches
+# the missing entry itself; this is the end-to-end proof that the real screen is fixed too.
+g 0 'local .*override a declared GitHub dependency' \
+    "help shows a real description for local, not a blank line"  ./flixw help
+g 0 'local .*override a declared GitHub dependency' \
+    "help wrapper shows the same description"                    ./flixw help wrapper
 
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check

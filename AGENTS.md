@@ -90,7 +90,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 488-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 490-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -108,9 +108,10 @@ flag's arity until `captureHelp` started normalizing line endings), `autoRunBoun
 curated option/verb rule, the `.flixw/local/editor-jar.toml` round-trip `ownsEditorJar`
 reads to tell its own prior write from a stranger's file, `flixw-local.java`'s
 manifest reading (`[package]` fields, bare-string and inline-table `[dependencies]`
-entries) and `.flixw/local/packages.toml` round-trip, and the `tag_name` extraction
-`--upgrade --pre-release` reads out of a GitHub releases API response — 451 assertions
-in total.
+entries) and `.flixw/local/packages.toml` round-trip, the `tag_name` extraction
+`--upgrade --pre-release` reads out of a GitHub releases API response, and that every
+`WRAPPER_VERBS` entry renders a real description in `flixw-help.java`'s `wrapperDesc`
+rather than the blank line `local` shipped with — 460 assertions in total.
 Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 

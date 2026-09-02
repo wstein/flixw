@@ -1547,6 +1547,23 @@ public final class UnitCheck {
                  "BUILTIN_VERBS did not reach the union");
     }
 
+    /**
+     * Every {@code WRAPPER_VERBS} entry must render a real description in {@code
+     * flixwhelp.wrapperDesc}, or it shows up blank in {@code ./flixw help} and {@code
+     * ./flixw help wrapper} -- exactly what happened to {@code local}: added to
+     * WRAPPER_VERBS in one commit, and only given a description here, by hand, days
+     * later. This closes the gap so the next new verb fails a test instead of shipping
+     * with a blank line.
+     */
+    static void wrapperVerbDescriptions() {
+        for (String v : flixw.WRAPPER_VERBS) {
+            String d = flixwhelp.wrapperDesc(v);
+            if (d != null && !d.isEmpty()) ok();
+            else bad("wrapperDesc: " + q(v) + " has no description",
+                     "wrapperDesc returned " + (d == null ? "null" : "an empty string"));
+        }
+    }
+
 
     static String firstLine(String s) {
         int i = s.indexOf('\n');
@@ -1566,6 +1583,7 @@ public final class UnitCheck {
         lockSchema(fixtures);
         bounded();
         completion();
+        wrapperVerbDescriptions();
         overrideContainment();
         examplesDiscovery();
         examplesGrammar();
