@@ -579,12 +579,12 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3722          # a bare "./flixw local" now defaults to "list", the same way
-                             # a bare "./flixw examples" already does -- it used to build an
-                             # incomplete argv that leaked flixw-local.java's own internal
-                             # "wrong number of args" usage straight to the terminal; target: 2900
+MAX_CODE_LINES=3727          # "examples local <verb> --help" and "... <verb> --" used to
+                             # fall into the same blanket "flag in either position" refusal
+                             # as any other stray flag, instead of answering --help or
+                             # naming the missing <name> specifically; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 34
-MAX_BYTES=346529             # same fix; target: 225000
+MAX_BYTES=347412             # same fix; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

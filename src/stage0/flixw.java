@@ -2894,7 +2894,13 @@ public final class flixw {
      */
     static void dispatchLocal(Path root, Path jar, Jvm jvm, boolean forExample, List<String> rest) {
         String usage = forExample ? EXAMPLES_USAGE : LOCAL_USAGE;
-        if (!rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
+        // --help/-h in the verb slot, and -- for "examples local" only -- in the <name>
+        // slot too, since that grammar has no per-verb probe to defer a trailing --help
+        // to (see below), and <name> is the second positional either way.
+        boolean help = !rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))
+                    || forExample && rest.size() > 1
+                       && (rest.get(1).equals("--help") || rest.get(1).equals("-h"));
+        if (help) {
             System.out.println(usage); return;
         }
         String mode;
@@ -2902,6 +2908,12 @@ public final class flixw {
         if (forExample) {
             if (rest.size() < 2)
                 throw w009("examples local needs a verb and an example name" + "\n       " + usage);
+            // "--" is the args separator the grammar itself documents ([-- args]), not an
+            // unrecognised flag -- naming it specifically is the difference between "you
+            // forgot <name>" and the generic message below, which reads as if <verb> were
+            // the problem too when it never is.
+            if (rest.get(1).equals("--"))
+                throw w009("examples local: <name> is required before '--'" + "\n       " + usage);
             // This grammar is this wrapper's own, not the compiler's -- unlike "examples
             // run --entrypoint Foo.main cli-tool", there is no per-verb flag-arity probe
             // here to tell a value-taking flag from <name>, so a flag in either position

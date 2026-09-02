@@ -3020,6 +3020,18 @@ g 88 "expected '<verb> <name>'" "examples local refuses a flag before the verb" 
   cd "$1" && ./flixw examples local --entrypoint run local-example' sh "$lp"
 g 88 "expected '<verb> <name>'" "examples local refuses a flag where the name belongs" sh -c '
   cd "$1" && ./flixw examples local run --entrypoint' sh "$lp"
+# --help/-h after the verb used to fall into the same blanket refusal as any other flag
+# in the <name> slot -- there is no per-verb probe here to defer it to, so it must be
+# special-cased the same way a bare `examples local --help` already is.
+g 0  'usage: ./flixw examples' "examples local --help after the verb also answers" sh -c '
+  cd "$1" && ./flixw examples local run --help' sh "$lp"
+g 0  'usage: ./flixw examples' "examples local -h after the verb also answers" sh -c '
+  cd "$1" && ./flixw examples local run -h' sh "$lp"
+# "--" is the args separator the grammar documents ([-- args]), not an unrecognised
+# flag; landing in the <name> slot means <name> was left out, not that <verb> is also
+# wrong, so it gets its own message rather than the generic "flag in either position" one.
+g 88 "<name> is required before '--'" "examples local names the missing <name>, not a stray flag" sh -c '
+  cd "$1" && ./flixw examples local run -- --entrypoint' sh "$lp"
 
 # --- tasks ---------------------------------------------------------------
 # npm's `scripts`, not a new verb per task: .flixw/tasks.toml is hand-edited, never
