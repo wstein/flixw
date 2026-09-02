@@ -2185,6 +2185,21 @@ if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
     t 0 "pack builds both archives and SHA256SUMS"               sh -c '
       set -e
       ls "$1"/flixw-*.tar.gz "$1"/flixw-*.zip "$1"/flixw.java "$1"/SHA256SUMS' sh "$pk/out"
+    # Every companion asset stage 0 knows how to fetch must actually be published, or
+    # ensureAsset's FLIXW005 fires on a machine that has never cached it -- exactly what
+    # happened when flixw-local.java shipped in stage 0 but pack.sh's hand-written asset
+    # list was never updated to match. Derived from stage 0's own *_ASSET constants rather
+    # than a second hand-written list, so a new asset can't be forgotten the same way twice.
+    t 0 "every *_ASSET constant in stage 0 is a published release file"  sh -c '
+      set -e
+      missing=""
+      for a in $(sed -n "s/.*static final String [A-Z_]*_ASSET = \"\(flixw-[a-z]*\.java\)\".*/\1/p" \
+                 "$2"); do
+        [ -f "$1/$a" ] || missing="$missing $a (missing file)"
+        grep -q "  $a\$" "$1/SHA256SUMS" || missing="$missing $a (missing from SHA256SUMS)"
+      done
+      [ -z "$missing" ] || { echo "not published:$missing"; exit 1; }' \
+      sh "$pk/out" "$root/src/stage0/flixw.java"
     # install into ref, minus the file the archives deliberately leave out.
     #
     # From the *published* stage 0, not from src/. What a release ships is the documented
