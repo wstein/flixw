@@ -1,9 +1,22 @@
 name: release
 
 # Tag-driven, because the version a release publishes is the one compiled into
-# src/stage0/flixw.java: the tag says which commit, and the commit says which version. The job
-# refuses to publish if the two disagree, which is the mistake this automation makes
-# possible in the first place.
+# src/stage0/flixw.java: the tag says which commit, and the commit says which version. The
+# publish job refuses to run if the two disagree, which is the mistake this automation
+# makes possible in the first place.
+#
+# Three jobs, not one, because the regression suite that used to gate every release is a
+# ~30 minute cost paid twice (source, then the stripped tree) -- and paying it *before*
+# anything is published means every release is invisible for half an hour, including the
+# one fixing a bug in the previous release's upgrade path. So `publish` ships fast, as a
+# GitHub pre-release: a real artifact, digest-verified like any other, just not yet the one
+# `wrapper --upgrade` or `releases/latest` will hand out. `./flixw wrapper --upgrade
+# --pre-release` reaches it in the meantime, for anyone who wants it before it is vetted.
+# `verify` then runs the full suite the old single job did, and `promote` flips the
+# pre-release flag off and marks the release latest -- only if `verify` passed. A failure
+# leaves the release exactly where it was: published, unpromoted, and named in the failed
+# run for whoever fixes it. There is no fourth job that fixes it automatically; that part
+# stays a person's job, the same as it always was.
 on:
   push:
     tags: ["v*"]
@@ -17,8 +30,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: build and publish the release assets
+  publish:
+    name: publish the release assets as a pre-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -28,13 +41,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-
-      # The assets must not be able to disagree with the source they were cut from, so
-      # the same checks that gate a commit gate a release. Nothing here is a smoke test:
-      # run.sh is what proves the archives unpack to exactly what `install` writes.
-      - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: sh tests/lint.sh
-      - run: sh tests/run.sh
 
       - name: the tag must match WRAPPER_VERSION
         run: |
@@ -46,21 +52,11 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_ENV"
 
-      # The suite above ran against the documented source. What a release publishes is that
-      # file with its commentary stripped, and the claim for the stripper is behavioural
-      # equivalence -- which compiling does not establish. CI's `shipped` job proves it for
-      # every commit on main, but a tag is its own ref and the release gate should not depend
-      # on another workflow having looked. Run in a scratch copy so the packing below still
-      # cuts from the real tree.
-      - name: the stripped stage 0 passes the suite too
-        run: |
-          cp src/stage0/flixw.java "$RUNNER_TEMP/flixw.java.orig"
-          java tests/strip.java src/stage0/flixw.java "$version" > "$RUNNER_TEMP/stripped.java"
-          mv "$RUNNER_TEMP/stripped.java" src/stage0/flixw.java
-          printf 'shipped stage 0 is %s lines\n' "$(wc -l < src/stage0/flixw.java)"
-          sh tests/run.sh
-          mv "$RUNNER_TEMP/flixw.java.orig" src/stage0/flixw.java
-
+      # pack.sh's own javac calls are the correctness bar for a pre-release: the stripped
+      # stage 0 and every stripped asset must compile, or there is nothing to publish. The
+      # full lint and regression suite -- shellcheck, size ratchets, javadoc, and 483 cases
+      # run twice -- is `verify`'s job, not this one's, precisely so it does not have to
+      # finish before something a person can `wrapper --upgrade --pre-release` onto exists.
       - run: sh tests/pack.sh dist
 
       # softprops and friends are third-party actions with write scope on the repository;
@@ -77,6 +73,10 @@ jobs:
             # 3000 -- so it leads, and the digest is printed above the command rather than
             # piped into a checker, because a reader who cannot see it cannot check it.
             setup_sha=$(awk '$2 == "flixw-setup.java" { print $1 }' dist/SHA256SUMS)
+            printf '**This release is still being verified.** `wrapper --upgrade` and '
+            printf '`releases/latest` will not offer it until the regression suite passes '
+            printf 'and a separate job promotes it -- watch the Actions run for this tag, '
+            printf 'or reach it now with `wrapper --upgrade --pre-release`.\n\n'
             printf '## Start here: one file, verified\n\n'
             printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-setup.java\n' \
                    "$GITHUB_REPOSITORY" "$TAG"
@@ -117,27 +117,80 @@ jobs:
             printf "repository's README, which is a different artifact with its own history "
             printf '%s\n' '-- a second opinion rather than an echo.'
           } > "$notes"
-          # A pre-release is one that says so in its version -- 0.26.0-rc.1 -- and nothing
-          # else is.
-          #
-          # Every 0.x used to be flagged, on the grounds that the README calls this an
-          # experiment and shipping "releases" would say otherwise. The reasoning was
-          # sound and the consequence was not: GitHub's `latest` pointer skips
-          # pre-releases, and FLIXW_LATEST is releases/latest/download/, so
-          # `wrapper --upgrade` could not offer any release at all while the version
-          # started with a 0. A wrapper whose own upgrade path cannot reach its own
-          # newest release -- including the one fixing a bug in the upgrade path --
-          # fails at something load-bearing to avoid overstating maturity, which the
-          # README's first line already handles.
-          case $version in
-            *-*) pre=--prerelease ;;
-            *)   pre= ;;
-          esac
+          # Every release is created a pre-release, whether or not its version says so --
+          # that is what lets `verify` gate promotion below rather than gating publish
+          # itself. A re-dispatch on an already-promoted tag deliberately puts it back into
+          # this state too: re-running the workflow is a request to re-earn "latest", not a
+          # way to reupload assets under a trust level nothing here re-checked.
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
-            # shellcheck disable=SC2086  # $pre is one optional flag, deliberately unquoted
-            gh release edit "$TAG" --notes-file "$notes" $pre
+            gh release edit "$TAG" --notes-file "$notes" --prerelease --latest=false
           else
-            # shellcheck disable=SC2086
-            gh release create "$TAG" dist/* --title "flixw $version" --notes-file "$notes" $pre
+            gh release create "$TAG" dist/* --title "flixw $version" --notes-file "$notes" \
+              --prerelease
           fi
+
+  verify:
+    name: run the regression suite (~30 min, source and shipped)
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # The assets must not be able to disagree with the source they were cut from, so
+      # the same checks that gate a commit gate a release. Nothing here is a smoke test:
+      # run.sh is what proves the archives unpack to exactly what `install` writes.
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: sh tests/lint.sh
+      - run: sh tests/run.sh
+
+      - name: the tag must match WRAPPER_VERSION
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version=$(java src/stage0/flixw.java wrapper --version | head -1 | cut -d' ' -f2)
+          if [ "$tag" != "v$version" ]; then
+            echo "tag $tag does not match WRAPPER_VERSION $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_ENV"
+
+      # The suite above ran against the documented source. What a release publishes is that
+      # file with its commentary stripped, and the claim for the stripper is behavioural
+      # equivalence -- which compiling does not establish. CI's `shipped` job proves it for
+      # every commit on main, but a tag is its own ref and this gate should not depend on
+      # another workflow having looked. Run in a scratch copy so a rerun of this job stays
+      # reproducible.
+      - name: the stripped stage 0 passes the suite too
+        run: |
+          cp src/stage0/flixw.java "$RUNNER_TEMP/flixw.java.orig"
+          java tests/strip.java src/stage0/flixw.java "$version" > "$RUNNER_TEMP/stripped.java"
+          mv "$RUNNER_TEMP/stripped.java" src/stage0/flixw.java
+          printf 'shipped stage 0 is %s lines\n' "$(wc -l < src/stage0/flixw.java)"
+          sh tests/run.sh
+          mv "$RUNNER_TEMP/flixw.java.orig" src/stage0/flixw.java
+
+  promote:
+    name: promote to latest, now that the suite has passed
+    needs: [publish, verify]
+    runs-on: ubuntu-latest
+    # A real pre-release names itself one in its version -- 0.31.0-rc.1 -- and that is the
+    # one case where "verified" must not mean "latest": GitHub's own `releases/latest`
+    # already excludes it on purpose (see the publish job's notes template and
+    # AGENTS.md), and this promotion would fight that. Every 0.x flixw looked like this
+    # case once, and stopped: `wrapper --upgrade` reaching no release at all while the
+    # version starts with a 0 is worse than overstating maturity. A version is a real
+    # pre-release only when it says so in its own text, hence the check on the tag rather
+    # than on the leading digit.
+    if: ${{ !contains(inputs.tag || github.ref_name, '-') }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: mark this release the one wrapper --upgrade and releases/latest offer
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
