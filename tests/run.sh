@@ -2970,6 +2970,15 @@ g 0  '1 local dependency override' "doctor surfaces the override as advisory sta
 
 g 0  '^hello from local pkg$' "run launches the overlay against the local package" sh -c '
   cd "$1" && ./flixw local run' sh "$lp"
+# The overlay is deleted the instant the launched verb exits, so a relative path among
+# `-- args` resolves against a copy that is already gone by the time anyone could look
+# for it. flixw cannot rewrite it -- that would break -- args' one promise, verbatim
+# delivery -- so it only ever advises; the exit code here is the program's own, whatever
+# it does with an argument it was not written to expect, not asserted either way.
+t 0  "run with a relative-path argument prints the disposable-copy advisory" sh -c '
+  cd "$1" || exit 1
+  out=$(./flixw local run -- some/relative/path 2>&1) || true
+  printf "%s" "$out" | grep -q "runs inside a disposable copy"' sh "$lp"
 t 0  "check runs inside the overlay" sh -c '
   cd "$1" && ./flixw local check' sh "$lp"
 t 0  "test runs the consumer's own tests inside the overlay" sh -c '

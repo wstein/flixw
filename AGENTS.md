@@ -90,7 +90,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 493-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 494-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -489,6 +489,14 @@ overridden package fresh — the conservative default until the mechanism has se
 use), and transitive local overrides (an overridden package's own local overrides, if it
 has any, are not honored while it is being built as someone else's override — building it
 directly, as `local` always does, resolves its dependencies for real).
+
+**`run`'s and `test`'s own `-- args` execute with the overlay as the working directory,
+not wherever `./flixw local` was invoked from** — a real trap, hit live: a relative path
+among those arguments resolves against a copy that is already deleted by the time anyone
+could look for it, discarding whatever the program wrote there along with it. `runOverlay`
+cannot rewrite the argument to fix this — that would break `-- args`' one promise,
+verbatim delivery — so it prints an advisory the first time a non-flag argument is not
+already absolute, and stops there.
 
 **The asset cache is keyed by version string, not content hash — a real sharp edge for
 local development.** `<cache>/wrapper/assets/<version>/` names a released version, and

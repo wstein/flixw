@@ -635,6 +635,24 @@ final class flixwlocal {
             cmd.add(compilerJar.toString());
             cmd.add(verb);
             cmd.addAll(rest);
+            // The overlay is disposable, deleted the moment this process exits -- so a
+            // relative path anywhere in `rest` resolves against it, not against wherever
+            // the user actually ran this from, and anything the program writes to one is
+            // gone with the overlay before the shell prompt returns. Advisory only: rewriting
+            // a pass-through argument would break the one thing `-- args` promises --
+            // verbatim delivery -- and there is no way to tell "a file path" from "a string
+            // that happens to contain a slash" without guessing at what the program on the
+            // other end means by it, the same reason dispatchLocal never guesses at <name>.
+            for (String a : rest) {
+                if (!a.startsWith("-") && !Paths.get(a).isAbsolute()) {
+                    System.err.println("flixw local: " + verb + " runs inside a disposable copy"
+                                     + " of this project; a relative path in its arguments"
+                                     + " resolves there, not here, and anything it writes to"
+                                     + " one is discarded with the copy"
+                                     + "\n       pass absolute paths for files outside src/ or test/");
+                    break;
+                }
+            }
             Process p = new ProcessBuilder(cmd).directory(overlay.toFile()).inheritIO().start();
             throw new Exit(p.waitFor());
         } finally {

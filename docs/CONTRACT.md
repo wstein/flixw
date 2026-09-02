@@ -870,6 +870,17 @@ because it is a copy rather than the real thing. The outer overlay is deleted th
 the launched verb exits; the real project's own `lib/`, `artifact/` and `flix.toml`, and
 the overridden package's own, are never written to.
 
+**`run`'s and `test`'s own `-- args` execute with the disposable overlay as the working
+directory, not wherever `./flixw local` was invoked from.** A relative path among those
+arguments — an input file the program reads, an output file it writes — resolves against
+that copy, and anything written there is discarded with it when the verb returns,
+success or not: `-- args` is a verbatim pass-through, so flixw has no way to tell "a file
+path" from an ordinary string argument without guessing at what the program on the other
+end means by it, the same reason `dispatchLocal` never guesses at `<name>` either. flixw
+prints an advisory the first time a non-flag argument is not already absolute; it does
+not rewrite the argument. Pass absolute paths for any file the program touches outside
+`src/` or `test/`.
+
 `./flixw examples local <verb> <name>` reaches the same engine with the implicit,
 single override being the root project itself — so an `examples/<name>/` that normally
 depends on a *released* build of its own root project can instead be run against that
