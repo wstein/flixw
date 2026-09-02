@@ -90,7 +90,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 483-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 486-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -106,9 +106,11 @@ flag's arity until `captureHelp` started normalizing line endings), `autoRunBoun
 `isUpstream` (the provenance gate excluding a fork or `FLIX_JAR` override from both
 `autoRunBoundary` and `help flix <command>`'s option curation), a truth table over every
 curated option/verb rule, the `.flixw/local/editor-jar.toml` round-trip `ownsEditorJar`
-reads to tell its own prior write from a stranger's file, and `flixw-local.java`'s
+reads to tell its own prior write from a stranger's file, `flixw-local.java`'s
 manifest reading (`[package]` fields, bare-string and inline-table `[dependencies]`
-entries) and `.flixw/local/packages.toml` round-trip — 446 assertions in total.
+entries) and `.flixw/local/packages.toml` round-trip, and the `tag_name` extraction
+`--upgrade --pre-release` reads out of a GitHub releases API response — 451 assertions
+in total.
 Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
@@ -746,15 +748,16 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/stage0/flixw.java` | 3378 | 2900 |
-| comment density | 33% | ≥25% floor |
-| bytes | 308000 | 225000 |
+| code lines in `src/stage0/flixw.java` | 3719 | 2900 |
+| comment density | 34% | ≥25% floor |
+| bytes | 345962 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
 number a reader checks against is then the one nothing is holding. The code-line ceiling
-last moved for `help`, which needed to keep the compiler's own help text rather than throw
-it away after parsing verbs out of it.
+last moved for `--upgrade --pre-release`, which reaches a release still finishing
+`verify`'s regression suite before `promote` marks it latest -- see the publish/verify/
+promote pipeline described above and `.github/workflows/release.yaml`.
 
 The first cut against these was JDK provisioning, out to `src/assets/flixw-jdk.java`: 132 code
 lines and 9.3 KB. It is also the honest shape of what "moving it out" costs — the asset is

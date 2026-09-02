@@ -2128,6 +2128,23 @@ g 87 'is not a version' "upgrade rejects a target that is not a version" \
      ./flixw wrapper --upgrade banana
 g 87 'at most one version' "upgrade takes at most one target" \
      ./flixw wrapper --upgrade 1.2.3 4.5.6
+# A named version is already exact; letting --pre-release also resolve one would mean one
+# of the two silently loses, so naming both together is refused rather than picking a side.
+g 87 'takes no version' "upgrade refuses --pre-release together with a named version" \
+     ./flixw wrapper --upgrade 1.2.3 --pre-release
+
+# `--pre-release` reaches a release through the same FLIXW_RELEASE_SOURCE override plain
+# --upgrade already uses -- resolving a tag through the real releases API is exactly the one
+# part of this a test cannot stand in for (see UnitCheck's prereleaseChannel), so what is
+# under test is that the flag reaches upgradeWrapper's override branch at all, end to end.
+upgpre=$work/upgraded-prerelease
+rm -rf "$upgpre" && mkdir -p "$upgpre"
+java "$root/src/assets/flixw-setup.java" setup "$upgpre" "$root/src/stage0/flixw.java" >/dev/null 2>&1
+g 0 "$wrapper_version -> 9.9.9" "upgrade --pre-release moves the project via the override" sh -c '
+  cd "$1" && FLIXW_RELEASE_SOURCE="$2/" FLIXW_ASSET_SOURCE="$2/" \
+    ./flixw wrapper --upgrade --pre-release 2>&1' sh "$upgpre" "$(fileurl "$newrel")"
+t 0 "...and the project now carries that stage 0"                sh -c '
+  grep -q "WRAPPER_VERSION = \"9.9.9\"" "$1/.flixw/flixw.java"' sh "$upgpre"
 
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
 # that keeps it from walking backwards -- and it must hold whether this version is newer

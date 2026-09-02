@@ -4706,7 +4706,8 @@ public final class flixw {
      * failure leaves a user with no way forward, because the way forward *is* upgrading.
      *
      * <p>Note that GitHub's {@code latest} skips pre-releases, so a 0.x pre-release is
-     * deliberately not offered here -- an adopter asks for one by tag.
+     * deliberately not offered here -- an adopter asks for one by tag, or by
+     * {@code --pre-release} (see {@link #latestPrereleaseTag}) for whichever is newest.
      */
     static String latestBase() { return releaseBase(null); }
 
@@ -4724,6 +4725,51 @@ public final class flixw {
         return version == null
                ? "https://github.com/wstein/flixw/releases/latest/download/"
                : "https://github.com/wstein/flixw/releases/download/v" + version + "/";
+    }
+
+    /** Where {@link #latestPrereleaseTag} asks, since there is no {@code /latest} for it. */
+    static final String RELEASES_API = "https://api.github.com/repos/wstein/flixw/releases?per_page=1";
+
+    /**
+     * The {@code tag_name} of the single most recently published flixw release, whether or
+     * not it is a pre-release -- which is the one thing {@code /releases/latest} cannot say,
+     * by GitHub's own design.
+     *
+     * <p>{@code --upgrade --pre-release} exists because {@link #releaseBase}'s {@code latest}
+     * shortcut needs no API quota but is exactly the thing that stays blind to a release
+     * still finishing {@code verify} in {@code .github/workflows/release.yaml}: published as
+     * a pre-release, promoted only once the regression suite passes. Reaching it before
+     * promotion means asking a different endpoint, one that does not filter -- the releases
+     * API returns newest-first by creation date, so the first entry is the one wanted
+     * regardless of its own pre-release flag, and {@code per_page=1} keeps the response to
+     * that one object.
+     *
+     * <p>Extraction is a single regex rather than a JSON parser: stage 0 has no dependency to
+     * spend on one, and a release object is large -- pulling one field out of it costs less
+     * than reading the rest to throw it away. {@link #extractTagName} is the pure half of
+     * this, split out so the parsing can be asserted without a live request.
+     */
+    static String latestPrereleaseTag() {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(RELEASES_API))
+                .timeout(Duration.ofSeconds(60))
+                .header("User-Agent", "flixw/" + WRAPPER_VERSION)
+                .header("Accept", "application/vnd.github+json")
+                .build();
+        try {
+            HttpResponse<String> res = httpClient().send(req, HttpResponse.BodyHandlers.ofString());
+            return res.statusCode() == 200 ? extractTagName(res.body()) : null;
+        } catch (IOException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /** The first {@code "tag_name"} value in a GitHub releases API response, or null. */
+    static String extractTagName(String json) {
+        Matcher m = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
+        return m.find() ? m.group(1) : null;
     }
 
     /** The digest a {@code SHA256SUMS} file names for one file, or null if it does not. */
@@ -4751,23 +4797,6 @@ public final class flixw {
         return field.startsWith("*") ? field.substring(1) : field;
     }
 
-    /**
-     * Moves this project to the newest published flixw.
-     *
-     * The old `--upgrade` rewrote the files from the stage 0 already in the tree, which is
-     * a repair rather than a version change -- so it printed a note on every run
-     * explaining that it had not done what its name says. That repair is now
-     * `./flixw doctor --fix`, and this does what the word means.
-     *
-     * The new stage 0 installs itself. It is the only thing that knows its own shim bytes,
-     * and having the old one write files for a version it has never seen is how the two
-     * drift apart.
-     *
-     * The digest is checked against the SHA256SUMS published beside it -- same origin,
-     * same TLS, so this catches a corrupted or truncated download and not a compromised
-     * release. That is the same footing as the compiler pin, and docs/LIMITATIONS.md says
-     * so; a self-update is simply where it matters most.
-     */
     /**
      * Every companion asset a release publishes, read out of that release's own
      * {@code SHA256SUMS} rather than from a list in here.
@@ -4832,7 +4861,44 @@ public final class flixw {
         return warm;
     }
 
-    static void upgradeWrapper(Path root, String to) {
+    /**
+     * Moves this project to the newest published flixw -- {@code latest}'s pick, a version
+     * named outright, or, with {@code pre}, the newest release regardless of its own
+     * pre-release flag (see {@link #latestPrereleaseTag}).
+     *
+     * The old `--upgrade` rewrote the files from the stage 0 already in the tree, which is
+     * a repair rather than a version change -- so it printed a note on every run
+     * explaining that it had not done what its name says. That repair is now
+     * `./flixw doctor --fix`, and this does what the word means.
+     *
+     * The new stage 0 installs itself. It is the only thing that knows its own shim bytes,
+     * and having the old one write files for a version it has never seen is how the two
+     * drift apart.
+     *
+     * The digest is checked against the SHA256SUMS published beside it -- same origin,
+     * same TLS, so this catches a corrupted or truncated download and not a compromised
+     * release. That is the same footing as the compiler pin, and docs/LIMITATIONS.md says
+     * so; a self-update is simply where it matters most.
+     */
+    static void upgradeWrapper(Path root, String to, boolean pre) {
+        // Once resolved, a pre-release tag drives every branch below exactly like a named
+        // version -- refuse to walk backwards silently, "nothing to do" if already there --
+        // because by this point it is one: a concrete target rather than "whatever latest
+        // is". `named` exists only so the messages below can still tell the two apart.
+        boolean named = to != null;
+        if (pre) {
+            String override = env("FLIXW_RELEASE_SOURCE");
+            // The override already names the one release to use; resolving a tag through
+            // an API neither the override nor a test can stand in for would just replace
+            // it, so this is skipped rather than raced against it.
+            if (override == null || override.isBlank()) {
+                String tag = latestPrereleaseTag();
+                if (tag == null)
+                    throw w005("could not reach GitHub's releases API to find the newest"
+                             + " published release (pre-release or not)");
+                to = strip(tag);
+            }
+        }
         String base = releaseBase(to);
         String sums = readSums(base);
         String want = digestFor(sums, "flixw.java");
@@ -4881,7 +4947,8 @@ public final class flixw {
                            && canonical(published).equals(canonical(WRAPPER_VERSION));
             if (notNewer && to != null && !same)
                 System.err.println("flixw: moving back from " + WRAPPER_VERSION + " to "
-                                 + published + ", which you asked for by name");
+                                 + published + (named ? ", which you asked for by name"
+                                                       : ", the newest published pre-release"));
             else if (notNewer && to != null) {
                 // Named the version already installed. "Newer than the newest release" is
                 // true of `latest` and nonsense here -- it would report 0.25.9 as newer
@@ -4963,14 +5030,24 @@ public final class flixw {
                                  + "  java " + Runtime.version());
             }
             case "--upgrade" -> {
-                if (rest.size() > 1)
-                    throw w008(wrapperUsage("'--upgrade' takes at most one version"));
-                String to = rest.isEmpty() ? null : strip(rest.get(0));
-                if (to != null && !SEMVERISH.matcher(to).matches())
-                    throw w008(wrapperUsage("'" + rest.get(0) + "' is not a version"));
+                String to = null;
+                boolean pre = false;
+                for (String a : rest) {
+                    if (a.equals("--pre-release")) { pre = true; continue; }
+                    if (to != null)
+                        throw w008(wrapperUsage("'--upgrade' takes at most one version"));
+                    to = strip(a);
+                    if (!SEMVERISH.matcher(to).matches())
+                        throw w008(wrapperUsage("'" + a + "' is not a version"));
+                }
+                // A named version is already exact; asking pre-release resolution to pick
+                // one too would mean one of the two silently loses, so both together are
+                // refused rather than one being honoured over the other.
+                if (pre && to != null)
+                    throw w008(wrapperUsage("'--upgrade --pre-release' takes no version"));
                 // The only operation here that needs a project, and it resolves one itself
                 // rather than making the others depend on being inside one.
-                upgradeWrapper(findRoot(wrapperAnchor()), to);
+                upgradeWrapper(findRoot(wrapperAnchor()), to, pre);
             }
             case "--install-jdk" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
@@ -5016,6 +5093,9 @@ public final class flixw {
              + "\n         --upgrade [<version>]  move this project to the newest published"
              + "\n                        flixw, or to the release you name"
              + "\n                        (to repair the files it has: ./flixw doctor --fix)"
+             + "\n         --pre-release  with --upgrade and no version, the newest published"
+             + "\n                        release even if still finishing its own verification"
+             + "\n                        (releases/latest skips it until that passes)"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
              + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for"
              + "\n                        that many days, 14 by default"
@@ -5765,6 +5845,7 @@ public final class flixw {
               ./flixw help [<topic>]    the full table: flix, wrapper, plugin, task
               ./flixw completion <shell>   a TAB-completion script, on stdout
               ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --purge [days] [--yes] | --schema]
+                               (--upgrade also takes [<version>] and/or --pre-release)
 
               wrapper verbs   %s
               FLIX_JAR=<path> runs a local build, unverified (see docs/CONTRACT.md)

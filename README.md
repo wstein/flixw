@@ -406,7 +406,10 @@ there is a lock the honest report is that one is missing.
 Install from a release rather than from `main`: a tool that asks you to pin an exact
 compiler should not ask you to fetch itself from a moving branch.
 
-Once installed, `./flixw wrapper --upgrade` moves the project to the newest release.
+Once installed, `./flixw wrapper --upgrade` moves the project to the newest release. Every
+release publishes and verifies before it is promoted to that one, which takes a while —
+`./flixw wrapper --upgrade --pre-release` reaches it before promotion, or a real pre-release
+version, for anyone who wants either ahead of everyone else.
 `./flixw wrapper --help` prints the routing table: which verbs go to the compiler, which to
 the wrapper, and how to force either.
 

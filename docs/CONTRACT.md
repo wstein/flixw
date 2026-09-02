@@ -499,6 +499,18 @@ that release, checks it against the `SHA256SUMS` published beside it, declines t
 backwards, and then lets the *new* stage 0 install itself — it is the only thing that knows
 its own shim bytes. Repairing the files a project already has is `./flixw doctor --fix`.
 
+**`--upgrade --pre-release` reaches a release plain `--upgrade` cannot see.**
+`.github/workflows/release.yaml` publishes every release as a GitHub pre-release first,
+runs the regression suite against it, and only then promotes it — flipping the pre-release
+flag off and marking it `latest` — so `releases/latest` and plain `--upgrade` never offer
+a release still being verified, by GitHub's own design. `--pre-release` asks a different
+endpoint, one that does not filter: the newest published release, promoted or not, which
+is also how it reaches an actual pre-release version (`0.31.0-rc.1`-shaped, published as a
+pre-release permanently) without naming its exact tag. It takes no version of its own —
+naming one is already exact, so combining the two is refused rather than picking a side —
+and every other rule above still applies to what it finds: the digest is still checked,
+walking backwards is still refused and still said out loud.
+
 **It also warms every companion asset that release publishes**, so the commands needing
 one work offline afterwards. Which assets those are is read out of the release's own
 `SHA256SUMS` rather than from a list inside the wrapper: an upgrade runs in the *old* stage

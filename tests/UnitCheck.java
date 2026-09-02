@@ -469,6 +469,38 @@ public final class UnitCheck {
     }
 
     /**
+     * `--upgrade --pre-release` reaches a release {@code /releases/latest} cannot see --
+     * one still finishing `verify` in release.yaml, or a real pre-release version -- by
+     * asking the releases API for the newest entry instead of the filtered shortcut.
+     *
+     * <p>The live request itself is not asserted here for the same reason {@link
+     * #releaseChannel} does not assert one: a test cannot make the JVM see a fake network
+     * response. What is asserted is the pure half -- pulling {@code tag_name} out of a
+     * response body -- and the URL that request is made against, which is what a rename of
+     * either would actually break.
+     */
+    static void prereleaseChannel() {
+        eq("pre-release: the endpoint is the releases API, not the latest shortcut", "true",
+           String.valueOf(flixw.RELEASES_API.startsWith(
+               "https://api.github.com/repos/wstein/flixw/releases")));
+        // Newest-first by creation date is the API's own contract, not flixw's -- so the
+        // one thing worth pinning here is that only one object is asked for.
+        eq("pre-release: only the newest entry is requested", "true",
+           String.valueOf(flixw.RELEASES_API.contains("per_page=1")));
+        // A real response carries dozens of fields before tag_name; the extractor must not
+        // require any particular one to come first.
+        String body = "[{\"url\":\"https://api.github.com/repos/wstein/flixw/releases/1\","
+                    + "\"id\":1,\"prerelease\":true,\"tag_name\":\"v0.31.0-rc.1\","
+                    + "\"name\":\"flixw 0.31.0-rc.1\"}]";
+        eq("pre-release: tag_name is pulled out of a real response shape",
+           "v0.31.0-rc.1", flixw.extractTagName(body));
+        eq("pre-release: no tag_name at all yields no target", null,
+           flixw.extractTagName("[{\"id\":1}]"));
+        eq("pre-release: an empty or broken body yields no target", null,
+           flixw.extractTagName(""));
+    }
+
+    /**
      * Rewriting a release asset URL for a newer tag, which is how upgrade finds one.
      *
      * <p>Derived from the URL the lock already records rather than from a naming scheme:
@@ -1546,6 +1578,7 @@ public final class UnitCheck {
         declaredVerbs();
         upgradeUrls();
         upgradeTarget();
+        prereleaseChannel();
         localOverrides();
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
