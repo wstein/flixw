@@ -50,7 +50,7 @@ curl -fsSL -o "$src" "https://raw.githubusercontent.com/$repo/$branch/$path" || 
 extract() {
   grep -oE '(cmd|opt\[[A-Za-z._]+\]|arg\[[A-Za-z._]+\])\("[^"]+"\)' "$1" \
     | sed -E 's/^([a-z]+)\[([A-Za-z._]+)\]\("(.*)"\)$/\1 \2 \3/; s/^cmd\("(.*)"\)$/cmd - \1/' \
-    | sort -u
+    | LC_ALL=C sort -u
 }
 
 extract "$src" > "$work/current"

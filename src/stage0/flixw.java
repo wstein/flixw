@@ -98,16 +98,16 @@ public final class flixw {
         List.of("pin", "info", "doctor", "validate", "help", "plugin", "task", "examples", "local");
 
     /**
-     * Fallback verb set, observed in Flix 0.75.1 and 0.75.2.  Used when `flix --help`
+     * Fallback verbs from Flix 0.76.0. Used when `flix --help`
      * cannot be captured or parsed.  Its only job is to answer "does the pinned compiler
      * already implement one of WRAPPER_VERBS" -- a question whose answer changes at most
      * once a year, and never silently.  Being one release stale here costs nothing;
      * failing here would brick every project pinned to a compiler flixw has not seen.
      */
     static final List<String> BUILTIN_VERBS = List.of(
-        "init", "check", "build", "build-jar", "build-fatjar", "build-pkg", "clean",
+        "init", "check", "build", "build-classes", "build-jar", "build-fatjar", "build-pkg", "clean",
         "doc", "format", "run", "test", "repl", "lsp", "lsp-vscode", "release",
-        "outdated", "eff-check", "eff-lock");
+        "outdated", "stat", "eff-check", "eff-lock");
 
     // ---- diagnostics -----------------------------------------------------
 

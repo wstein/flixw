@@ -642,12 +642,12 @@ final class flixwhelp {
      * proves it is never read there. The experimental {@code -X} flags that feed the same
      * {@code Options(...)} constructor belong here too -- {@code --Xlib}, {@code
      * --Xno-deprecated}, {@code --Xprint-phases}, {@code --Xsummary}, {@code
-     * --Xsubeffecting}, {@code --Xnewmono} -- distinct from the {@code --Xbenchmark-*}
+     * --Xsubeffecting}, {@code --Xnewmono}, {@code --Xverify} -- distinct from the {@code --Xbenchmark-*}
      * flags below, which are not.
      */
     static final Set<String> COMPILE_OPTIONS = Set.of(
         "--entrypoint", "--threads", "--top", "--Xlib", "--Xno-deprecated",
-        "--Xprint-phases", "--Xsummary", "--Xsubeffecting", "--Xnewmono");
+        "--Xprint-phases", "--Xsummary", "--Xsubeffecting", "--Xnewmono", "--Xverify");
 
     /** Flags read only when a command resolves dependencies via {@code Bootstrap.bootstrap},
      *  which {@code init} alone never calls. */

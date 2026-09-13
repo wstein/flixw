@@ -3,6 +3,9 @@
 # Prose is excluded on purpose -- see the header of that script.
 arg File <file>...
 arg Int port
+cmd - Xmemory
+cmd - Xperf
+cmd - Xzhegalkin
 cmd - build
 cmd - build-classes
 cmd - build-fatjar
@@ -21,21 +24,14 @@ cmd - outdated
 cmd - release
 cmd - repl
 cmd - run
+cmd - stat
 cmd - test
-cmd - Xmemory
-cmd - Xperf
-cmd - Xzhegalkin
 opt Int listen
 opt Int n
 opt Int threads
 opt LibLevel Xlib
 opt String entrypoint
 opt String github-token
-opt Unit frontend
-opt Unit json
-opt Unit no-install
-opt Unit par
-opt Unit top
 opt Unit Xbenchmark-code-size
 opt Unit Xbenchmark-frontend
 opt Unit Xbenchmark-incremental
@@ -44,5 +40,11 @@ opt Unit Xbenchmark-throughput
 opt Unit Xnewmono
 opt Unit Xno-deprecated
 opt Unit Xprint-phases
-opt Unit Xsummary
+opt Unit Xverify
+opt Unit frontend
+opt Unit json
+opt Unit no-install
+opt Unit par
+opt Unit top
+opt Unit version
 opt Unit yes
