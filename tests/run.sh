@@ -18,7 +18,7 @@ set -eu
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 work=$root/tests/.work/run
-version=${FLIXW_TEST_VERSION:-0.75.3}
+version=${FLIXW_TEST_VERSION:-0.76.0}
 # This checkout's own wrapper version, read rather than written down. The upgrade
 # cases below assert what a project is on before and after, and spelling it as a
 # literal meant every release bump broke the suite in the commit that cut it --
