@@ -100,10 +100,15 @@ final class flixwhelp {
         Ctx c = Ctx.read(Paths.get(args[0]));
         String topic = args.length > 1 ? args[1] : null;
         String name = args.length > 2 ? args[2] : null;
+        List<String> jvmOpts = args.length > 3 ? List.of(args).subList(3, args.length) : List.of();
 
         if (topic == null) { overview(c); return; }
         switch (topic) {
-            case "flix" -> flix(c, name);
+            case "flix" -> flix(c, name, jvmOpts, false);
+            // Internal spelling for ./flixw <verb> --help. Unknown upstream releases keep
+            // their original flat screen instead of receiving a curation table not yet
+            // verified against their source.
+            case "flix-direct" -> flix(c, name, jvmOpts, true);
             case "wrapper" -> render(wrapperSpec(c));
             case "plugin" -> plugin(c, name);
             case "task" -> task(c, name);
@@ -554,7 +559,8 @@ final class flixwhelp {
 
     // ---- flix ----------------------------------------------------------------
 
-    static void flix(Ctx c, String name) throws IOException, InterruptedException {
+    static void flix(Ctx c, String name, List<String> jvmOpts, boolean direct)
+            throws IOException, InterruptedException {
         String path = c.get("helpFile");
         if (path.isEmpty()) {
             System.err.println("flixw: no compiler help has been captured for this project");
@@ -571,13 +577,17 @@ final class flixwhelp {
         // forever. Byte-equality against the text already held is the honest test, and it
         // needs no knowledge of the layout -- so a future picocli-based Flix, which does have
         // real per-command help, starts working here with no change to flixw at all.
-        String probed = probe(c.get("javaExe"), c.get("compilerJar"), name);
-        if (probed != null && !probed.strip().equals(help.strip())) {
+        Probe probed = probe(c, name, jvmOpts);
+        if (probed != null && probed.status == 0 && !probed.text.strip().equals(help.strip())) {
             System.out.println("Flix " + version + "  --  " + name);
             System.out.println();
-            System.out.print(probed.endsWith("\n") ? probed : probed + "\n");
+            System.out.print(probed.text.endsWith("\n") ? probed.text : probed.text + "\n");
             return;
         }
+        // A fork may deliberately reject its per-command help. Returning its status lets the
+        // direct route fall through to the original compiler argv, preserving both output and
+        // exit code instead of replacing a real failure with a successful screen.
+        if (probed != null && probed.status != 0) throw new Exit(probed.status);
 
         Map<String, String> known = commands(help);
         if (!known.containsKey(name)) {
@@ -598,7 +608,12 @@ final class flixwhelp {
         // (or gain real per-command help, which already takes the branch above instead), so
         // the layout check stays too. Never adds anything not already in the real capture;
         // only omits what the source shows this verb provably never reads.
-        boolean curated = format(help).equals("scopt-v1") && "true".equals(c.get("upstream"));
+        boolean curated = format(help).equals("scopt-v1") && "true".equals(c.get("upstream"))
+                       && CURATED_UPSTREAM_VERSIONS.contains(version);
+        if (direct && !curated) {
+            System.out.print(help.endsWith("\n") ? help : help + "\n");
+            return;
+        }
         CommandSpec s = base("./flixw " + name,
             known.get(name).isEmpty() ? "(the compiler's help gives no description)"
                                       : known.get(name),
@@ -606,7 +621,7 @@ final class flixwhelp {
             curated
               ? "Flix " + version + " publishes only a top-level --help; every option below"
               + " is grammatically global there too, so the list is curated from flix/flix's"
-              + " own source (verified against 0.75.3) to what " + name + " actually reads,"
+              + " own source (verified against 0.75.3 and 0.76.0) to what " + name + " actually reads,"
               + " not from anything the compiler's own text distinguishes. `./flixw -- "
               + name + " --help` reaches the compiler directly and prints its full,"
               + " undivided screen."
@@ -661,6 +676,9 @@ final class flixwhelp {
         return true;
     }
 
+    /** Versions whose upstream Main.scala source the table above has been re-traced against. */
+    static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0");
+
     /**
      * The compiler's own help, verbatim.
      *
@@ -710,10 +728,16 @@ final class flixwhelp {
      * a signal. {@code FLIX_JAR} can point at any jar at all, which is exactly how a program
      * that behaves like that gets here.
      */
-    static String probe(String javaExe, String jar, String name)
+    record Probe(int status, String text) { }
+
+    static Probe probe(Ctx c, String name, List<String> jvmOpts)
             throws IOException, InterruptedException {
+        String javaExe = c.get("javaExe"), jar = c.get("compilerJar");
         if (javaExe.isEmpty() || jar.isEmpty()) return null;
-        ProcessBuilder pb = new ProcessBuilder(javaExe, "-jar", jar, name, "--help");
+        List<String> cmd = new ArrayList<>(List.of(javaExe));
+        cmd.addAll(jvmOpts);
+        cmd.addAll(List.of("-jar", jar, name, "--help"));
+        ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process p = pb.start();
         // StringBuffer, not StringBuilder: two threads touch it, and if the join below times
@@ -745,7 +769,7 @@ final class flixwhelp {
         // went through captureHelp's own \r\n normalization (a Windows JVM's own
         // System.lineSeparator()); without the same normalization here the two would
         // differ on Windows even when the compiler said the same thing twice.
-        return b.toString().replace("\r\n", "\n").replace('\r', '\n');
+        return new Probe(p.exitValue(), b.toString().replace("\r\n", "\n").replace('\r', '\n'));
     }
 
     // ---- plugins and tasks ----------------------------------------------------

@@ -5193,7 +5193,8 @@ public final class flixw {
     static void completionScript(List<String> args, Path root, Lock lock, Path jar, Jvm jvm,
                                  List<String> compilerVerbs, String identity) {
         String shell = completionShell(args);
-        helpTopic(List.of("completion", shell), root, lock, jar, jvm, compilerVerbs, identity, false);
+        helpTopic(List.of("completion", shell), root, lock, jar, jvm, compilerVerbs, identity,
+                  List.of(), false);
     }
 
     static final String COMPLETION_USAGE =
@@ -5321,54 +5322,50 @@ public final class flixw {
                                  .replace("\r", "\\r");
     }
 
-    /**
-     * Runs the help renderer, which is a companion asset and needs the network exactly once
-     * per machine per release.
-     *
-     * <p>Never fatal in the sense that matters: if the asset or picocli cannot be fetched,
-     * the routing table stage 0 has always been able to print offline is printed instead. A
-     * wrapper that could not tell you what it does without a network would be worse than one
-     * that tells you less of it.
-     */
+    /** Only interactive help may degrade. */
     static void helpTopic(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
-                          List<String> compilerVerbs, String identity) {
-        helpTopic(rest, root, lock, jar, jvm, compilerVerbs, identity, true);
+                          List<String> compilerVerbs, String identity, List<String> jvmOpts,
+                          boolean degrade) {
+        try {
+            System.exit(renderHelp(rest, root, lock, jar, jvm, compilerVerbs, identity, jvmOpts));
+        } catch (IOException | RuntimeException e) {
+            if (!degrade) throw e instanceof RuntimeException r ? r
+                                : w005("cannot run the completion generator: " + why((IOException) e));
+            offlineHelp(identity, e);
+        }
     }
 
-    /**
-     * @param degrade whether a renderer that cannot be fetched falls back to what stage 0 can
-     *     print by itself. True for {@code help}, where saying less beats saying nothing.
-     *     <b>False for {@code completion}</b>, and that difference is load-bearing: its output
-     *     is redirected into a shell startup file, so a fallback would write flixw's routing
-     *     table there and report success. The failure has to reach the exit status.
-     */
-    static void helpTopic(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
-                          List<String> compilerVerbs, String identity, boolean degrade) {
-        Path ctx = null;
-        Integer rc = null;
+    /** Runs the renderer and deletes its context. */
+    static int renderHelp(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
+                          List<String> compilerVerbs, String identity, List<String> jvmOpts)
+            throws IOException {
+        Path ctx = Files.createTempFile("flixw-help-", ".txt");
         try {
-            Path asset = ensureAsset(HELP_ASSET);
-            Path picocli = ensureAsset(PICOCLI_ASSET);
-            ctx = Files.createTempFile("flixw-help-", ".txt");
+            Path asset = ensureAsset(HELP_ASSET), picocli = ensureAsset(PICOCLI_ASSET);
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity,
                                                 env("FLIX_JAR") != null),
                               StandardCharsets.UTF_8);
             List<String> a = new ArrayList<>(List.of(ctx.toString()));
             a.addAll(rest.subList(0, Math.min(3, rest.size())));
-            rc = runAsset(asset, picocli, a);
-        } catch (IOException | RuntimeException e) {
-            if (!degrade) throw e instanceof RuntimeException r ? r
-                                : w005("cannot run the completion generator: " + why((IOException) e));
-            offlineHelp(identity, e);
+            // Validated tokens: the asset must not parse FLIX_JVM_OPTS again.
+            a.addAll(jvmOpts);
+            return runAsset(asset, picocli, a);
         } finally {
-            if (ctx != null) { try { Files.deleteIfExists(ctx); } catch (IOException ignored) { } }
+            try { Files.deleteIfExists(ctx); } catch (IOException ignored) { }
         }
-        // Exit *after* the finally, not inside the try. System.exit runs shutdown hooks but
-        // skips finally blocks, so exiting where the child's status is produced would leak
-        // the context file on every successful call -- the same trap writeContextFile ran
-        // into for plugins, where the answer was a shutdown hook because runArtifact cannot
-        // return. This one can return, so it does, and the temporary file is simply deleted.
-        if (rc != null) System.exit(rc);
+    }
+
+    /** On renderer failure, launch the original compiler argv. */
+    static boolean compilerVerbHelp(String verb, Path root, Lock lock, Path jar, Jvm jvm,
+                                    List<String> compilerVerbs, String identity,
+                                    List<String> jvmOpts) {
+        try {
+            return renderHelp(List.of("flix-direct", verb), root, lock, jar, jvm,
+                              compilerVerbs, identity, jvmOpts) == 0;
+        } catch (IOException | RuntimeException e) {
+            tr("cannot render compiler help for " + verb + ": " + why(e));
+            return false;
+        }
     }
 
     /**
@@ -5798,9 +5795,15 @@ public final class flixw {
             // to work out which side would actually answer a given word. The renderer is
             // handed both verb sets and says so per command instead.
             helpTopic(forward.subList(Math.min(1, forward.size()), forward.size()),
-                      root, lock, jar, jvm, compilerVerbs, verbId);
+                      root, lock, jar, jvm, compilerVerbs, verbId, opts, true);
             return;                                  // helpTopic exits; this is for the reader
         }
+
+        // Only exact help is presentation-only; all other argv remains the compiler's.
+        if (toCompiler && !forcedCompiler && first != null && compilerVerbs.contains(first)
+            && exactCompilerHelp(forward)
+            && compilerVerbHelp(first, root, lock, jar, jvm, compilerVerbs, verbId, opts))
+            return;
 
         if (!toCompiler && pluginOwner != null && !WRAPPER_VERBS.contains(first)) {
             runDeclaredPlugin(pluginOwner, first, forward.subList(1, forward.size()),
@@ -5828,6 +5831,10 @@ public final class flixw {
                              + " and will be removed in the next wrapper release");
 
         launch(jvm.exe(), opts, jar, forward);
+    }
+
+    static boolean exactCompilerHelp(List<String> argv) {
+        return argv.size() == 2 && ("--help".equals(argv.get(1)) || "-h".equals(argv.get(1)));
     }
 
     /**
