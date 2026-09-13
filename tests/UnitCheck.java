@@ -664,6 +664,10 @@ public final class UnitCheck {
             {"--Xlib", "build", true},
             {"--Xlib", "clean", false},
             {"--Xno-deprecated", "init", false},
+            {"--Xverify", "run", true},
+            {"--Xverify", "init", false},
+            {"--Xverify", "clean", false},
+            {"--Xverify", "build-pkg", false},
             {"--github-token", "run", true},
             {"--github-token", "clean", true},
             {"--github-token", "build-pkg", true},
@@ -1551,8 +1555,9 @@ public final class UnitCheck {
             if (want.contains(v)) ok();
             else bad("completion: the fallback offers " + v, "missing from the union");
         }
-        if (want.contains("check") && want.contains("build")) ok();
-        else bad("completion: the fallback offers the compiler's common verbs",
+        if (want.contains("check") && want.contains("build") && want.contains("build-classes")
+            && want.contains("stat")) ok();
+        else bad("completion: the fallback offers current compiler verbs",
                  "BUILTIN_VERBS did not reach the union");
     }
 
