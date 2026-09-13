@@ -1677,6 +1677,10 @@ g 0 'local .*override a declared GitHub dependency' \
     "help shows a real description for local, not a blank line"  ./flixw help
 g 0 'local .*override a declared GitHub dependency' \
     "help wrapper shows the same description"                    ./flixw help wrapper
+# Help is consumed by shells, editors and CI as well as a terminal.  Picocli's auto-detection
+# mistakes Git Bash on Windows for an ANSI terminal, making output-dependent callers see ESC.
+t 0 "help is terminal-escape free" sh -c '
+  out=$(./flixw help wrapper) && esc=$(printf "\\033") && ! printf "%s" "$out" | grep -q "$esc"'
 
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check
