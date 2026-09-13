@@ -86,12 +86,18 @@ is a bad moment to discover the docs do not build. `.github/workflows/pages.yaml
 checking the tag against `WRAPPER_VERSION` exactly as the release does: locks in other
 people's repositories already point at the schema URL this serves.
 
-The repository's configured checks, both required before a commit:
+Before a commit, run the fast local gate:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 495-case regression suite; one ~32MB download on a cold cache
 ```
+
+`sh tests/run.sh` is the full 495-case regression suite (and has one ~32MB cold-cache
+download). It is intentionally a CI gate, not a routine local pre-commit cost: CI runs it
+on its source and stripped-tree jobs, and a release cannot be promoted to `latest` until its
+release `verify` job passes it. Run it locally when diagnosing a failure, changing its
+harness or fixtures, or when its extra signal is worth the turnaround; do not wait for it
+merely to make an ordinary commit.
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
 those cases. It reaches what the shell cannot: the manifest scanner over
