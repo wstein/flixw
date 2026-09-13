@@ -557,9 +557,11 @@ never will, so it does not compete for one.
 `./flixw help` and `./flixw --help` answer with both halves: flixw's routing table, then
 the pinned compiler's own help, unedited. `help` is a bare verb and retires under rule 3
 like any other; `--help` is a flag, can never be a compiler verb, and is intercepted
-outright. `./flixw -- --help`, `FLIX_BACKEND=compiler`, and any `--help` carrying further
-arguments reach the compiler alone — which is what anyone parsing its output wants. The
-exit status is the compiler's.
+outright. An exact normal-dispatch `./flixw <compiler-verb> --help` or `-h` is also rendered
+through `flixw-help`, so stock Flix's flat screen becomes a focused command screen. It is
+strictly a two-token presentation rule: `./flixw -- <verb> --help`,
+`FLIX_BACKEND=compiler ./flixw <verb> --help`, and any additional argument reach the
+compiler alone, with its output and exit status unchanged.
 
 `--help`/`-h` after a wrapper verb answers that verb's own usage and exits 0 — `./flixw pin
 --help`, `./flixw info --help`, `./flixw doctor --help`, `./flixw validate --help` and
@@ -608,30 +610,34 @@ generous.
 
 ## Help
 
-`./flixw help flix <command>` curates which of the compiler's options it shows, for stock
-Flix's own scopt-based CLI specifically. Every option is grammatically global in that
-parser — there is no `.children(...)` scoping any option to `run` rather than `check`, and
-the compiler's own `--help` draws no distinction between them either — so this is not
-extracted from anything Flix documents. It is sourced directly from flix/flix's `Main.scala`
-and `Bootstrap.scala` (verified against 0.75.3): which options feed the compile-options bag
-every command except `init`, `clean` and `build-pkg` constructs, which resolve dependencies
-via `Bootstrap.bootstrap` (every command except `init`), which answer a confirmation prompt
-only `release` asks (`--yes`), and which are read only with no command at all (`--listen`,
-every `--Xbenchmark-*` flag) and so never belong on any named verb's screen.
+`./flixw help flix <command>` and exact `./flixw <command> --help`/`-h` curate which compiler
+options they show, for stock Flix's own scopt-based CLI specifically. Every option is
+grammatically global in that parser — there is no `.children(...)` scoping an option to
+`run` rather than `check`, and the compiler's own `--help` draws no distinction between them
+either — so this is not extracted from anything Flix documents. It is sourced directly from
+flix/flix's `Main.scala` and `Bootstrap.scala` (re-traced against 0.75.3 and 0.76.0): which
+options feed the compile-options bag every command except `init`, `clean` and `build-pkg`
+constructs, which resolve dependencies via `Bootstrap.bootstrap` (every command except
+`init`), which answer a confirmation prompt only `release` asks (`--yes`), and which are
+read only with no command at all (`--listen`, every `--Xbenchmark-*` flag) and so never
+belong on any named verb's screen.
 
 This never adds an option that is not already in the real capture, and never hides one
 from the *general* screen — `./flixw help flix` (no command), `./flixw completion`, and
-`FLIXW_CONTEXT` all still see every option the compiler actually offers; only the
-per-command curation narrows anything, and only when **both** of two independent facts
-hold: `format(help)` confirms this is scopt's rendered layout, and stage 0's own
-`isUpstream` — the lock's recorded repository, checked once where that fact is already
-known, not inferred from anything about the captured text — confirms the pinned compiler
-is flix/flix itself, unoverridden by `FLIX_JAR`. Layout alone was tried and rejected: a
-fork can reproduce scopt's exact rendering while giving `--entrypoint` or `--threads` a
-completely different meaning, so `format(help) == "scopt-v1"` proves the shape of the text,
-never whose compiler produced it. A fork with real, differing per-command help
-(`format`-independent, decided by byte-comparing `<verb> --help` against the top level)
-skips this path entirely regardless and shows its own answer unedited.
+`FLIXW_CONTEXT` all still see every option the compiler actually offers. Per-command
+curation requires all three independent facts: `format(help)` confirms scopt's rendered
+layout; stage 0's `isUpstream` confirms the lock's recorded repository is flix/flix and no
+`FLIX_JAR` override is active; and the pinned version is one of the explicitly re-traced
+versions. Layout alone was rejected because a fork can reproduce scopt's exact rendering
+while giving `--entrypoint` or `--threads` a different meaning. A fork with real, differing
+per-command help (byte-compared with the top level) shows its own answer unedited. An
+unverified upstream version keeps the compiler's original flat screen for direct help until
+its source has been checked; the explicit `help flix <command>` remains a best-effort view.
+
+The probe receives the already validated `FLIX_JVM_OPTS` tokens used for a real compiler
+launch. If the renderer cannot be fetched, cannot run, or its probe fails, exact direct help
+falls open to the original compiler argv rather than turning a compiler question into a
+wrapper failure.
 
 Being sourced rather than inferred is also why this can go stale in one specific way: if
 Flix's own CLI structure changes — an option moves into a real `.children(...)` block, a
