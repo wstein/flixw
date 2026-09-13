@@ -878,8 +878,9 @@ success or not: `-- args` is a verbatim pass-through, so flixw has no way to tel
 path" from an ordinary string argument without guessing at what the program on the other
 end means by it, the same reason `dispatchLocal` never guesses at `<name>` either. flixw
 prints an advisory the first time a non-flag argument is not already absolute; it does
-not rewrite the argument. Pass absolute paths for any file the program touches outside
-`src/` or `test/`.
+not rewrite the argument. An opaque value that is not even a valid path on the host is
+passed through unchanged and does not trigger the advisory. Pass absolute paths for any
+file the program touches outside `src/` or `test/`.
 
 `./flixw examples local <verb> <name>` reaches the same engine with the implicit,
 single override being the root project itself — so an `examples/<name>/` that normally

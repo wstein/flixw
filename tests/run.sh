@@ -2979,6 +2979,12 @@ t 0  "run with a relative-path argument prints the disposable-copy advisory" sh 
   cd "$1" || exit 1
   out=$(./flixw local run -- some/relative/path 2>&1) || true
   printf "%s" "$out" | grep -q "runs inside a disposable copy"' sh "$lp"
+# On Windows the colon in this opaque program argument is not legal in a Path. The
+# advisory may inspect it, but must never prevent the program from being launched.
+t 0  "run passes a non-path argument through unchanged" sh -c '
+  cd "$1" || exit 1
+  out=$(./flixw local run -- "{\"x\":1}") || exit $?
+  printf "%s\n" "$out" | grep -qx "hello from local pkg"' sh "$lp"
 t 0  "check runs inside the overlay" sh -c '
   cd "$1" && ./flixw local check' sh "$lp"
 t 0  "test runs the consumer's own tests inside the overlay" sh -c '

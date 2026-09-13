@@ -839,6 +839,15 @@ public final class UnitCheck {
                 && !flixwlocal.safeSegment("")) ok();
         else bad("local: a traversal or separator segment is unsafe", "accepted");
 
+        if (flixwlocal.isRelativePathArgument("some/relative/path")) ok();
+        else bad("local: a relative path argument is recognized", "not recognized");
+        if (!flixwlocal.isRelativePathArgument(Paths.get(".").toAbsolutePath().toString())) ok();
+        else bad("local: an absolute path argument is not relative", "recognized as relative");
+        // Program arguments are opaque strings. A value that the host filesystem refuses
+        // to parse as a path must pass through rather than turning an advisory into a crash.
+        if (!flixwlocal.isRelativePathArgument("\u0000")) ok();
+        else bad("local: an invalid path-shaped argument stays opaque", "recognized as relative");
+
         // "github:../.." passes COORDINATE's own character class (it allows '.' and '-'
         // in a segment, and does not itself exclude ".."), so seedOverride is the actual
         // last line of defence against a coordinate that would otherwise climb out of

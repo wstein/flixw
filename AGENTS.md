@@ -90,7 +90,7 @@ The repository's configured checks, both required before a commit:
 
 ```sh
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
-sh tests/run.sh     # 494-case regression suite; one ~32MB download on a cold cache
+sh tests/run.sh     # 495-case regression suite; one ~32MB download on a cold cache
 ```
 
 `tests/UnitCheck.java` is compiled against stage 0 and run from `tests/run.sh` as one of
@@ -496,7 +496,8 @@ among those arguments resolves against a copy that is already deleted by the tim
 could look for it, discarding whatever the program wrote there along with it. `runOverlay`
 cannot rewrite the argument to fix this — that would break `-- args`' one promise,
 verbatim delivery — so it prints an advisory the first time a non-flag argument is not
-already absolute, and stops there.
+already absolute, and stops there. Program arguments are opaque: if a value is not even a
+valid path on the host, it passes through unchanged rather than making the advisory fatal.
 
 **The asset cache is keyed by version string, not content hash — a real sharp edge for
 local development.** `<cache>/wrapper/assets/<version>/` names a released version, and

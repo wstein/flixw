@@ -2,6 +2,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -644,7 +645,7 @@ final class flixwlocal {
             // that happens to contain a slash" without guessing at what the program on the
             // other end means by it, the same reason dispatchLocal never guesses at <name>.
             for (String a : rest) {
-                if (!a.startsWith("-") && !Paths.get(a).isAbsolute()) {
+                if (isRelativePathArgument(a)) {
                     System.err.println("flixw local: " + verb + " runs inside a disposable copy"
                                      + " of this project; a relative path in its arguments"
                                      + " resolves there, not here, and anything it writes to"
@@ -657,6 +658,22 @@ final class flixwlocal {
             throw new Exit(p.waitFor());
         } finally {
             deleteRecursive(overlay);
+        }
+    }
+
+    /**
+     * Whether an opaque program argument is safe to classify as a relative host path.
+     *
+     * <p>An argument need not be a path at all. In particular, Windows rejects characters
+     * that are ordinary in JSON, URLs and other command-line values; parsing one of those
+     * must not turn an advisory into an {@link InvalidPathException} that prevents launch.
+     */
+    static boolean isRelativePathArgument(String argument) {
+        if (argument.startsWith("-")) return false;
+        try {
+            return !Paths.get(argument).isAbsolute();
+        } catch (InvalidPathException ignored) {
+            return false;
         }
     }
 

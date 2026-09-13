@@ -532,6 +532,12 @@ engine with the root project itself as the implicit override, for an example tha
 normally depends on a released build of it. See `docs/CONTRACT.md` for the full rules,
 including what v1 does not yet do (a cache, and transitive local overrides).
 
+`run` and `test` execute inside that disposable directory too. Pass absolute paths for
+files outside `src/` or `test/`: a relative path-shaped argument resolves inside the copy,
+and an output written there disappears when the copy is deleted. flixw advises without
+rewriting arguments; opaque values that are not valid paths on the host still pass through
+unchanged.
+
 ## Editor integration
 
 Every `./flixw pin` keeps `./flix.jar` pointing at the compiler it just verified — the
