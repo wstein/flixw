@@ -1680,6 +1680,17 @@ g 0 'local .*override a declared GitHub dependency' \
 
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check
+# The familiar compiler spelling should render the same focused view when it is exactly a
+# compiler verb plus its help flag.  The raw escape remains available for scripts or anyone
+# who needs Flix's bytes rather than flixw's curated screen.
+g 0 'Usage: ./flixw doc' "compiler verb --help renders the focused flixw view" \
+                 ./flixw doc --help
+g 0 'Usage: ./flixw doc' "compiler verb -h renders the focused flixw view" \
+                 ./flixw doc -h
+g 0 'Usage: flix' "forced compiler verb help remains raw"       ./flixw -- doc --help
+g 0 'Usage: flix' "FLIX_BACKEND=compiler keeps verb help raw" \
+                 env FLIX_BACKEND=compiler ./flixw doc --help
+g 0 'Usage: flix' "noncanonical compiler help remains raw"     ./flixw doc --help extra
 # Flix 0.75 answers `check --help` with the *top-level* help and exit 0. Saying so is the
 # whole point: without it the top-level screen gets rendered under a "check" heading.
 g 0 'only a top-level' "help flix says when there is no per-command help" ./flixw help flix check
