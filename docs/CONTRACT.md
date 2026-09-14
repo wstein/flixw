@@ -517,7 +517,7 @@ one work offline afterwards. Which assets those are is read out of the release's
 0, which cannot know what the new release added, so a compiled-in list would quietly stop
 warming the day a new asset shipped. Anything matching `flixw-<name>.java` is a companion,
 as is the one third-party jar a release names — currently `picocli-<version>.jar`, which
-`./flixw help` renders through. `flixw.java` is not one, being the wrapper itself, and
+the companion assets use to render public CLI help and completion. `flixw.java` is not one, being the wrapper itself, and
 neither is anything else a release happens to publish: the jar is accepted by name rather
 than by extension, so a future artifact published for a reader is not downloaded by every
 upgrade because it happened to end in `.jar`.

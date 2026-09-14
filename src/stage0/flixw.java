@@ -1039,53 +1039,31 @@ public final class flixw {
     static final String INFO_USAGE = "usage: ./flixw info [--verbose | -v]";
     static final String DOCTOR_USAGE = "usage: ./flixw doctor [--fix]";
     static final String VALIDATE_USAGE = "usage: ./flixw validate";
-    static final String EXAMPLES_USAGE =
-          "usage: ./flixw examples list"
-        + "\n          or: ./flixw examples <verb> [flags] <name> [-- args]"
-        + "\n          or: ./flixw examples local <verb> <name> [-- args]"
-        + "\n          verbs: run check build build-classes build-jar build-fatjar"
-        + " build-pkg clean doc format outdated eff-check eff-lock test";
-
-    static final String LOCAL_USAGE =
-          "usage: ./flixw local add <path>   (overrides a declared GitHub dependency)"
-        + "\n          or: ./flixw local list | remove <coordinate> | status"
-        + "\n          or: ./flixw local <verb> [-- args]"
-        + "\n          verbs: run check build build-jar build-fatjar build-pkg test doc"
-        + "\n       state: .flixw/local/packages.toml (machine-local, gitignored)"
-        + "\n       args after -- are forwarded unchanged to compiler in disposable overlay";
-    static final String LOCAL_ADD_USAGE = "usage: ./flixw local add <path>"
-        + "\n       e.g. ../pkg; must be declared in flix.toml";
-    static final String LOCAL_VERB_USAGE =
-          "usage: ./flixw local <verb> [-- args]"
-        + "\n       args after -- are forwarded unchanged to the compiler in a disposable overlay";
 
     static boolean localHelpTopic(List<String> rest) {
         if (rest.isEmpty() || !rest.get(0).equals("local")) return false;
-        String usage = localUsage(rest.size() == 1 ? null : rest.size() == 2 ? rest.get(1) : "");
-        if (usage == null) return false;
-        System.out.println(usage); return true;
+        String selector = rest.size() == 1 ? "--help"
+                        : rest.size() == 2 && localHelpSubcommand(rest.get(1))
+                        ? "--help=" + rest.get(1) : null;
+        if (selector == null) return false;
+        assetHelp(LOCAL_ASSET, selector); return true;
     }
 
     static boolean localHelpArgs(List<String> rest) {
         if (rest.isEmpty()) return false;
         if (rest.get(0).equals("--help") || rest.get(0).equals("-h")) {
-            System.out.println(LOCAL_USAGE); return true;
+            assetHelp(LOCAL_ASSET, "--help"); return true;
         }
-        String usage = rest.size() > 1 && (rest.get(1).equals("--help") || rest.get(1).equals("-h"))
-                     ? localUsage(rest.get(0)) : null;
-        if (usage == null) return false;
-        System.out.println(usage); return true;
+        if (rest.size() > 1 && (rest.get(1).equals("--help") || rest.get(1).equals("-h"))
+            && localHelpSubcommand(rest.get(0))) {
+            assetHelp(LOCAL_ASSET, "--help=" + rest.get(0)); return true;
+        }
+        return false;
     }
 
-    static String localUsage(String sub) {
-        if (sub == null) return LOCAL_USAGE;
-        return switch (sub) {
-            case "add" -> LOCAL_ADD_USAGE;
-            case "list", "status" -> "usage: ./flixw local " + sub;
-            case "remove" -> "usage: ./flixw local remove <coordinate>";
-            case "run", "check", "build", "build-jar", "build-fatjar", "build-pkg", "test", "doc" -> LOCAL_VERB_USAGE;
-            default -> null;
-        };
+    static boolean localHelpSubcommand(String sub) {
+        return Set.of("add", "list", "remove", "status", "run", "check", "build", "build-jar",
+                      "build-fatjar", "build-pkg", "test", "doc").contains(sub);
     }
 
     /**
@@ -2859,7 +2837,7 @@ public final class flixw {
                 // wantsHelp's whole-list scan is right for every other wrapper verb, which has
                 // no such subordinate to defer to; examples is the one exception.
                 if (!rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
-                    System.out.println(EXAMPLES_USAGE); return;
+                    assetHelp(EXAMPLES_ASSET, "--help"); return;
                 }
                 // "examples local <verb> <name>" is not this asset's business at all: it
                 // shares nothing with running examples/<name>/ against its own declared
@@ -2904,7 +2882,7 @@ public final class flixw {
                 a.add(helpText == null ? "" : helpText);
                 a.add(String.valueOf(upstream));
                 a.addAll(rest.isEmpty() ? List.of("list") : rest);
-                System.exit(runAsset(asset, null, a));
+                System.exit(runAsset(asset, ensureAsset(PICOCLI_ASSET), a));
             }
             // A companion asset overriding a declared GitHub dependency with an uncommitted
             // local checkout -- npm link / Cargo [patch] for a project's own flix.toml,
@@ -2923,27 +2901,28 @@ public final class flixw {
 
     /** The local asset serves both {@code local} and {@code examples local}. */
     static void dispatchLocal(Path root, Path jar, Jvm jvm, boolean forExample, List<String> rest) {
-        String usage = forExample ? EXAMPLES_USAGE : LOCAL_USAGE;
         if (!forExample && localHelpArgs(rest)) return;
         // Examples local has no per-verb flag probe, so --help in its name slot is ours.
         boolean help = !rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))
                     || forExample && rest.size() > 1
                        && (rest.get(1).equals("--help") || rest.get(1).equals("-h"));
         if (help) {
-            System.out.println(usage); return;
+            assetHelp(LOCAL_ASSET, forExample ? "--examples-help" : "--help"); return;
         }
         String mode;
         List<String> verbAndArgs;
         if (forExample) {
             if (rest.size() < 2)
-                throw w009("examples local needs a verb and an example name" + "\n       " + usage);
+                throw w009("examples local needs a verb and an example name"
+                         + "\n       run: ./flixw examples local --help");
             // Name the documented separator rather than reporting a misleading generic error.
             if (rest.get(1).equals("--"))
-                throw w009("examples local: <name> is required before '--'" + "\n       " + usage);
+                throw w009("examples local: <name> is required before '--'"
+                         + "\n       run: ./flixw examples local --help");
             // No flag-arity probe exists here: reject a flag rather than mistake it for <name>.
             if (rest.get(0).startsWith("-") || rest.get(1).startsWith("-"))
                 throw w009("examples local: expected '<verb> <name>', not a flag in either position"
-                         + "\n       " + usage);
+                         + "\n       run: ./flixw examples local --help");
             mode = "example:" + rest.get(1);
             verbAndArgs = new ArrayList<>();
             verbAndArgs.add(rest.get(0));
@@ -2969,7 +2948,7 @@ public final class flixw {
         a.addAll(opts);
         a.add(mode);
         a.addAll(verbAndArgs);
-        System.exit(runAsset(asset, null, a));
+        System.exit(runAsset(asset, ensureAsset(PICOCLI_ASSET), a));
     }
 
     /**
@@ -5245,9 +5224,9 @@ public final class flixw {
     /**
      * picocli, published as a flixw release asset like every other companion.
      *
-     * <p>It is the one third-party dependency in flixw, and it is deliberately confined to
-     * the help renderer. Stage 0 does not link against it, does not parse arguments with it
-     * and never loads it: flixw's own argument handling stays auditable without reading
+     * <p>It is the one third-party dependency in flixw, used only to render companion-asset
+     * help and generate completion. Stage 0 does not link against it, does not parse arguments
+     * with it and never loads it: flixw's own argument handling stays auditable without reading
      * anyone else's code, which is the property this project exists to have.
      *
      * <p><b>Republished rather than fetched from Maven Central.</b> A second download origin
@@ -5261,6 +5240,15 @@ public final class flixw {
      */
     static final String PICOCLI_VERSION = "4.7.8";
     static final String PICOCLI_ASSET = "picocli-" + PICOCLI_VERSION + ".jar";
+
+    /**
+     * Public companion-asset help always comes from its Picocli command model. Stage 0 owns
+     * routing and the asset ABI; the asset owns how its user-facing command is presented.
+     */
+    static void assetHelp(String assetName, String selector) {
+        int rc = runAsset(ensureAsset(assetName), ensureAsset(PICOCLI_ASSET), List.of(selector));
+        if (rc != 0) throw w009("cannot render help for " + assetName + " (exit " + rc + ")");
+    }
 
     /**
      * The stored help for this compiler, re-verified against its own provenance record.

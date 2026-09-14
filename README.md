@@ -644,7 +644,7 @@ flixw/
 │   ├── flixw-setup.java       the bootstrap: fetches and verifies stage 0, writes a project
 │   ├── flixw-jdk.java         optional JDK provisioning, for `wrapper --install-jdk`
 │   ├── flixw-inspect.java     the cache inventory behind `info --verbose`
-│   ├── flixw-help.java        the help renderer and TAB-completion generator
+│   ├── flixw-help.java        Picocli-backed help renderer and TAB-completion generator
 │   ├── flixw-examples.java    runs examples/<name>/ for `./flixw examples`
 │   ├── flixw-local.java       overrides a declared GitHub dependency for `./flixw local`
 │   │                          — the six companion assets: published per release, fetched

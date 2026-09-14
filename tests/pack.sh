@@ -133,7 +133,7 @@ cp "$shipped" "$out/flixw.java"
 # audits flixw, and that reader is in the repository or on the site -- both named in the
 # header the stripper leaves behind. Compiled after stripping, because a release shipping
 # one javac rejects would break whichever command needs it, and only at that point.
-# picocli, republished as a release asset so the renderer's dependency rides the same
+# picocli, republished as a release asset so the companion assets' dependency rides the same
 # SHA256SUMS, the same FLIXW_ASSET_SOURCE mirror and the same purge as everything else.
 # Fetching it from the fork's Maven repository at run time would have been a second trust story for a
 # wrapper whose whole claim is that there is only one. Apache-2.0; redistribution is fine.

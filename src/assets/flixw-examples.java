@@ -12,6 +12,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import picocli.CommandLine;
+import picocli.CommandLine.Help.Ansi;
+import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Model.PositionalParamSpec;
 
 /**
  * Renders {@code ./flixw examples ...} -- a wrapper-owned companion asset, not a plugin.
@@ -75,6 +79,9 @@ final class flixwexamples {
     }
 
     static void body(String[] args) throws Exception {
+        if (args.length == 1 && (args[0].equals("--help") || args[0].equals("-h"))) {
+            renderHelp(); return;
+        }
         if (args.length < 5) {
             System.err.println(protocolUsage());
             throw new Exit(87);
@@ -123,7 +130,7 @@ final class flixwexamples {
                 dispatch(root, javaExe, compilerJar, jvmOpts, helpText, upstream, verb, rest);
             default -> {
                 System.err.println("flixw examples: unknown command " + q(verb));
-                System.err.println(usageText());
+                renderHelp();
                 throw new Exit(89);
             }
         }
@@ -411,10 +418,34 @@ final class flixwexamples {
              + " <jvmOptCount> [jvmOpt...] <helpText> <upstream> <verb> [args...]";
     }
 
-    static String usageText() {
-        return "usage: ./flixw examples list"
-             + "\n       or: ./flixw examples <verb> [flags] <name> [-- args]"
-             + "\n       verbs: run check build build-classes build-jar build-fatjar"
-             + " build-pkg clean doc format outdated eff-check eff-lock test";
+    /** The public command model. Stage 0 only supplies the private execution ABI. */
+    static CommandSpec helpSpec() {
+        CommandSpec root = CommandSpec.create().name("./flixw examples");
+        root.usageMessage().description("Runs an examples/<name>/ package with this project's pinned compiler.");
+        sub(root, "list", "lists discoverable examples.");
+        for (String verb : List.of("run", "check", "build", "build-classes", "build-jar", "build-fatjar",
+                                   "build-pkg", "clean", "doc", "format", "outdated", "eff-check", "eff-lock",
+                                   "test")) {
+            CommandSpec child = sub(root, verb, "runs Flix " + verb + " in an example package.");
+            child.addPositional(PositionalParamSpec.builder().paramLabel("<name>")
+                .description("the example directory name").build());
+            child.usageMessage().customSynopsis("./flixw examples " + verb + " [flags] <name> [-- args]");
+        }
+        CommandSpec local = sub(root, "local", "runs an example against this project's local source.");
+        local.usageMessage().customSynopsis("./flixw examples local <verb> <name> [-- args]");
+        root.usageMessage().footer("Examples are separate packages under examples/, each with its own flix.toml.");
+        return root;
+    }
+
+    static CommandSpec sub(CommandSpec parent, String name, String description) {
+        CommandSpec child = CommandSpec.create().name(name);
+        child.usageMessage().description(description);
+        parent.addSubcommand(name, new CommandLine(child));
+        return child;
+    }
+
+    static void renderHelp() {
+        new CommandLine(helpSpec()).setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.OFF))
+                                   .usage(System.out);
     }
 }
