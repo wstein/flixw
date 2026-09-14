@@ -226,6 +226,18 @@ else
   printf '%s\n' "$stale" | sed 's/^/      /'
 fi
 
+# --- 3c1. upstream drift notices also close on a clean probe ----------------
+# The scheduled workflow is the sole owner of its one drift issue. A clean probe must
+# resolve that conversation; otherwise a fixed incompatibility remains indistinguishable
+# from a live one until somebody remembers a manual cleanup.
+upstream_cli="$root/.github/workflows/upstream-cli.yaml"
+if grep -Fq "if: steps.check.outputs.rc == '0'" "$upstream_cli" \
+   && grep -Fq "gh issue close \"\$existing\" --reason completed" "$upstream_cli"; then
+  say "ok    upstream-cli closes its resolved drift issue after a clean probe"
+else
+  bad "upstream-cli must close its open drift issue only after rc=0"
+fi
+
 # --- 3c2. the workflows name files that still exist -------------------------
 # 3c catches a *verb* that moved.  The src/ split moved the *files* instead, and the
 # Windows job went on naming `src\flixw-setup.java` -- caught by CI rather than here,

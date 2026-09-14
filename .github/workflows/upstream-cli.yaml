@@ -55,6 +55,20 @@ jobs:
           echo "upstream-cli could not read Flix's CLI definition; not reporting drift." >&2
           exit 1
 
+      - name: Close the resolved drift issue
+        if: steps.check.outputs.rc == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Flix's CLI surface has changed upstream"
+          existing=$(gh issue list --state open --label upstream-cli \
+                     --search "$title in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Resolved by ${GITHUB_SHA}: the upstream CLI fingerprint is clean."
+            gh issue close "$existing" --reason completed
+            echo "closed #$existing"
+          fi
+
       - name: Open or update the drift issue
         if: steps.check.outputs.rc == '1'
         env:
