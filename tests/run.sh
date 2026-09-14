@@ -1702,7 +1702,7 @@ g 0 'help local \[<subcommand>\]' "help overview advertises local's reference" .
 g 0 'help \[<topic>\].*local' "offline wrapper help advertises local's reference" ./flixw wrapper --help
 g 0 'machine-local.*gitignored' "local help explains where overrides live" ./flixw help local
 g 0 'after.*--.*forwarded unchanged' "local help explains compiler argument forwarding" ./flixw help local
-g 0 'usage: ./flixw local add <path>' "help local add names its exact grammar" ./flixw help local add
+g 0 'Usage: ./flixw local add <path>' "help local add names its exact grammar" ./flixw help local add
 g 0 'e.g. ../pkg; must be declared in flix.toml' "local add gives a concrete declared-path example" \
                  ./flixw help local add
 t 0 "help local add is the local add usage alias" sh -c '
@@ -2617,7 +2617,7 @@ FLIX
 
 g 0  '^cli-tool$'            "examples list finds a real example"  sh -c '
   cd "$1" && ./flixw examples list' sh "$ep"
-g 0  'usage: ./flixw examples' "examples --help answers instead of running" sh -c '
+g 0  'Usage: ./flixw examples' "examples --help answers instead of running" sh -c '
   cd "$1" && ./flixw examples --help' sh "$ep"
 g 0  '^cli-tool$'            "a bare examples defaults to list"    sh -c '
   cd "$1" && ./flixw examples' sh "$ep"
@@ -2658,7 +2658,7 @@ g 0  'The Flix Programming Language' "run cli-tool --help reaches the compiler, 
   cd "$1" && ./flixw examples run cli-tool --help' sh "$ep"
 g 0  'The Flix Programming Language' "run --help cli-tool (flag before <name>) also reaches the compiler" sh -c '
   cd "$1" && ./flixw examples run --help cli-tool' sh "$ep"
-g 0  'usage: ./flixw examples' "examples --help is still flixw's own usage" sh -c '
+g 0  'Usage: ./flixw examples' "examples --help is still flixw's own usage" sh -c '
   cd "$1" && ./flixw examples --help' sh "$ep"
 
 # "run --help" alone, with no <name> at all, used to fall through splitVerbFlags peeling
@@ -2856,7 +2856,7 @@ t 88 "an overlay verb still needs a pinned compiler before it can run anything" 
 
 (cd "$lp" && ./flixw pin "$version" >/dev/null 2>&1)
 
-g 0  'usage: \./flixw local' "local --help answers instead of running" sh -c '
+g 0  'Usage: \./flixw local' "local --help answers instead of running" sh -c '
   cd "$1" && ./flixw local --help' sh "$lp"
 t 0  "list is quiet with no overrides yet" sh -c '
   cd "$1" && [ "$(./flixw local list)" = "(no local overrides)" ]' sh "$lp"
@@ -2890,7 +2890,7 @@ cat > "$lp/examples/local-example/src/Main.flix" <<'FLIX'
 def main(): Unit \ IO = println(LocalConsumer.hello())
 FLIX
 
-g 0  'usage: ./flixw examples' "examples local --help answers instead of running" sh -c '
+g 0  'Usage: ./flixw examples local' "examples local --help answers instead of running" sh -c '
   cd "$1" && ./flixw examples local --help' sh "$lp"
 g 89 "no example 'nosuch'" "examples local refuses an unknown example name" sh -c '
   cd "$1" && ./flixw examples local run nosuch' sh "$lp"
@@ -3085,9 +3085,9 @@ g 88 "expected '<verb> <name>'" "examples local refuses a flag where the name be
 # --help/-h after the verb used to fall into the same blanket refusal as any other flag
 # in the <name> slot -- there is no per-verb probe here to defer it to, so it must be
 # special-cased the same way a bare `examples local --help` already is.
-g 0  'usage: ./flixw examples' "examples local --help after the verb also answers" sh -c '
+g 0  'Usage: ./flixw examples local' "examples local --help after the verb also answers" sh -c '
   cd "$1" && ./flixw examples local run --help' sh "$lp"
-g 0  'usage: ./flixw examples' "examples local -h after the verb also answers" sh -c '
+g 0  'Usage: ./flixw examples local' "examples local -h after the verb also answers" sh -c '
   cd "$1" && ./flixw examples local run -h' sh "$lp"
 # "--" is the args separator the grammar documents ([-- args]), not an unrecognised
 # flag; landing in the <name> slot means <name> was left out, not that <verb> is also
