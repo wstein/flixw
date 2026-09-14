@@ -474,6 +474,7 @@ final class flixwhelp {
         System.out.println("  ./flixw help wrapper             the wrapper's own reference");
         System.out.println("  ./flixw help plugin [<name>]     installed plugins");
         System.out.println("  ./flixw help task [<name>]       this project's tasks");
+        System.out.println("  ./flixw help local [<subcommand>] local dependency overrides");
         System.out.println("  ./flixw -- --help                stock Flix help, unedited");
     }
 

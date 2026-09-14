@@ -1051,10 +1051,10 @@ public final class flixw {
         + "\n          or: ./flixw local list | remove <coordinate> | status"
         + "\n          or: ./flixw local <verb> [-- args]"
         + "\n          verbs: run check build build-jar build-fatjar build-pkg test doc"
-        + "\n       state: .flixw/local/packages.toml: machine-local, gitignored; status sees it"
+        + "\n       state: .flixw/local/packages.toml (machine-local, gitignored)"
         + "\n       args after -- are forwarded unchanged to compiler in disposable overlay";
     static final String LOCAL_ADD_USAGE = "usage: ./flixw local add <path>"
-        + "\n       <path> is a checkout for a dependency in flix.toml";
+        + "\n       e.g. ../pkg; must be declared in flix.toml";
     static final String LOCAL_VERB_USAGE =
           "usage: ./flixw local <verb> [-- args]"
         + "\n       args after -- are forwarded unchanged to the compiler in a disposable overlay";
@@ -5883,7 +5883,7 @@ public final class flixw {
 
               ./flixw <verb> [args]     the pinned stock compiler, or a wrapper verb
               ./flixw -- <args>         forced compiler pass-through
-              ./flixw help [<topic>]    the full table: flix, wrapper, plugin, task
+              ./flixw help [<topic>]    the full table: flix, wrapper, plugin, task, local
               ./flixw completion <shell>   a TAB-completion script, on stdout
               ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --purge [days] [--yes] | --schema]
                                (--upgrade also takes [<version>] and/or --pre-release)
