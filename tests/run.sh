@@ -172,6 +172,11 @@ t 0 "Picocli artifact URL has one canonical source" sh -c '
   test "$(picocli_url 4.7.8)" = "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.7.8/picocli-4.7.8.jar"' \
   sh "$root"
 
+# Make is a convenience layer, optional on Windows; its targets must stay literal delegates.
+t 0 "make lint delegates to the canonical lint script" sh -c '
+  command -v make >/dev/null 2>&1 || exit 0
+  make -C "$1" -n lint | grep -Fx "sh tests/lint.sh"' sh "$root"
+
 # --- fixtures --------------------------------------------------------------
 
 realjava=$(command -v java)
