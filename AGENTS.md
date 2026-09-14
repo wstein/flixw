@@ -92,6 +92,10 @@ Before a commit, run the fast local gate:
 sh tests/lint.sh    # javac -Werror, shellcheck, shim parity, schema parity/permanence, javadoc, CRLF, size
 ```
 
+`make lint` (or `make check`) is an optional convenience alias where Make is installed;
+`make test`, `make pages OUT=<dir>`, and `make pack OUT=<dir>` are equally thin delegates.
+The shell scripts remain authoritative and are what CI and Windows use.
+
 `sh tests/run.sh` is the full 495-case regression suite (and has one ~32MB cold-cache
 download). It is intentionally a CI gate, not a routine local pre-commit cost: CI runs it
 on its source and stripped-tree jobs, and a release cannot be promoted to `latest` until its

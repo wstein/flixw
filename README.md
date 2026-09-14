@@ -663,10 +663,16 @@ sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity
 sh tests/run.sh     # regression suite (needs network on first run)
 ```
 
-Both are required before a commit. In CI, `lint.sh` runs once on Linux — `javac` and
-`shellcheck` answer the same on every platform — while `run.sh` runs on Linux, macOS and
-Windows, on Java 21 and again on the tested ceiling, and Windows additionally gets a
-`cmd.exe` job that installs into a scratch project and drives `flixw.cmd` end to end.
+On systems with `make`, the optional convenience aliases are `make lint` (also `make check`),
+`make test`, `make pages OUT=<dir>`, and `make pack OUT=<dir>`. They delegate directly to
+these scripts; CI and Windows support continue to use the scripts themselves.
+
+Run `lint.sh` before an ordinary local commit. `run.sh` is the full CI gate; run it locally
+when changing its harness or fixtures, diagnosing a failure, or when its extra signal is
+worth the turnaround. In CI, `lint.sh` runs once on Linux — `javac` and `shellcheck` answer
+the same on every platform — while `run.sh` runs on Linux, macOS and Windows, on Java 21 and
+again on the tested ceiling. Windows additionally gets a `cmd.exe` job that installs into a
+scratch project and drives `flixw.cmd` end to end.
 
 `sh tests/pack.sh <dir>` builds the release archives locally, by the same script the release
 workflow runs — so a published digest can be reproduced rather than trusted. It needs
