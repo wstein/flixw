@@ -599,15 +599,8 @@ final class flixwhelp {
             throw new Exit(89);
         }
 
-        // Curation needs BOTH facts, not either alone. format(help) == "scopt-v1" proves
-        // only that this text *renders* like scopt -- any fork can reproduce that layout
-        // exactly while giving --entrypoint or --threads a completely different meaning, so
-        // layout alone was not proof of provenance. c.get("upstream") is stage 0's own
-        // verified fact, from the lock's recorded repository, that this is flix/flix
-        // unoverridden by FLIX_JAR -- but a *future* upstream Flix could still change layout
-        // (or gain real per-command help, which already takes the branch above instead), so
-        // the layout check stays too. Never adds anything not already in the real capture;
-        // only omits what the source shows this verb provably never reads.
+        // Layout alone proves neither provenance nor flag meaning; upstream protects forks,
+        // and layout protects a future upstream parser change. Curation only omits options.
         boolean curated = format(help).equals("scopt-v1") && "true".equals(c.get("upstream"))
                        && CURATED_UPSTREAM_VERSIONS.contains(version);
         if (direct && !curated) {
@@ -616,18 +609,7 @@ final class flixwhelp {
         }
         CommandSpec s = base("./flixw " + name,
             known.get(name).isEmpty() ? "(the compiler's help gives no description)"
-                                      : known.get(name),
-            "",
-            curated
-              ? "Flix " + version + " publishes only a top-level --help; every option below"
-              + " is grammatically global there too, so the list is curated from flix/flix's"
-              + " own source (verified against 0.75.3 and 0.76.0) to what " + name + " actually reads,"
-              + " not from anything the compiler's own text distinguishes. `./flixw -- "
-              + name + " --help` reaches the compiler directly and prints its full,"
-              + " undivided screen."
-              : "Flix " + version + " publishes only a top-level --help, so the line above is"
-              + " all it documents for this command. `./flixw -- " + name + " --help` reaches"
-              + " the compiler directly and prints that same top-level screen.");
+                                      : known.get(name));
         addOptions(s, help, curated ? name : null);
         render(s);
     }

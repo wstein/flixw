@@ -1047,14 +1047,45 @@ public final class flixw {
         + " build-pkg clean doc format outdated eff-check eff-lock test";
 
     static final String LOCAL_USAGE =
-          "usage: ./flixw local add <path>   (override a declared GitHub dependency)"
+          "usage: ./flixw local add <path>   (overrides a declared GitHub dependency)"
         + "\n          or: ./flixw local list | remove <coordinate> | status"
         + "\n          or: ./flixw local <verb> [-- args]"
-        + "\n          verbs: run check build build-jar build-fatjar build-pkg test doc";
+        + "\n          verbs: run check build build-jar build-fatjar build-pkg test doc"
+        + "\n       state: .flixw/local/packages.toml: machine-local, gitignored; status sees it"
+        + "\n       args after -- are forwarded unchanged to compiler in disposable overlay";
+    static final String LOCAL_ADD_USAGE = "usage: ./flixw local add <path>"
+        + "\n       <path> is a checkout for a dependency in flix.toml";
+    static final String LOCAL_VERB_USAGE =
+          "usage: ./flixw local <verb> [-- args]"
+        + "\n       args after -- are forwarded unchanged to the compiler in a disposable overlay";
 
     static boolean localHelpTopic(List<String> rest) {
-        if (!rest.equals(List.of("local"))) return false;
-        System.out.println(LOCAL_USAGE); return true;
+        if (rest.isEmpty() || !rest.get(0).equals("local")) return false;
+        String usage = localUsage(rest.size() == 1 ? null : rest.size() == 2 ? rest.get(1) : "");
+        if (usage == null) return false;
+        System.out.println(usage); return true;
+    }
+
+    static boolean localHelpArgs(List<String> rest) {
+        if (rest.isEmpty()) return false;
+        if (rest.get(0).equals("--help") || rest.get(0).equals("-h")) {
+            System.out.println(LOCAL_USAGE); return true;
+        }
+        String usage = rest.size() > 1 && (rest.get(1).equals("--help") || rest.get(1).equals("-h"))
+                     ? localUsage(rest.get(0)) : null;
+        if (usage == null) return false;
+        System.out.println(usage); return true;
+    }
+
+    static String localUsage(String sub) {
+        if (sub == null) return LOCAL_USAGE;
+        return switch (sub) {
+            case "add" -> LOCAL_ADD_USAGE;
+            case "list", "status" -> "usage: ./flixw local " + sub;
+            case "remove" -> "usage: ./flixw local remove <coordinate>";
+            case "run", "check", "build", "build-jar", "build-fatjar", "build-pkg", "test", "doc" -> LOCAL_VERB_USAGE;
+            default -> null;
+        };
     }
 
     /**
@@ -2887,22 +2918,14 @@ public final class flixw {
         }
     }
 
-    /** Bookkeeping verbs never launch a compiler, and -- like {@code plugin install},
-     *  which works before any project has ever been pinned -- must not require one just
-     *  because they happen to live in the same asset as the verbs that do. */
+    /** Bookkeeping verbs work before a compiler is pinned, like {@code plugin install}. */
     static final Set<String> LOCAL_BOOKKEEPING_VERBS = Set.of("add", "list", "remove", "status");
 
-    /**
-     * Shared by the {@code "local"} case and {@code examples}'s {@code local} sub-route --
-     * one dispatch to {@link #LOCAL_ASSET} either way, since the overlay engine itself does
-     * not care which of the two invoked it. {@code forExample} selects the argv grammar:
-     * {@code local <verb> [args]} versus {@code examples local <verb> <name> [args]}.
-     */
+    /** The local asset serves both {@code local} and {@code examples local}. */
     static void dispatchLocal(Path root, Path jar, Jvm jvm, boolean forExample, List<String> rest) {
         String usage = forExample ? EXAMPLES_USAGE : LOCAL_USAGE;
-        // --help/-h in the verb slot, and -- for "examples local" only -- in the <name>
-        // slot too, since that grammar has no per-verb probe to defer a trailing --help
-        // to (see below), and <name> is the second positional either way.
+        if (!forExample && localHelpArgs(rest)) return;
+        // Examples local has no per-verb flag probe, so --help in its name slot is ours.
         boolean help = !rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))
                     || forExample && rest.size() > 1
                        && (rest.get(1).equals("--help") || rest.get(1).equals("-h"));
@@ -2914,16 +2937,10 @@ public final class flixw {
         if (forExample) {
             if (rest.size() < 2)
                 throw w009("examples local needs a verb and an example name" + "\n       " + usage);
-            // "--" is the args separator the grammar itself documents ([-- args]), not an
-            // unrecognised flag -- naming it specifically is the difference between "you
-            // forgot <name>" and the generic message below, which reads as if <verb> were
-            // the problem too when it never is.
+            // Name the documented separator rather than reporting a misleading generic error.
             if (rest.get(1).equals("--"))
                 throw w009("examples local: <name> is required before '--'" + "\n       " + usage);
-            // This grammar is this wrapper's own, not the compiler's -- unlike "examples
-            // run --entrypoint Foo.main cli-tool", there is no per-verb flag-arity probe
-            // here to tell a value-taking flag from <name>, so a flag in either position
-            // is refused outright rather than silently read as the example name.
+            // No flag-arity probe exists here: reject a flag rather than mistake it for <name>.
             if (rest.get(0).startsWith("-") || rest.get(1).startsWith("-"))
                 throw w009("examples local: expected '<verb> <name>', not a flag in either position"
                          + "\n       " + usage);
@@ -2932,11 +2949,7 @@ public final class flixw {
             verbAndArgs.add(rest.get(0));
             verbAndArgs.addAll(rest.subList(2, rest.size()));
         } else if (rest.isEmpty()) {
-            // Bare `./flixw local`, same as bare `./flixw examples`: list what is already
-            // there rather than build an incomplete protocol call. Without this, an empty
-            // `rest` reached the asset with no verb token at all, and the asset's own
-            // defensive check for that -- a call stage 0 is never supposed to make -- was
-            // what the user actually saw, an internal argv contract leaking as a diagnostic.
+            // Bare local lists overrides rather than leaking the asset's argv contract.
             mode = "standalone";
             verbAndArgs = List.of("list");
         } else {
