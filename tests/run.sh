@@ -1685,9 +1685,13 @@ t 0 "help is terminal-escape free" sh -c '
 # spelling as compiler verbs instead of making a reader remember a private exception.
 t 0 "help local is the local usage alias" sh -c '
   test "$(./flixw help local)" = "$(./flixw local --help)"'
+g 0 'help local \[<subcommand>\]' "help overview advertises local's reference" ./flixw help
+g 0 'help \[<topic>\].*local' "offline wrapper help advertises local's reference" ./flixw wrapper --help
 g 0 'machine-local.*gitignored' "local help explains where overrides live" ./flixw help local
 g 0 'after.*--.*forwarded unchanged' "local help explains compiler argument forwarding" ./flixw help local
 g 0 'usage: ./flixw local add <path>' "help local add names its exact grammar" ./flixw help local add
+g 0 'e.g. ../pkg; must be declared in flix.toml' "local add gives a concrete declared-path example" \
+                 ./flixw help local add
 t 0 "help local add is the local add usage alias" sh -c '
   test "$(./flixw help local add)" = "$(./flixw local add --help)"'
 
