@@ -32,7 +32,7 @@ The wrapper has no build system — it is one Java 21 source file, run via JEP 3
 
 ```sh
 java src/stage0/flixw.java wrapper --version         # offline; no project, lock, or network needed
-java src/stage0/flixw.java wrapper --help            # routing table (enriched if run inside a project)
+java src/stage0/flixw.java wrapper --help            # verified companion-asset wrapper reference
 java src/stage0/flixw.java wrapper --schema          # the JSON Schema for lock.toml, on stdout
 java src/stage0/flixw.java completion bash # a TAB-completion script, on stdout
 javac -d /tmp/flixw-out src/stage0/flixw.java        # compile check

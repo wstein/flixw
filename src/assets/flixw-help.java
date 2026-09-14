@@ -555,6 +555,7 @@ final class flixwhelp {
             .addPositional(PositionalParamSpec.builder().paramLabel("<shell>")
                 .completionCandidates(List.of("bash", "zsh", "fish", "pwsh"))
                 .description("the shell to emit a script for").build());
+        s.usageMessage().footer("FLIX_JAR=<path> runs a local compiler build, unverified (see docs/CONTRACT.md).");
         return s;
     }
 

@@ -480,10 +480,11 @@ reached only when no explicit setting exists and the running JVM is unusable.
 
 1. `./flixw -- <args>` forwards everything after `--` to the compiler.
 2. `./flixw wrapper [--operation]` is flixw's own namespace, answered by stage 0 before
-   anything else. `--version` and `--help` are offline: no project, no lock, no network,
-   no compiler. `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
+   anything else. `--version` is offline: no project, no lock, no network, no compiler.
+   `--help` renders the verified companion help asset (or a terse resident fallback if it
+   cannot be reached). `--upgrade` rewrites this project's wrapper files; `--install-jdk` fetches
    a JDK and needs the network. `--schema` prints to stdout and is offline too.
-   A bare `wrapper` prints the routing table. `completion <shell>` is a verb of its own,
+   A bare `wrapper` renders that reference. `completion <shell>` is a verb of its own,
    not an operation here — see "Completion" below.
 3. If the first word is a verb the pinned compiler implements, the compiler gets it.
    That includes `help`: it is a wrapper verb only until Flix ships one of its own.
@@ -554,10 +555,11 @@ installation, the other being `./flixw doctor --fix`. The bare
 verbs above collide with names Flix could claim *on purpose*; rewriting flixw's own files
 never will, so it does not compete for one.
 
-`./flixw help` and `./flixw --help` answer with both halves: flixw's routing table, then
-the pinned compiler's own help, unedited. `help` is a bare verb and retires under rule 3
-like any other; `--help` is a flag, can never be a compiler verb, and is intercepted
-outright. An exact normal-dispatch `./flixw <compiler-verb> --help` or `-h` is also rendered
+`./flixw help` and `./flixw --help` render one Picocli command tree: the compiler-first routing
+view plus the pinned compiler's captured descriptions. `./flixw help flix` shows the compiler's
+own captured help unedited. `help` is a bare verb and retires under rule 3 like any other;
+`--help` is a flag, can never be a compiler verb, and is intercepted outright. An exact
+normal-dispatch `./flixw <compiler-verb> --help` or `-h` is also rendered
 through `flixw-help`, so stock Flix's flat screen becomes a focused command screen. It is
 strictly a two-token presentation rule: `./flixw -- <verb> --help`,
 `FLIX_BACKEND=compiler ./flixw <verb> --help`, and any additional argument reach the

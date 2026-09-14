@@ -861,7 +861,7 @@ t 0  "a lower floor in flix.toml is satisfied, not drift"       sh -c '
   ./flixw check >/dev/null 2>&1; rc=$?
   cp "$1/toml.keep" flix.toml; exit $rc' sh "$work"
 t 0  "accept and strip build metadata"                          ./flixw pin "$version+build.4"
-g 0  "$version"  "stripped pin still resolves"                  ./flixw wrapper --help
+t 0               "stripped pin still resolves"                  ./flixw check
 ./flixw pin "$version" > /dev/null 2>&1
 
 # --- manifest reading ------------------------------------------------------

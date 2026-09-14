@@ -2718,7 +2718,8 @@ public final class flixw {
                 if (!rest.isEmpty())
                     throw w008("./flixw help: unknown argument " + q(rest.get(0))
                              + "\n       usage: ./flixw help");
-                wrapperHelp();
+                helpTopic(List.of(), root, lock, jar, jvm,
+                          compilerVerbs == null ? List.of() : compilerVerbs, verbId, List.of(), true);
             }
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
@@ -5039,7 +5040,7 @@ public final class flixw {
         switch (op) {
             case "--help" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--help' takes no arguments"));
-                wrapperHelp();
+                helpTopic(List.of("wrapper"), null, null, null, null, List.of(), null, List.of(), true);
             }
             case "--version" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--version' takes no arguments"));
@@ -5272,6 +5273,7 @@ public final class flixw {
     /** Everything the renderer is given, so it re-gathers none of it; see {@link #helpTopic}. */
     static String helpContext(Path root, Lock lock, Path jar, Jvm jvm, List<String> compilerVerbs,
                               String identity, boolean override) {
+        if (compilerVerbs == null) compilerVerbs = List.of();
         StringBuilder b = new StringBuilder();
         b.append("flixwVersion=").append(WRAPPER_VERSION).append('\n');
         b.append("projectRoot=").append(root == null ? "" : root).append('\n');
@@ -5854,64 +5856,15 @@ public final class flixw {
                          + " (pinned compiler " + compilerVersion + " does not implement it)");
     }
 
-    /**
-     * The offline fallback: what stage 0 can say about routing with no network, no compiler
-     * launch and no companion asset.
-     *
-     * <p>Deliberately terse now that {@code ./flixw help} exists. The full table -- a
-     * description per verb, the compiler's options, plugins and tasks -- renders in a
-     * companion asset, and keeping a second rich renderer resident would be paying for the
-     * same page twice on every invocation to have it read on almost none of them. What stays
-     * here is the part that has to work when nothing else does: which words this project
-     * dispatches, and to which side.
-     */
+    /** The last-resort help when the renderer itself cannot be reached. */
     static void wrapperHelp() {
         System.out.println("""
             flixw %s -- repository-local Flix bootstrap
 
-              ./flixw <verb> [args]     the pinned stock compiler, or a wrapper verb
-              ./flixw -- <args>         forced compiler pass-through
-              ./flixw help [<topic>]    the full table: flix, wrapper, plugin, task, local
-              ./flixw completion <shell>   a TAB-completion script, on stdout
-              ./flixw wrapper [--help | --version | --upgrade | --install-jdk | --purge [days] [--yes] | --schema]
-                               (--upgrade also takes [<version>] and/or --pre-release)
-
-              wrapper verbs   %s
-              FLIX_JAR=<path> runs a local build, unverified (see docs/CONTRACT.md)
-            """.formatted(WRAPPER_VERSION, String.join(" ", WRAPPER_VERBS)));
-        System.out.println();
-        System.out.println("cache            " + cacheHome());
-        System.out.println("java             " + System.getProperty("java.home")
-                         + "  (" + Runtime.version().feature() + ")");
-        // Offline-only enrichment: never downloads, never launches the compiler.  The
-        // routing table is shown from what is already on disk, so `wrapper --help` keeps
-        // working on a cold clone and while the project is drifted.
-        Path root = null;
-        try { root = findRoot(wrapperAnchor()); } catch (Fail ignored) { }
-        if (root == null) {
-            System.out.println("project          (none found; run inside a project for the routing table)");
-            return;
-        }
-        System.out.println("project root     " + root);
-        Lock lock;
-        try { lock = readLock(lockPath(root)); } catch (Fail f) {
-            System.out.println("lock             " + f.getMessage().split("\n")[0]); return;
-        }
-        System.out.println("compiler         " + lock.version() + "  " + lock.sha256());
-        Path vf = verbsFile(compilerPath(lock), lock.sha256());
-        List<String> cv = null;
-        if (Files.isRegularFile(vf)) {
-            try {
-                cv = new ArrayList<>(Files.readAllLines(vf));
-                cv.removeIf(String::isBlank);
-            } catch (IOException ignored) {}
-        }
-        System.out.println("compiler verbs   " + (cv == null
-            ? "(not captured yet; run any compiler verb once)" : String.join(" ", cv)));
-        List<String> fb = new ArrayList<>(WRAPPER_VERBS);
-        if (cv != null) fb.removeAll(cv);
-        System.out.println("wrapper verbs    " + String.join(" ", fb));
-        System.out.println("pass-through     ./flixw -- <args>");
+              ./flixw help            full help (fetches the verified renderer on a cold cache)
+              ./flixw wrapper --help  wrapper reference
+              ./flixw -- --help       stock compiler help, unedited
+            """.formatted(WRAPPER_VERSION));
     }
 
     /**

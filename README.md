@@ -410,8 +410,8 @@ Once installed, `./flixw wrapper --upgrade` moves the project to the newest rele
 release publishes and verifies before it is promoted to that one, which takes a while —
 `./flixw wrapper --upgrade --pre-release` reaches it before promotion, or a real pre-release
 version, for anyone who wants either ahead of everyone else.
-`./flixw wrapper --help` prints the routing table: which verbs go to the compiler, which to
-the wrapper, and how to force either.
+`./flixw wrapper --help` renders the wrapper-owned command reference. `./flixw help` shows
+the full compiler-first routing view.
 
 ## The lock, in your editor
 
