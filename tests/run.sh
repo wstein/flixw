@@ -1685,6 +1685,11 @@ t 0 "help is terminal-escape free" sh -c '
 # spelling as compiler verbs instead of making a reader remember a private exception.
 t 0 "help local is the local usage alias" sh -c '
   test "$(./flixw help local)" = "$(./flixw local --help)"'
+g 0 'machine-local.*gitignored' "local help explains where overrides live" ./flixw help local
+g 0 'after.*--.*forwarded unchanged' "local help explains compiler argument forwarding" ./flixw help local
+g 0 'usage: ./flixw local add <path>' "help local add names its exact grammar" ./flixw help local add
+t 0 "help local add is the local add usage alias" sh -c '
+  test "$(./flixw help local add)" = "$(./flixw local add --help)"'
 
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check
@@ -1695,6 +1700,11 @@ g 0 'Usage: ./flixw doc' "compiler verb --help renders the focused flixw view" \
                  ./flixw doc --help
 g 0 'Usage: ./flixw doc' "compiler verb -h renders the focused flixw view" \
                  ./flixw doc -h
+ t 0 "curated compiler rationale follows options" sh -c '
+  out=$(./flixw run --help) &&
+  option=$(printf "%s\n" "$out" | grep -n -- "--entrypoint" | head -1 | cut -d: -f1) &&
+  note=$(printf "%s\n" "$out" | grep -n -- "publishes only a top-level" | head -1 | cut -d: -f1) &&
+  test "$option" -lt "$note"'
 g 0 'Usage: flix' "forced compiler verb help remains raw"       ./flixw -- doc --help
 g 0 'Usage: flix' "FLIX_BACKEND=compiler keeps verb help raw" \
                  env FLIX_BACKEND=compiler ./flixw doc --help
