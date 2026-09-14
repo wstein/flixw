@@ -164,6 +164,12 @@ g() {
   fi
 }
 
+# The three consumers fetch the same pinned artifact; only this helper owns its URL shape.
+t 0 "Picocli artifact URL has one canonical source" sh -c '
+  . "$1/tests/deps.sh" &&
+  test "$(picocli_url 4.7.8)" = "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.7.8/picocli-4.7.8.jar"' \
+  sh "$root"
+
 # --- fixtures --------------------------------------------------------------
 
 realjava=$(command -v java)
