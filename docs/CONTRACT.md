@@ -572,6 +572,10 @@ literally named `--help` or `-h` is reserved by this rather than reachable throu
 before its own grammar runs, so it can never be mistaken for an unrecognised option the way
 it once was.
 
+`./flixw help local` is exactly `./flixw local --help`, including before any compiler is
+pinned. It is answered directly by stage 0, not by the renderer, so the two spellings cannot
+drift and a missing asset or compiler cannot make this wrapper-owned reference unreachable.
+
 `FLIX_BACKEND=wrapper` forces rule 4 during a transition; `FLIX_BACKEND=compiler` forces
 the compiler for every verb, including the wrapper's own.
 
