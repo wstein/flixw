@@ -579,8 +579,8 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3747          # exact <compiler-verb> --help now renders the verified help
-                             # asset and fails open to the original compiler; target: 2900
+MAX_CODE_LINES=3755          # help local is the same authoritative local usage screen as
+                             # local --help, in both pre- and post-pin dispatch; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 34
 MAX_BYTES=347412             # same fix; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is

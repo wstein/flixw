@@ -1052,6 +1052,11 @@ public final class flixw {
         + "\n          or: ./flixw local <verb> [-- args]"
         + "\n          verbs: run check build build-jar build-fatjar build-pkg test doc";
 
+    static boolean localHelpTopic(List<String> rest) {
+        if (!rest.equals(List.of("local"))) return false;
+        System.out.println(LOCAL_USAGE); return true;
+    }
+
     /**
      * {@code --help}/{@code -h} anywhere in a wrapper verb's own arguments, the same way a
      * user expects it to work on any CLI. {@code pin}, {@code info} and {@code doctor}
@@ -2700,6 +2705,7 @@ public final class flixw {
             // this is the routing table alone. Once a project is pinned, the full
             // `help`/`--help` merge in realMain runs instead and this case is not hit.
             case "help" -> {
+                if (localHelpTopic(rest)) return;
                 if (!rest.isEmpty())
                     throw w008("./flixw help: unknown argument " + q(rest.get(0))
                              + "\n       usage: ./flixw help");
@@ -5779,15 +5785,10 @@ public final class flixw {
             toCompiler = true;                       // unknown verbs, and no verb at all
         }
 
-        // `help` and `--help` answer with both halves: flixw's routing table, then the
-        // pinned compiler's own help, unedited and straight from the compiler.
-        //
-        // The two arrive here differently on purpose. `help` is a bare verb Flix could
-        // plausibly claim, so it sits in WRAPPER_VERBS and rule 3 above takes it away the
-        // day Flix implements one -- the same automatic retirement every wrapper verb
-        // gets. `--help` is a flag, can never be a compiler verb, and so is intercepted
-        // outright. Either way `./flixw -- --help` and FLIX_BACKEND=compiler still reach
-        // the compiler alone, which is what someone parsing its output would want.
+        // `help` retires if Flix claims it; bare --help cannot, while forced compiler stays raw.
+        if (!toCompiler && "help".equals(first)
+            && localHelpTopic(forward.subList(Math.min(1, forward.size()), forward.size())))
+            return;
         if (!toCompiler && "help".equals(first)
             || (!forcedCompiler && ("--help".equals(first) || "-h".equals(first)) && argv.size() == 1)) {
             // It used to print the routing table and then launch the compiler for its half,
