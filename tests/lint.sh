@@ -22,6 +22,8 @@ set -eu
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+# shellcheck source=tests/deps.sh
+. "$root/tests/deps.sh"
 work=$root/tests/.work/lint
 rm -rf "$work"
 mkdir -p "$work"
@@ -51,7 +53,7 @@ pd=$(sed -n 's/^PICOCLI_SHA256=\([0-9a-f]\{64\}\)$/\1/p' "$root/tests/pack.sh")
 picocli="$work/picocli-$pv.jar"
 if [ ! -f "$picocli" ]; then
   curl -fsSL -o "$picocli" \
-    "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/$pv/picocli-$pv.jar" || {
+    "$(picocli_url "$pv")" || {
     rm -f "$picocli"
     bad "cannot fetch picocli $pv; src/assets/flixw-help.java cannot be checked without it"
     say "      it caches in $work, so this is a one-time download per machine"
@@ -110,7 +112,7 @@ if command -v shellcheck >/dev/null 2>&1; then
   scripts="$root/src/stage0/flixw"
   for s in "$root"/tests/*.sh; do [ -f "$s" ] && scripts="$scripts $s"; done
   # shellcheck disable=SC2086
-  if shellcheck -s sh -e SC2154 $scripts >"$work/shellcheck.log" 2>&1; then
+  if shellcheck -x -s sh -e SC2154 $scripts >"$work/shellcheck.log" 2>&1; then
     say "ok    shellcheck"
   else
     bad "shellcheck"

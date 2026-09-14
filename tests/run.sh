@@ -17,6 +17,8 @@ set -eu
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+# shellcheck source=tests/deps.sh
+. "$root/tests/deps.sh"
 work=$root/tests/.work/run
 version=${FLIXW_TEST_VERSION:-0.76.0}
 # This checkout's own wrapper version, read rather than written down. The upgrade
@@ -90,7 +92,7 @@ picocli_v=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/
 picocli_jar=$root/tests/.work/picocli-$picocli_v.jar
 if [ ! -f "$picocli_jar" ]; then
   curl -fsSL -o "$picocli_jar" \
-    "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/$picocli_v/picocli-$picocli_v.jar" \
+    "$(picocli_url "$picocli_v")" \
     2>/dev/null || true
 fi
 if [ -f "$picocli_jar" ]; then

@@ -31,6 +31,8 @@ if [ -z "$out" ]; then
 fi
 # shellcheck disable=SC1007  # CDPATH is cleared for these commands only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/deps.sh
+. "$root/tests/deps.sh"
 mkdir -p "$out"
 # shellcheck disable=SC1007
 out=$(CDPATH= cd -- "$out" && pwd)
@@ -143,7 +145,7 @@ cp "$shipped" "$out/flixw.java"
 pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java")
 PICOCLI_SHA256=337747a2e97bcb91e678207675575252857b3adc676aa575fdb11068c90aee6d
 curl -fsSL -o "$out/picocli-$pv.jar" \
-  "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/$pv/picocli-$pv.jar" || {
+  "$(picocli_url "$pv")" || {
   echo "pack: cannot fetch picocli $pv" >&2; exit 1; }
 got=$(sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
 [ "$got" = "$PICOCLI_SHA256" ] || {
