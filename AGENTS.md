@@ -481,6 +481,11 @@ neither the compiler nor the network — nor, unlike the overlay verbs, does dis
 require one to be pinned at all, the same "works before any project has ever been pinned"
 precedent `plugin install` already sets.
 
+`local`'s own help stays in stage 0 for the same offline reason: `local add|list|remove|
+status` and their help must work before a compiler is pinned, without fetching a companion
+asset. It is therefore not an extraction candidate; the asset renderer remains the richer
+help tier for commands that already have the compiler and asset context.
+
 `./flixw examples local <verb> <name>` reaches the same overlay engine with one
 difference: the implicit, single override is the root project itself, not an entry in
 `packages.toml` — so an `examples/<name>/` that depends on a *released* build of its own
