@@ -16,12 +16,17 @@ something a project commits, that is a regression rather than an addition.
 | **License** | Apache License 2.0 |
 | **Copyright** | Copyright 2017 Remko Popma |
 | **Homepage** | <https://picocli.info/> |
-| **Source** | <https://github.com/wstein/picocli/tree/feat/fish-completion> |
+| **Fork source** | <https://github.com/wstein/picocli/tree/v4.7.8> |
 | **Coordinate** | `io.github.wstein:picocli:4.7.8` |
 | **Artifact** | `https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.7.8/picocli-4.7.8.jar` |
 | **SHA-256** | `337747a2e97bcb91e678207675575252857b3adc676aa575fdb11068c90aee6d` |
 | **Used by** | `flixw-help.java` only |
 | **Reached on** | `./flixw help [...]` only |
+
+This is wstein's fork of remkop/picocli, used to prototype additions before they are
+contributed upstream. Its native Fish completion generator is a fork addition, not an
+upstream Picocli capability. The coordinate and artifact above identify this fork's build;
+the remaining licence and project-background information describes upstream Picocli.
 
 ### Why it is here
 
