@@ -1699,7 +1699,7 @@ t 0 "help is terminal-escape free" sh -c '
 t 0 "help local is the local usage alias" sh -c '
   test "$(./flixw help local)" = "$(./flixw local --help)"'
 g 0 'help local \[<subcommand>\]' "help overview advertises local's reference" ./flixw help
-g 0 'help \[<topic>\].*local' "offline wrapper help advertises local's reference" ./flixw wrapper --help
+g 0 'Usage: ./flixw' "wrapper help uses the Picocli command model" ./flixw wrapper --help
 g 0 'machine-local.*gitignored' "local help explains where overrides live" ./flixw help local
 g 0 'after.*--.*forwarded unchanged' "local help explains compiler argument forwarding" ./flixw help local
 g 0 'Usage: ./flixw local add <path>' "help local add names its exact grammar" ./flixw help local add
