@@ -102,7 +102,7 @@ jobs:
             printf 'per machine and verified against the digests below. They are not '
             printf 'installed into a project; `wrapper --upgrade` warms all of them.\n\n'
             printf '`picocli-*.jar` is the one third-party component flixw ships. It is the '
-            printf 'Apache-2.0, used by flixw's Picocli-backed companion help and completion. '
+            printf 'Apache-2.0, used by the Picocli-backed companion help and completion. '
             printf 'Stage 0 never loads it and no project ever '
             printf 'commits it; see `THIRD_PARTY_NOTICES.md`, attached.\n\n'
             printf '`flixw.java` here is the stripped stage 0 -- the documented source with '
