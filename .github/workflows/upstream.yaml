@@ -72,7 +72,7 @@ jobs:
       - name: the verb set was captured, not guessed
         working-directory: /tmp/drift
         run: |
-          verbs=$(find "$HOME/.cache/flixw/verbs" -type f | head -1)
+          verbs=$(find "$HOME/.cache/flixw/verbs" -type f -name '*.verbs' -print -quit)
           if [ -z "$verbs" ]; then
             echo "no verb record was written: `flix --help` no longer parses" >&2
             exit 1
@@ -87,7 +87,7 @@ jobs:
       - name: report wrapper verbs the compiler has claimed
         working-directory: /tmp/drift
         run: |
-          verbs=$(find "$HOME/.cache/flixw/verbs" -type f | head -1)
+          verbs=$(find "$HOME/.cache/flixw/verbs" -type f -name '*.verbs' -print -quit)
           for v in pin info doctor validate help; do
             if grep -qx "$v" "$verbs"; then
               echo "::warning::Flix $FLIX_VERSION implements '$v'; the wrapper verb has retired"
