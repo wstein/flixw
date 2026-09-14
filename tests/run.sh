@@ -1681,6 +1681,10 @@ g 0 'local .*override a declared GitHub dependency' \
 # mistakes Git Bash on Windows for an ANSI terminal, making output-dependent callers see ESC.
 t 0 "help is terminal-escape free" sh -c '
   out=$(./flixw help wrapper) && esc=$(printf "\\033") && ! printf "%s" "$out" | grep -q "$esc"'
+# `local` is a real wrapper verb, so its help must be reachable through the same discovery
+# spelling as compiler verbs instead of making a reader remember a private exception.
+t 0 "help local is the local usage alias" sh -c '
+  test "$(./flixw help local)" = "$(./flixw local --help)"'
 
 g 0 'checks the current project for errors' \
                  "help flix <command> describes one command"    ./flixw help flix check
