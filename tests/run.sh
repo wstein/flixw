@@ -1700,11 +1700,8 @@ g 0 'Usage: ./flixw doc' "compiler verb --help renders the focused flixw view" \
                  ./flixw doc --help
 g 0 'Usage: ./flixw doc' "compiler verb -h renders the focused flixw view" \
                  ./flixw doc -h
- t 0 "curated compiler rationale follows options" sh -c '
-  out=$(./flixw run --help) &&
-  option=$(printf "%s\n" "$out" | grep -n -- "--entrypoint" | head -1 | cut -d: -f1) &&
-  note=$(printf "%s\n" "$out" | grep -n -- "publishes only a top-level" | head -1 | cut -d: -f1) &&
-  test "$option" -lt "$note"'
+t 0 "focused compiler help omits its implementation rationale" sh -c '
+  ! ./flixw run --help | grep -F "publishes only a top-level"'
 g 0 'Usage: flix' "forced compiler verb help remains raw"       ./flixw -- doc --help
 g 0 'Usage: flix' "FLIX_BACKEND=compiler keeps verb help raw" \
                  env FLIX_BACKEND=compiler ./flixw doc --help
