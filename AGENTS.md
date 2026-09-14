@@ -990,4 +990,12 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   what-the-line-does documentation the rule above rejects.
 - Diagnostics are actionable: state what was found, what was expected, and the command that
   repairs it (`run: ./flixw pin <version>`).
-- Commits are Conventional Commits (`feat:`, `docs:`, `refactor:`, `chore:`).
+- Practice TDD: write the failing test first (`tests/UnitCheck.java` case, `tests/run.sh`
+  case, or both, as the change warrants), watch it fail for the expected reason, then write
+  the minimum code that makes it pass. A behavior change without a test that fails before it
+  and passes after is not done.
+- Commits are Conventional Commits (`feat:`, `docs:`, `refactor:`, `chore:`) and atomic: one
+  logical change per commit, scoped so `git revert` on it alone is safe and the message's
+  "why" stays true of everything the diff touches. Split a red-then-green TDD cycle across
+  commits only when each one still leaves the tree in a state `tests/lint.sh` passes —
+  otherwise land the test and the fix together.
