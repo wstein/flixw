@@ -455,8 +455,8 @@ The script describes the compiler you have pinned, so **run it again after `./fl
 In exchange you get more than a verb list: each command carries the compiler's own
 description, and its options complete too.
 
-bash and zsh come from picocli's generator, fish and PowerShell from flixw walking the same
-command tree, so all four agree with what `./flixw help` shows.
+bash, zsh and fish come from picocli's native generator; PowerShell walks the same command
+tree. All four agree with what `./flixw help` shows.
 
 The generator is fetched from the flixw release you're running and cached machine-wide, the
 same way `wrapper --upgrade` fetches `flixw.java` itself — so the first `completion` call on

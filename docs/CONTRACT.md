@@ -676,9 +676,9 @@ their own descriptions, the wrapper verbs they have not displaced, and the compi
 options with the value-taking ones marked as such. `help` renders that same tree, so a
 completion cannot disagree with the help screen on the same terminal.
 
-bash and zsh come from picocli's own `AutoComplete`, which emits one script serving both.
-fish and PowerShell are flixw walking the same model, because picocli generates neither.
-`cmd.exe` gets nothing — it has no per-command completion mechanism to hook.
+bash, zsh and fish come from picocli's own `AutoComplete`; PowerShell is the one flixw
+implementation still walking that model. `cmd.exe` gets nothing — it has no per-command
+completion mechanism to hook.
 
 Generating a script needs **no project**. It is what somebody runs while setting up a shell,
 routinely before any flixw project exists on the machine; outside a project the tree is the

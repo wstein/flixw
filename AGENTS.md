@@ -604,9 +604,9 @@ they have not displaced, and the compiler's options with value-taking ones marke
 renders that same tree — `tree()` in `src/assets/flixw-help.java` builds it once — so a completion
 cannot disagree with the help screen on the same terminal.
 
-bash and zsh come from picocli's own `AutoComplete`, one script serving both. fish and
-PowerShell are flixw walking the same model, because picocli generates neither. `cmd.exe`
-has no per-command completion mechanism at all and never will.
+bash, zsh and fish come from picocli's own `AutoComplete`; PowerShell is the one flixw
+implementation still walking that model. `cmd.exe` has no per-command completion mechanism
+at all and never will.
 
 **The script is a snapshot, and that is a reversal.** Earlier releases emitted a static
 script that was byte-identical across projects and read its candidates at TAB time from
