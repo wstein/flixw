@@ -573,8 +573,11 @@ before its own grammar runs, so it can never be mistaken for an unrecognised opt
 it once was.
 
 `./flixw help local` is exactly `./flixw local --help`, including before any compiler is
-pinned. It is answered directly by stage 0, not by the renderer, so the two spellings cannot
-drift and a missing asset or compiler cannot make this wrapper-owned reference unreachable.
+pinned. So are `help local add|list|remove|status` and their corresponding
+`local <subcommand> --help` forms. The overview identifies
+`.flixw/local/packages.toml` as machine-local and gitignored, and says that arguments after
+`--` are forwarded unchanged into the disposable overlay. These answers come directly from
+stage 0, not the renderer, so a missing asset or compiler cannot make them unreachable.
 
 `FLIX_BACKEND=wrapper` forces rule 4 during a transition; `FLIX_BACKEND=compiler` forces
 the compiler for every verb, including the wrapper's own.
@@ -647,7 +650,7 @@ Being sourced rather than inferred is also why this can go stale in one specific
 Flix's own CLI structure changes — an option moves into a real `.children(...)` block, a
 command starts reading one it did not before — this curation will not notice on its own.
 `./flixw -- <verb> --help` always reaches the compiler directly for the unedited, current
-answer regardless, named in every curated screen for exactly this reason.
+answer regardless.
 
 ## Completion
 
