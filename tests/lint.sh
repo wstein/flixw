@@ -38,7 +38,7 @@ bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 # bargain rather than a new one.
 #
 # Verified against the digest stage 0 pins, which makes this a test of that pin as well:
-# if PICOCLI_SHA256 is ever edited to something Maven Central does not serve, this fails
+# if PICOCLI_SHA256 is ever edited to something the fork repository does not serve, this fails
 # here rather than on a user's first `./flixw help`.
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java")
@@ -51,7 +51,7 @@ pd=$(sed -n 's/^PICOCLI_SHA256=\([0-9a-f]\{64\}\)$/\1/p' "$root/tests/pack.sh")
 picocli="$work/picocli-$pv.jar"
 if [ ! -f "$picocli" ]; then
   curl -fsSL -o "$picocli" \
-    "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" || {
+    "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/$pv/picocli-$pv.jar" || {
     rm -f "$picocli"
     bad "cannot fetch picocli $pv; src/assets/flixw-help.java cannot be checked without it"
     say "      it caches in $work, so this is a one-time download per machine"
@@ -63,7 +63,7 @@ if [ "$got" = "$pd" ]; then
   say "ok    picocli $pv matches the digest tests/pack.sh pins"
 else
   rm -f "$picocli"
-  bad "picocli $pv digest mismatch: tests/pack.sh pins $pd, Maven Central served $got"
+  bad "picocli $pv digest mismatch: tests/pack.sh pins $pd, the fork repository served $got"
   exit 1
 fi
 

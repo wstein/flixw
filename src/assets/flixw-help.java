@@ -863,69 +863,15 @@ final class flixwhelp {
             // both shells. Writing a second bash generator beside a maintained one would be
             // inventing work and the two would drift.
             case "bash", "zsh" -> System.out.print(AutoComplete.bash("flixw", new CommandLine(spec)));
-            // picocli generates neither of these, so they are flixw code walking the same
-            // model rather than a second parse of anything. That is the whole reason the tree
-            // exists as a value: four shells, one description of what the commands are.
-            case "fish" -> fish(spec);
+            // Native Fish generation, from the same tree help renders. PowerShell has no
+            // picocli generator, so it remains the one model-walking implementation.
+            case "fish" -> System.out.print(AutoComplete.fish("flixw", new CommandLine(spec)));
             case "pwsh" -> pwsh(spec);
             default -> {
                 System.err.println("flixw: unknown shell " + q(shell));
                 throw new Exit(89);
             }
         }
-    }
-
-    /**
-     * fish, walking the command tree.
-     *
-     * <p>fish matches on the command's <em>base name</em>, so one registration covers
-     * {@code flixw}, {@code ./flixw} and an absolute path alike -- bash matches the word as
-     * typed and needs both spellings, which is why only this one gets away with a single
-     * {@code -c}. Value-taking options are marked {@code -r} so fish stops offering verbs
-     * where an argument belongs.
-     */
-    static void fish(CommandSpec spec) {
-        System.out.println("# flixw TAB completion for fish, generated from this project's"
-                         + " pinned compiler.");
-        System.out.println("# Regenerate after a re-pin:  ./flixw completion fish");
-        System.out.println();
-        for (Map.Entry<String, CommandLine> e : spec.subcommands().entrySet())
-            System.out.println("complete -f -c flixw -n __fish_use_subcommand -a "
-                             + fq(e.getKey()) + " -d " + fq(describe(e.getValue().getCommandSpec())));
-        System.out.println();
-        for (OptionSpec o : spec.options()) System.out.println(fishOption(o, null));
-        // A subcommand's own arguments, scoped to it. Without this the tree is walked one
-        // level deep and `./flixw wrapper <TAB>` offers nothing at all -- the word completes
-        // and then stops, which reads as "this takes no arguments" rather than "the
-        // generator did not look".
-        for (Map.Entry<String, CommandLine> e : spec.subcommands().entrySet()) {
-            CommandSpec child = e.getValue().getCommandSpec();
-            String seen = "__fish_seen_subcommand_from " + e.getKey();
-            for (OptionSpec o : child.options()) System.out.println(fishOption(o, seen));
-            for (PositionalParamSpec pp : child.positionalParameters()) {
-                if (pp.completionCandidates() == null) continue;
-                StringBuilder cand = new StringBuilder();
-                for (String v : pp.completionCandidates()) {
-                    if (cand.length() > 0) cand.append(' ');
-                    cand.append(v);
-                }
-                if (cand.length() > 0)
-                    System.out.println("complete -f -c flixw -n " + fq(seen) + " -a "
-                                     + fq(cand.toString()) + " -d " + fq(describe(pp)));
-            }
-        }
-    }
-
-    /** One fish `complete` line for an option, optionally scoped to a subcommand. */
-    static String fishOption(OptionSpec o, String seen) {
-        StringBuilder b = new StringBuilder("complete -c flixw");
-        if (seen != null) b.append(" -n ").append(fq(seen));
-        for (String n : o.names()) {
-            if (n.startsWith("--")) b.append(" -l ").append(fq(n.substring(2)));
-            else if (n.length() == 2) b.append(" -s ").append(fq(n.substring(1)));
-        }
-        if (o.arity().max() > 0) b.append(" -r");
-        return b.append(" -d ").append(fq(describe(o))).toString();
     }
 
     /**
@@ -956,35 +902,6 @@ final class flixwhelp {
         System.out.println("        ForEach-Object { [System.Management.Automation"
                          + ".CompletionResult]::new($_, $_, 'ParameterValue', $_) }");
         System.out.println("}");
-    }
-
-    /** A one-line description, or empty; picocli models it as an array of lines. */
-    static String describe(CommandSpec s) {
-        String[] d = s.usageMessage().description();
-        return d == null || d.length == 0 ? "" : collapse(d[0]);
-    }
-
-    static String describe(OptionSpec o) {
-        String[] d = o.description();
-        return d == null || d.length == 0 ? "" : collapse(d[0]);
-    }
-
-    static String describe(PositionalParamSpec p) {
-        String[] d = p.description();
-        return d == null || d.length == 0 ? "" : collapse(d[0]);
-    }
-
-    /**
-     * A fish single-quoted literal.
-     *
-     * <p>Inside single quotes fish expands nothing, so only the quote and the backslash need
-     * escaping -- but they do need it: a description carrying an apostrophe would otherwise
-     * end the literal and leave the rest of the sentence to be executed as fish source. Flix
-     * ships one already ({@code "that dependencies respect the 'effects.lock' file."}), so
-     * this is a live case rather than a hypothetical one.
-     */
-    static String fq(String s) {
-        return "'" + (s == null ? "" : s.replace("\\", "\\\\").replace("'", "\\'")) + "'";
     }
 
     static String readOrEmpty(String path) {

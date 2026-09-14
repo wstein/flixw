@@ -90,7 +90,7 @@ picocli_v=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/
 picocli_jar=$root/tests/.work/picocli-$picocli_v.jar
 if [ ! -f "$picocli_jar" ]; then
   curl -fsSL -o "$picocli_jar" \
-    "https://repo1.maven.org/maven2/info/picocli/picocli/$picocli_v/picocli-$picocli_v.jar" \
+    "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/$picocli_v/picocli-$picocli_v.jar" \
     2>/dev/null || true
 fi
 if [ -f "$picocli_jar" ]; then

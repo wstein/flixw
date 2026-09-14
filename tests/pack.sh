@@ -133,7 +133,7 @@ cp "$shipped" "$out/flixw.java"
 # one javac rejects would break whichever command needs it, and only at that point.
 # picocli, republished as a release asset so the renderer's dependency rides the same
 # SHA256SUMS, the same FLIXW_ASSET_SOURCE mirror and the same purge as everything else.
-# Fetching it from Maven Central at run time would have been a second trust story for a
+# Fetching it from the fork's Maven repository at run time would have been a second trust story for a
 # wrapper whose whole claim is that there is only one. Apache-2.0; redistribution is fine.
 # The digest lives here rather than in stage 0 because it is a *release-time* claim: at
 # run time picocli is verified against the release's own SHA256SUMS like every other asset,
@@ -141,9 +141,9 @@ cp "$shipped" "$out/flixw.java"
 # stops a silently re-uploaded artifact from being republished under a flixw tag, and keeps
 # `pack.sh` reproducible for anyone rebuilding a release from the same source.
 pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java")
-PICOCLI_SHA256=f86e30fffd10d2b13b8caa8d4b237a7ee61f2ffccf5b1941de718b765d235bf8
+PICOCLI_SHA256=337747a2e97bcb91e678207675575252857b3adc676aa575fdb11068c90aee6d
 curl -fsSL -o "$out/picocli-$pv.jar" \
-  "https://repo1.maven.org/maven2/info/picocli/picocli/$pv/picocli-$pv.jar" || {
+  "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/$pv/picocli-$pv.jar" || {
   echo "pack: cannot fetch picocli $pv" >&2; exit 1; }
 got=$(sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
 [ "$got" = "$PICOCLI_SHA256" ] || {

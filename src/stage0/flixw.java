@@ -5259,7 +5259,7 @@ public final class flixw {
      * stage 0 itself, and costs no new code to do it. picocli is Apache-2.0, so
      * redistribution is a licensing non-event.
      */
-    static final String PICOCLI_VERSION = "4.7.7";
+    static final String PICOCLI_VERSION = "4.7.8";
     static final String PICOCLI_ASSET = "picocli-" + PICOCLI_VERSION + ".jar";
 
     /**
