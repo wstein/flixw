@@ -20,7 +20,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 # shellcheck source=tests/deps.sh
 . "$root/tests/deps.sh"
 work=$root/tests/.work/run
-version=${FLIXW_TEST_VERSION:-0.76.0}
+version=${FLIXW_TEST_VERSION:-0.76.1}
 # This checkout's own wrapper version, read rather than written down. The upgrade
 # cases below assert what a project is on before and after, and spelling it as a
 # literal meant every release bump broke the suite in the commit that cut it --
