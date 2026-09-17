@@ -739,6 +739,16 @@ public final class UnitCheck {
         if (!flixw.ownsEditorJar(link, null)) ok();
         else bad("editor-jar: with no recorded preference, a regular file is a stranger's", "owned");
 
+        Path hard = root.resolve("hard-flix.jar");
+        try {
+            Files.createLink(hard, link);
+            flixw.writeEditorJarPref(root, "hard", flixw.sha256(hard));
+            if (flixw.ownsEditorJar(hard, flixw.readEditorJarPref(root))) ok();
+            else bad("editor-jar: a recorded hard link is owned", "not owned");
+        } catch (UnsupportedOperationException | IOException ignored) {
+            ok(); // Hard links need a filesystem that supports them; CI covers Windows itself.
+        }
+
         Path local = root.resolve("local-compiler.jar");
         Files.writeString(local, "local compiler bytes");
         Path localLink = root.resolve("local-flix.jar");

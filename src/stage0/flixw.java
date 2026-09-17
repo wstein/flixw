@@ -4379,10 +4379,7 @@ public final class flixw {
         } catch (IOException e) { return false; }
     }
 
-    /** A symlink (or, with {@code hard}, a hard link) at {@code link}, replacing whatever
-     *  was there atomically. False on any failure -- wrong privilege, unsupported, a
-     *  different volume for a hard link -- never thrown, since every one of those is this
-     *  method's caller trying the next option, not a reason to fail the pin that got here. */
+    /** Atomically attempts a symlink or hard link; failure lets the caller try its fallback. */
     static boolean tryEditorJarLink(Path link, Path target, boolean hard) {
         try {
             Files.createDirectories(link.getParent());
@@ -4462,7 +4459,7 @@ public final class flixw {
         }
 
         if (tryEditorJarLink(link, jar, false)) return;
-        if (tryEditorJarLink(link, jar, true)) return;
+        if (tryEditorJarLink(link, jar, true)) { writeEditorJarPref(root, "hard", sha256(link)); return; }
 
         boolean copy = "copy".equals(requestedMode) || (pref != null && pref.mode().equals("copy"));
         boolean persist = "copy".equals(requestedMode);
