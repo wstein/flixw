@@ -1442,6 +1442,29 @@ g 0 'override digest' "info prints the digest of the overridden jar"  sh -c '
   jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}")
   FLIX_JAR="$jar" ./flixw info 2>&1'
 
+# --- persistent local compiler selection ----------------------------------
+# Unlike FLIX_JAR, this is per-checkout state: selecting a developer-built JAR preserves
+# the release lock, keeps VS Code's root flix.jar on the same bytes, and is still outranked
+# by an explicit environment override for bisection and CI.
+echo "local compiler"
+t 0 "a local compiler selection persists, syncs the editor jar, and yields to FLIX_JAR" sh -c '
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") || exit 1
+  cp "$jar" "$1/local-compiler.jar" || exit 1
+  ./flixw pin --local-jar "$1/local-compiler.jar" || exit 1
+  grep -Fq "path = \"$1/local-compiler.jar\"" .flixw/local/compiler.toml || exit 1
+  cmp -s "$1/local-compiler.jar" flix.jar || exit 1
+  ./flixw info 2>&1 | grep -Fq "local compiler=$1/local-compiler.jar" || exit 1
+  FLIX_JAR="$jar" ./flixw info 2>&1 | grep -Fq "FLIX_JAR=$jar"' sh "$work"
+t 0 "a missing selected local compiler names --stock as the repair" sh -c '
+  rm -f "$1/local-compiler.jar"
+  out=$(./flixw check 2>&1); rc=$?
+  test "$rc" = 87 && printf "%s" "$out" | grep -Fq "./flixw pin --stock"' sh "$work"
+t 0 "--stock clears a local compiler selection and restores the locked editor jar" sh -c '
+  ./flixw pin --stock || exit 1
+  test ! -e .flixw/local/compiler.toml || exit 1
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") || exit 1
+  cmp -s "$jar" flix.jar' sh
+
 # --- the version the compiler reports -------------------------------------
 # The digest settles which bytes run; nothing settled that those bytes are the release the
 # lock names. A mislabelled asset -- a fork that tagged over an older build, an upstream
