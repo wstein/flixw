@@ -1455,7 +1455,7 @@ t 0 "a local compiler selection persists, syncs the editor jar, and yields to FL
   cmp -s "$1/local-compiler.jar" flix.jar || exit 1
   ./flixw info 2>&1 | grep -Fq "local compiler=$1/local-compiler.jar" || exit 1
   FLIX_JAR="$jar" ./flixw info 2>&1 | grep -Fq "FLIX_JAR=$jar"' sh "$work"
-t 87 "an unbuilt Flix checkout names Mill's assembly task" sh -c '
+t 0 "an unbuilt Flix checkout names Mill's assembly task" sh -c '
   mkdir "$1/unbuilt-flix" || exit 1
   out=$(./flixw pin --local "$1/unbuilt-flix" 2>&1); rc=$?
   test "$rc" = 87 && printf "%s" "$out" | grep -Fq "./mill flix.assembly"' sh "$work"
