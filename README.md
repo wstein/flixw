@@ -595,14 +595,16 @@ See [`docs/CONTRACT.md`](docs/CONTRACT.md#plugins-and-tasks) for exactly what is
 
 ## Testing a locally built compiler
 
-If you build Flix yourself — a fork, or a patch you have not tagged yet — select its JAR
-for this checkout:
+If you build Flix yourself — a fork, or a patch you have not tagged yet — select its
+checkout for this project:
 
 ```sh
-./flixw pin --local-jar ../flix-fork/build/flix.jar
+./flixw pin --local ../flix-fork
 ```
 
-The path is immediately canonicalized and recorded only in ignored
+For a Flix checkout, this resolves Mill's `out/flix/assembly.dest/out.jar`; build it first
+with `(cd ../flix-fork && ./mill flix.assembly)`. `--local` also accepts that JAR path
+directly. The selected JAR is immediately canonicalized and recorded only in ignored
 `.flixw/local/compiler.toml`; it does not change the committed release lock. flixw also
 keeps a flixw-owned `./flix.jar` pointing at that same JAR, so the VS Code Flix extension
 and terminal commands use the same compiler. Rebuilding the JAR in place is enough for the
@@ -611,7 +613,6 @@ next command to see it.
 ```sh
 ./flixw info                 # shows the selected path and whether it changed since selection
 ./flixw pin --stock          # clear local state and return to the locked compiler
-# `./flixw pin --local-jar=off` is the same operation for scripts.
 ```
 
 The selected JAR is **not** digest-verified by the lock, every run says so on stderr, and

@@ -338,12 +338,14 @@ trust-on-first-generation. See [LIMITATIONS.md](LIMITATIONS.md).
 
 ### A persistent local compiler selection
 
-`./flixw pin --local-jar <path>` selects a developer-built JAR for one checkout. The path
-is resolved with `toRealPath()` immediately, hashed once, and recorded in the ignored
+`./flixw pin --local <path>` selects a developer-built compiler for one checkout. `<path>`
+may be the built JAR itself or a Flix checkout; the latter resolves only Mill's documented
+`out/flix/assembly.dest/out.jar`, and an unbuilt checkout names `./mill flix.assembly` as
+the repair. The selected JAR is resolved with `toRealPath()` immediately, hashed once, and
+recorded in the ignored
 `.flixw/local/compiler.toml` as its absolute canonical path and selection-time digest. It
 is not a lock field and does not replace the committed release pin: that pin remains the
-digest-verified fallback for a clean clone, CI, and `./flixw pin --stock` (also spelled
-`./flixw pin --local-jar=off`).
+digest-verified fallback for a clean clone, CI, and `./flixw pin --stock`.
 
 Selection requires a pre-existing, valid lock. This is deliberate: a local JAR has no
 release provenance from which flixw can construct a reproducible compiler identity. At run
