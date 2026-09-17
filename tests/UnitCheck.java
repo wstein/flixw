@@ -746,6 +746,9 @@ public final class UnitCheck {
             Files.createSymbolicLink(localLink, local);
             if (flixw.ownsEditorJar(localLink, null, local.toRealPath())) ok();
             else bad("editor-jar: a link to the selected local compiler is owned", "not owned");
+            Files.delete(local);
+            if (flixw.ownsEditorJar(localLink, null, local.toAbsolutePath())) ok();
+            else bad("editor-jar: a broken link to the selected local compiler is still owned", "not owned");
         } catch (UnsupportedOperationException | IOException ignored) {
             ok(); // The runtime suite probes links too; this keeps the pure test portable.
         }
