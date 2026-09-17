@@ -4097,7 +4097,9 @@ public final class flixw {
         // checks a workspace root for exactly this filename before its own global cache and
         // before it ever downloads anything -- flixw itself never reads it, and its absence
         // or staleness affects nothing this wrapper builds.
-        if (root != null && lock != null && jar != null && Files.isRegularFile(jar)) {
+        LocalCompiler localCompiler = root == null ? null : readLocalCompiler(root);
+        Path activeJar = localCompiler == null ? jar : localCompiler.path();
+        if (root != null && lock != null && activeJar != null && Files.isRegularFile(activeJar)) {
             Path editorJar = root.resolve("flix.jar");
             EditorJarPref pref = readEditorJarPref(root);
             if (pref == null || !pref.mode().equals("off")) {
@@ -4108,13 +4110,15 @@ public final class flixw {
                     System.out.println("warn  ./flix.jar is a broken link"
                                      + " (./flixw pin --editor-jar=copy)");
                 else {
-                    boolean managed = Files.isSymbolicLink(editorJar)
-                        || (pref != null && pref.mode().equals("copy"));
+                    boolean managed = ownsEditorJar(editorJar, pref,
+                                                      localCompiler == null ? null : localCompiler.path());
                     String kind = Files.isSymbolicLink(editorJar) ? "link" : "managed copy";
-                    if (sha256(editorJar).equals(lock.sha256()))
-                        System.out.println("ok    ./flix.jar (" + kind + ") matches the pinned compiler");
+                    if (sha256(editorJar).equals(sha256(activeJar)))
+                        System.out.println("ok    ./flix.jar (" + kind + ") matches the "
+                            + (localCompiler == null ? "pinned" : "active local") + " compiler");
                     else if (managed)
-                        System.out.println("warn  ./flix.jar (" + kind + ") does not match the pinned"
+                        System.out.println("warn  ./flix.jar (" + kind + ") does not match the "
+                                         + (localCompiler == null ? "pinned" : "active local")
                                          + " compiler (./flixw pin --editor-jar=copy, or re-run"
                                          + " ./flixw pin)");
                     else
@@ -4352,11 +4356,19 @@ public final class flixw {
      * never silently replaced.
      */
     static boolean ownsEditorJar(Path link, EditorJarPref pref) {
+        return ownsEditorJar(link, pref, null);
+    }
+
+    /** A selected local compiler is flixw-owned editor state too: otherwise its perfectly
+     *  ordinary symlink would be misreported as foreign and could never be restored by
+     *  {@code pin --stock}. */
+    static boolean ownsEditorJar(Path link, EditorJarPref pref, Path localCompiler) {
         try {
             if (Files.isSymbolicLink(link)) {
                 Path real = link.toRealPath();
                 Path compilers = cacheHome().resolve("compilers").toRealPath();
-                return real.startsWith(compilers);
+                return real.startsWith(compilers)
+                    || (localCompiler != null && real.equals(localCompiler.toRealPath()));
             }
             return pref != null && pref.sha256() != null && pref.sha256().equals(sha256(link));
         } catch (IOException e) { return false; }
@@ -4413,13 +4425,15 @@ public final class flixw {
     static void maintainEditorJar(Path root, Path jar, String requestedMode) {
         ensureGitignored(root, "/flix.jar");
         EditorJarPref pref = readEditorJarPref(root);
+        LocalCompiler local = readLocalCompiler(root);
+        Path localJar = local == null ? null : local.path();
         Path link = root.resolve("flix.jar");
         if ("off".equals(requestedMode)) {
             // A link or copy already there is flixw's own to remove -- left in place, it
             // would go stale at the very next pin with nothing to say so, which is worse
             // than absent: VS Code would keep using a compiler this project moved past. A
             // foreign file is never touched, opting out or not.
-            if (Files.exists(link, LinkOption.NOFOLLOW_LINKS) && ownsEditorJar(link, pref)) {
+            if (Files.exists(link, LinkOption.NOFOLLOW_LINKS) && ownsEditorJar(link, pref, localJar)) {
                 try { Files.delete(link); } catch (IOException e) { tr("cannot remove flix.jar: " + e.getMessage()); }
             }
             writeEditorJarPref(root, "off", null);
@@ -4436,7 +4450,7 @@ public final class flixw {
             pref = null;
         }
         boolean exists = Files.exists(link, LinkOption.NOFOLLOW_LINKS);
-        if (exists && !ownsEditorJar(link, pref) && !"copy".equals(requestedMode)) {
+        if (exists && !ownsEditorJar(link, pref, localJar) && !"copy".equals(requestedMode)) {
             System.err.println("flixw: note: ./flix.jar exists and was not created by this"
                              + " project's flixw -- leave it, or run"
                              + " ./flixw pin --editor-jar=copy to replace it");
@@ -4479,19 +4493,6 @@ public final class flixw {
 
     static void pin(Path root, Pin what) {
         if (what.refresh()) { refreshPin(root); return; }
-        if (what.localJar() != null) {
-            LocalCompiler local = selectLocalCompiler(root, what.localJar());
-            writeLocalCompiler(root, local.path(), local.selectedSha256());
-            System.err.println("flixw: selected local compiler " + local.path());
-            System.err.println("       " + local.selectedSha256().substring(0, 16)
-                             + "... (unverified; the lock remains the fallback)");
-            return;
-        }
-        if (what.stock()) {
-            clearLocalCompiler(root);
-            System.err.println("flixw: local compiler selection cleared; using the locked compiler");
-            return;
-        }
         String repo = what.repo(), version = what.version(), java = what.java();
         boolean clearJava = what.clearJava();
         Path lockFile0 = lockPath(root);
@@ -4502,6 +4503,25 @@ public final class flixw {
         Lock had = null;
         if (Files.isRegularFile(lockFile0)) {
             try { had = readLock(lockFile0); } catch (Fail ignored) { }
+        }
+        if (what.localJar() != null) {
+            LocalCompiler local = selectLocalCompiler(root, what.localJar());
+            writeLocalCompiler(root, local.path(), local.selectedSha256());
+            maintainEditorJar(root, local.path(), null);
+            System.err.println("flixw: selected local compiler " + local.path());
+            System.err.println("       " + local.selectedSha256().substring(0, 16)
+                             + "... (unverified; the lock remains the fallback)");
+            return;
+        }
+        if (what.stock()) {
+            LocalCompiler local = readLocalCompiler(root);
+            clearLocalCompiler(root);
+            if (had != null && local != null) {
+                try { maintainEditorJar(root, acquire(had), null); }
+                catch (Fail e) { System.err.println("flixw: note: could not restore ./flix.jar: " + e.getMessage()); }
+            }
+            System.err.println("flixw: local compiler selection cleared; using the locked compiler");
+            return;
         }
         // Carry the java pin unless this run changes it: `pin 0.75.3` on a project that
         // pinned java 21 must not silently unpin the Java as well.
@@ -4623,7 +4643,11 @@ public final class flixw {
             // `jar` is not a regular file, linking against `tmp` would dangle the moment
             // this method's own finally block deletes it -- the same "an unwritable cache
             // stays silent" degrade every other cache-dependent feature already takes.
-            if (Files.isRegularFile(jar)) maintainEditorJar(root, jar, what.editorJar());
+            if (Files.isRegularFile(jar) && readLocalCompiler(root) == null)
+                maintainEditorJar(root, jar, what.editorJar());
+            else if (readLocalCompiler(root) != null)
+                System.err.println("       note: local compiler override remains active"
+                                 + " (./flixw pin --stock to use this pin)");
         } catch (IOException e) {
             if (snapshot) restore(lockFile, oldLock);
             throw w009("pin failed: " + why(e));

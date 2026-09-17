@@ -738,6 +738,17 @@ public final class UnitCheck {
 
         if (!flixw.ownsEditorJar(link, null)) ok();
         else bad("editor-jar: with no recorded preference, a regular file is a stranger's", "owned");
+
+        Path local = root.resolve("local-compiler.jar");
+        Files.writeString(local, "local compiler bytes");
+        Path localLink = root.resolve("local-flix.jar");
+        try {
+            Files.createSymbolicLink(localLink, local);
+            if (flixw.ownsEditorJar(localLink, null, local.toRealPath())) ok();
+            else bad("editor-jar: a link to the selected local compiler is owned", "not owned");
+        } catch (UnsupportedOperationException | IOException ignored) {
+            ok(); // The runtime suite probes links too; this keeps the pure test portable.
+        }
     }
 
     /** Local compiler selection is machine state: it never changes the release lock, and
