@@ -342,7 +342,8 @@ trust-on-first-generation. See [LIMITATIONS.md](LIMITATIONS.md).
 is resolved with `toRealPath()` immediately, hashed once, and recorded in the ignored
 `.flixw/local/compiler.toml` as its absolute canonical path and selection-time digest. It
 is not a lock field and does not replace the committed release pin: that pin remains the
-digest-verified fallback for a clean clone, CI, and `./flixw pin --stock`.
+digest-verified fallback for a clean clone, CI, and `./flixw pin --stock` (also spelled
+`./flixw pin --local-jar=off`).
 
 Selection requires a pre-existing, valid lock. This is deliberate: a local JAR has no
 release provenance from which flixw can construct a reproducible compiler identity. At run

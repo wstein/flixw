@@ -611,6 +611,7 @@ next command to see it.
 ```sh
 ./flixw info                 # shows the selected path and whether it changed since selection
 ./flixw pin --stock          # clear local state and return to the locked compiler
+# `./flixw pin --local-jar=off` is the same operation for scripts.
 ```
 
 The selected JAR is **not** digest-verified by the lock, every run says so on stderr, and

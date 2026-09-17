@@ -775,6 +775,9 @@ public final class UnitCheck {
         if (flixw.parsePin(java.util.List.of("--stock"), new flixw.Lock("0.76.1", "https://x/f.jar",
                                                "a".repeat(64), null, null, null, java.util.Map.of())).stock()) ok();
         else bad("local compiler: pin accepts --stock", "not selected");
+        if (flixw.parsePin(java.util.List.of("--local-jar=off"), new flixw.Lock("0.76.1", "https://x/f.jar",
+                                               "a".repeat(64), null, null, null, java.util.Map.of())).stock()) ok();
+        else bad("local compiler: pin accepts --local-jar=off", "not selected");
     }
 
     /**

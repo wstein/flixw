@@ -1187,10 +1187,7 @@ public final class flixw {
             return false;
         }
     }
-    /** What one `pin` command line asks for; `parsePin` is the only thing that builds it.
-     *  {@code editorJar} is {@code null} (no preference given this run), {@code "copy"} or
-     *  {@code "off"}; local-jar and stock selection are separate from the release pin,
-     *  which remains the committed fallback. */
+    /** Parsed pin request; local selection never replaces the committed release fallback. */
     record Pin(String repo, String version, String java, boolean clearJava, boolean refresh,
                String editorJar, String localJar, boolean stock) {}
 
@@ -1224,6 +1221,9 @@ public final class flixw {
                 editorJar = a.substring("--editor-jar=".length());
                 if (!editorJar.equals("copy") && !editorJar.equals("off"))
                     throw w008("pin: --editor-jar must be 'copy' or 'off', not " + q(editorJar));
+            } else if (a.equals("--local-jar=off")) {
+                if (stock) throw w009("pin: two local compiler selectors given");
+                stock = true;
             } else if (a.equals("--local-jar")) {
                 if (localJar != null) throw w009("pin: two --local-jar values given");
                 if (i + 1 >= args.size())
