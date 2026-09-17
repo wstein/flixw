@@ -644,57 +644,60 @@ public final class UnitCheck {
 
     /**
      * A truth table over {@code appliesToVerb}, one row per rule sourced from flix/flix's
-     * {@code Main.scala}/{@code Bootstrap.scala} (verified against 0.75.3) rather than
+     * {@code Main.scala}/{@code Bootstrap.scala} (re-traced through 0.76.1) rather than
      * inferred from {@code --help} text. Each row is a fact about a specific verb's actual
      * reachable code, not a generalisation from the others -- {@code init} excludes both
-     * tiers, {@code clean}/{@code build-pkg} keep bootstrap options but not compile ones,
+     * tiers, {@code clean} keeps bootstrap options but not compile ones, while 0.76.1 made
+     * {@code build-pkg} construct and check a configured compiler instance,
      * {@code release} is the one verb that gains {@code --yes} rather than losing something,
      * and the {@code --Xbenchmark-*}/{@code --listen} flags never belong to any named verb
      * at all, regardless of which one is asked.
      */
     static void curationTruthTable() {
         Object[][] rows = {
-            // flag, verb, expected
-            {"--entrypoint", "run", true},
-            {"--entrypoint", "init", false},
-            {"--entrypoint", "clean", false},
-            {"--entrypoint", "build-pkg", false},
-            {"--threads", "check", true},
-            {"--top", "test", true},
-            {"--Xlib", "build", true},
-            {"--Xlib", "clean", false},
-            {"--Xno-deprecated", "init", false},
-            {"--Xverify", "run", true},
-            {"--Xverify", "init", false},
-            {"--Xverify", "clean", false},
-            {"--Xverify", "build-pkg", false},
-            {"--github-token", "run", true},
-            {"--github-token", "clean", true},
-            {"--github-token", "build-pkg", true},
-            {"--github-token", "init", false},
-            {"--no-install", "clean", true},
-            {"--no-install", "init", false},
-            {"--yes", "release", true},
-            {"--yes", "check", false},
-            {"--yes", "init", false},
-            {"--yes", "clean", false},
-            {"--listen", "run", false},
-            {"--listen", "init", false},
-            {"--listen", "release", false},
-            {"--Xbenchmark-code-size", "run", false},
-            {"--Xbenchmark-incremental", "init", false},
-            {"--Xbenchmark-phases", "clean", false},
-            {"--Xbenchmark-frontend", "release", false},
-            {"--Xbenchmark-throughput", "check", false},
-            {"--json", "init", true},
-            {"--help", "clean", true},
-            {"--version", "run", true},
+            // flag, verb, compiler version, expected
+            {"--entrypoint", "run", "0.76.1", true},
+            {"--entrypoint", "init", "0.76.1", false},
+            {"--entrypoint", "clean", "0.76.1", false},
+            {"--entrypoint", "build-pkg", "0.76.0", false},
+            {"--entrypoint", "build-pkg", "0.76.1", true},
+            {"--threads", "check", "0.76.1", true},
+            {"--top", "test", "0.76.1", true},
+            {"--Xlib", "build", "0.76.1", true},
+            {"--Xlib", "clean", "0.76.1", false},
+            {"--Xno-deprecated", "init", "0.76.1", false},
+            {"--Xverify", "run", "0.76.1", true},
+            {"--Xverify", "init", "0.76.1", false},
+            {"--Xverify", "clean", "0.76.1", false},
+            {"--Xverify", "build-pkg", "0.76.0", false},
+            {"--Xverify", "build-pkg", "0.76.1", true},
+            {"--github-token", "run", "0.76.1", true},
+            {"--github-token", "clean", "0.76.1", true},
+            {"--github-token", "build-pkg", "0.76.1", true},
+            {"--github-token", "init", "0.76.1", false},
+            {"--no-install", "clean", "0.76.1", true},
+            {"--no-install", "init", "0.76.1", false},
+            {"--yes", "release", "0.76.1", true},
+            {"--yes", "check", "0.76.1", false},
+            {"--yes", "init", "0.76.1", false},
+            {"--yes", "clean", "0.76.1", false},
+            {"--listen", "run", "0.76.1", false},
+            {"--listen", "init", "0.76.1", false},
+            {"--listen", "release", "0.76.1", false},
+            {"--Xbenchmark-code-size", "run", "0.76.1", false},
+            {"--Xbenchmark-incremental", "init", "0.76.1", false},
+            {"--Xbenchmark-phases", "clean", "0.76.1", false},
+            {"--Xbenchmark-frontend", "release", "0.76.1", false},
+            {"--Xbenchmark-throughput", "check", "0.76.1", false},
+            {"--json", "init", "0.76.1", true},
+            {"--help", "clean", "0.76.1", true},
+            {"--version", "run", "0.76.1", true},
         };
         int wrong = 0;
         for (Object[] row : rows) {
-            String flag = (String) row[0], verb = (String) row[1];
-            boolean want = (Boolean) row[2];
-            boolean got = flixwhelp.appliesToVerb(flag, verb);
+            String flag = (String) row[0], verb = (String) row[1], version = (String) row[2];
+            boolean want = (Boolean) row[3];
+            boolean got = flixwhelp.appliesToVerb(flag, verb, version);
             if (got != want) {
                 wrong++;
                 bad("curation: " + flag + " x " + verb,
@@ -702,6 +705,9 @@ public final class UnitCheck {
             }
         }
         if (wrong == 0) ok();
+
+        eq("curation: 0.76.1 is re-traced", "true",
+           String.valueOf(flixwhelp.CURATED_UPSTREAM_VERSIONS.contains("0.76.1")));
     }
 
     /**

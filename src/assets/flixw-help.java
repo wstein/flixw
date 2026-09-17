@@ -612,14 +612,15 @@ final class flixwhelp {
         CommandSpec s = base("./flixw " + name,
             known.get(name).isEmpty() ? "(the compiler's help gives no description)"
                                       : known.get(name));
-        addOptions(s, help, curated ? name : null);
+        addOptions(s, help, curated ? name : null, version);
         render(s);
     }
 
     /**
      * Flags read only through the compile-options bag ({@code Flix().setOptions(...)}),
-     * which {@code init}, {@code clean} and {@code build-pkg} never construct at all --
-     * traced directly against flix/flix's {@code Main.scala} (v0.75.3), not inferred from
+     * which {@code init} and {@code clean} never construct at all. Before 0.76.1,
+     * {@code build-pkg} did not either; 0.76.1 now checks a configured compiler before it
+     * packages. Traced directly against flix/flix's {@code Main.scala}, not inferred from
      * {@code --help} text, which draws no distinction between them whatsoever. Every one of
      * these is grammatically global in the compiler's own scopt parser -- none of this is a
      * real per-command partition Flix defines -- so a verb loses one only when the source
@@ -637,9 +638,11 @@ final class flixwhelp {
      *  which {@code init} alone never calls. */
     static final Set<String> BOOTSTRAP_OPTIONS = Set.of("--github-token", "--no-install");
 
-    /** The two verbs that resolve dependencies but never construct a compiler instance --
-     *  {@link #BOOTSTRAP_OPTIONS} apply, {@link #COMPILE_OPTIONS} do not. */
-    static final Set<String> NON_COMPILING = Set.of("clean", "build-pkg");
+    /** {@code clean} resolves dependencies but never constructs a compiler instance. */
+    static final Set<String> NON_COMPILING = Set.of("clean");
+
+    /** Before 0.76.1, {@code build-pkg} never constructed a compiler instance either. */
+    static final Set<String> PRE_0761_NON_COMPILING = Set.of("clean", "build-pkg");
 
     /** {@code --yes} answers a confirmation prompt {@code Bootstrap.release} alone asks. */
     static final String CONFIRMATION_VERB = "release";
@@ -651,17 +654,19 @@ final class flixwhelp {
         "--Xbenchmark-code-size", "--Xbenchmark-incremental", "--Xbenchmark-phases",
         "--Xbenchmark-frontend", "--Xbenchmark-throughput");
 
-    static boolean appliesToVerb(String flag, String verb) {
+    static boolean appliesToVerb(String flag, String verb, String version) {
         if (NO_COMMAND_OPTIONS.contains(flag)) return false;
         if (flag.equals("--yes")) return verb.equals(CONFIRMATION_VERB);
         if (verb.equals("init"))
             return !COMPILE_OPTIONS.contains(flag) && !BOOTSTRAP_OPTIONS.contains(flag);
-        if (NON_COMPILING.contains(verb)) return !COMPILE_OPTIONS.contains(flag);
+        Set<String> nonCompiling = version.equals("0.76.1")
+            ? NON_COMPILING : PRE_0761_NON_COMPILING;
+        if (nonCompiling.contains(verb)) return !COMPILE_OPTIONS.contains(flag);
         return true;
     }
 
     /** Versions whose upstream Main.scala source the table above has been re-traced against. */
-    static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0");
+    static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0", "0.76.1");
 
     /**
      * The compiler's own help, verbatim.
@@ -681,17 +686,17 @@ final class flixwhelp {
     }
 
     static void addOptions(CommandSpec s, String help) {
-        addOptions(s, help, null);
+        addOptions(s, help, null, "");
     }
 
     /** {@code verb} narrows to {@link #appliesToVerb}; null keeps every captured option,
      *  which is what the root tree (shared by completion and the top-level screen) needs --
      *  a completer must offer everything a bare {@code ./flixw <verb>} accepts, not one
      *  command's curated subset. */
-    static void addOptions(CommandSpec s, String help, String verb) {
+    static void addOptions(CommandSpec s, String help, String verb, String version) {
         for (Map.Entry<String, String[]> e : options(help).entrySet()) {
             String[] o = e.getValue();
-            if (verb != null && !appliesToVerb(e.getKey(), verb)) continue;
+            if (verb != null && !appliesToVerb(e.getKey(), verb, version)) continue;
             List<String> names = new ArrayList<>();
             if (!o[0].isEmpty()) names.add(o[0]);
             if (!o[1].isEmpty()) names.add(o[1]);
