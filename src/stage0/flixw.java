@@ -1033,6 +1033,7 @@ public final class flixw {
     static final String PIN_USAGE =
           "usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]"
         + " [--editor-jar=copy|off]"
+        + "\n          or: ./flixw pin --local-jar <path/to/flix.jar> | --stock"
         + "\n          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)"
         + "\n          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)";
 
@@ -1188,9 +1189,10 @@ public final class flixw {
     }
     /** What one `pin` command line asks for; `parsePin` is the only thing that builds it.
      *  {@code editorJar} is {@code null} (no preference given this run), {@code "copy"} or
-     *  {@code "off"}. */
+     *  {@code "off"}; local-jar and stock selection are separate from the release pin,
+     *  which remains the committed fallback. */
     record Pin(String repo, String version, String java, boolean clearJava, boolean refresh,
-               String editorJar) {}
+               String editorJar, String localJar, boolean stock) {}
 
     /**
      * {@code ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]}, or
@@ -1204,8 +1206,8 @@ public final class flixw {
      * nothing about it looked wrong.
      */
     static Pin parsePin(List<String> args, Lock existing) {
-        String repo = null, version = null, java = null, clearJava = null, editorJar = null;
-        boolean repoGiven = false, refresh = false;
+        String repo = null, version = null, java = null, clearJava = null, editorJar = null, localJar = null;
+        boolean repoGiven = false, refresh = false, stock = false;
         for (int i = 0; i < args.size(); i++) {
             String a = args.get(i);
             if (a.equals("--java")) {
@@ -1222,6 +1224,15 @@ public final class flixw {
                 editorJar = a.substring("--editor-jar=".length());
                 if (!editorJar.equals("copy") && !editorJar.equals("off"))
                     throw w008("pin: --editor-jar must be 'copy' or 'off', not " + q(editorJar));
+            } else if (a.equals("--local-jar")) {
+                if (localJar != null) throw w009("pin: two --local-jar values given");
+                if (i + 1 >= args.size())
+                    throw w002("pin: --local-jar needs a path\n       for example:"
+                             + " ./flixw pin --local-jar ../flix/build/flix.jar");
+                localJar = args.get(++i);
+            } else if (a.equals("--stock")) {
+                if (stock) throw w009("pin: two --stock flags given");
+                stock = true;
             } else if (a.startsWith("--")) {
                 throw w008("pin: unknown option " + q(a) + "\n       " + PIN_USAGE);
             } else if (a.contains("/")) {
@@ -1251,7 +1262,8 @@ public final class flixw {
             // --refresh rewrites the lock from the lock. Everything else on this line
             // changes what the lock says, and doing one of the two silently is how a
             // repair loses the pin it was asked to preserve.
-            if (version != null || repoGiven || java != null || clearJava != null || editorJar != null)
+            if (version != null || repoGiven || java != null || clearJava != null || editorJar != null
+                || localJar != null || stock)
                 throw w008("pin: --refresh takes no other arguments -- it rewrites the lock"
                          + " in the shape flixw " + WRAPPER_VERSION + " writes,"
                          + "\n       from the values already in it, without moving the pin"
@@ -1259,7 +1271,18 @@ public final class flixw {
             if (existing == null)
                 throw w002("pin: --refresh needs a lock that parses"
                          + "\n       run: ./flixw pin <version>");
-            return new Pin(null, null, null, false, true, null);
+            return new Pin(null, null, null, false, true, null, null, false);
+        }
+        if (localJar != null || stock) {
+            if (localJar != null && stock)
+                throw w008("pin: --local-jar and --stock are alternatives\n       " + PIN_USAGE);
+            if (version != null || repoGiven || java != null || clearJava != null || editorJar != null)
+                throw w008("pin: local compiler selection takes no release-pin options"
+                         + "\n       " + PIN_USAGE);
+            if (existing == null)
+                throw w002("pin: --local-jar or --stock needs an existing lock"
+                         + "\n       run: ./flixw pin <version>");
+            return new Pin(null, null, null, false, false, null, localJar, stock);
         }
         // A compiler version is required unless this only changes the java pin or the
         // editor-jar preference, in which case the compiler stays exactly as it was --
@@ -1283,7 +1306,7 @@ public final class flixw {
         if (version != null) version = validateVersion(stripTagPrefix(version), "pin");
         if (repo == null) repo = existing != null && existing.repo() != null
                                ? existing.repo() : UPSTREAM_REPO;
-        return new Pin(repo, version, java, clearJava != null, false, editorJar);
+        return new Pin(repo, version, java, clearJava != null, false, editorJar, null, false);
     }
 
     // ---- acquisition ------------------------------------------------------
@@ -2876,7 +2899,8 @@ public final class flixw {
                 // it. Re-derived rather than threaded as a parameter: it is one cheap env
                 // lookup, and every other caller of wrapperVerb would otherwise carry a
                 // boolean only this one case reads.
-                boolean upstream = isUpstream(lock, env("FLIX_JAR") != null);
+                boolean upstream = isUpstream(lock, env("FLIX_JAR") != null
+                                             || readLocalCompiler(root) != null);
                 List<String> a = new ArrayList<>(List.of(root.toString(), jvm.exe().toString(),
                                                          jar.toString(), String.valueOf(opts.size())));
                 a.addAll(opts);
@@ -3640,6 +3664,18 @@ public final class flixw {
                     : got.equals(lock.sha256()) ? "  (the jar the lock pins)"
                     : "  (NOT the jar the lock pins)"));
             }
+        } else {
+            LocalCompiler local = root == null ? null : readLocalCompiler(root);
+            if (local != null) {
+                System.out.println("override         local compiler=" + local.path()
+                                 + "  (unverified; not stock-compatibility evidence)");
+                if (jar != null && Files.isRegularFile(jar)) {
+                    String got = sha256(jar);
+                    System.out.println("override digest  " + got
+                        + (got.equals(local.selectedSha256()) ? "  (matches selection)"
+                          : "  (changed since selection)"));
+                }
+            }
         }
         System.out.println("compiler verbs   " + (cv == null ? "(not captured)" : String.join(" ", cv)));
         List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
@@ -4196,6 +4232,74 @@ public final class flixw {
         } catch (IOException ignored) { }
     }
 
+    // ---- machine-local compiler selection -------------------------------------
+
+    /** The local JAR selection is deliberately outside lock.toml: its bytes are mutable
+     *  developer state, while the lock remains the committed, digest-verified fallback. */
+    static Path localCompilerFile(Path root) {
+        return root.resolve(WRAPPER_DIR).resolve("local").resolve("compiler.toml");
+    }
+
+    record LocalCompiler(Path path, String selectedSha256) {}
+
+    /** Reads flixw-owned local state strictly: a truncated or hand-edited selection must
+     *  not silently turn into an unexpected compiler choice. */
+    static LocalCompiler readLocalCompiler(Path root) {
+        Path file = localCompilerFile(root);
+        if (!Files.isRegularFile(file)) return null;
+        String path = null, sha = null;
+        try {
+            for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                String t = stripComment(line).strip();
+                if (t.isEmpty()) continue;
+                int eq = t.indexOf('=');
+                if (eq < 1) throw w009(file + " does not parse");
+                String key = t.substring(0, eq).strip();
+                String value = unquoteToml(t.substring(eq + 1).strip(), file.toString());
+                if (key.equals("path") && path == null) path = value;
+                else if (key.equals("selected_sha256") && sha == null) sha = value;
+                else throw w009(file + " has an unknown or repeated key " + q(key));
+            }
+        } catch (IOException e) { throw w009("cannot read " + file + ": " + why(e)); }
+        if (path == null || sha == null || !sha.matches("[0-9a-f]{64}"))
+            throw w009(file + " needs quoted path and selected_sha256 values");
+        try {
+            Path jar = Paths.get(path);
+            if (!jar.isAbsolute()) throw w009(file + " names a non-absolute path");
+            return new LocalCompiler(jar, sha);
+        } catch (java.nio.file.InvalidPathException e) {
+            throw w009(file + " has an invalid path: " + why(e));
+        }
+    }
+
+    static void writeLocalCompiler(Path root, Path jar, String selectedSha256) {
+        try {
+            Path file = localCompilerFile(root);
+            Files.createDirectories(file.getParent());
+            writeAtomic(file, "# Generated by flixw. Local compiler selection; do not commit.\n"
+                            + "path = \"" + tomlEscape(jar.toString()) + "\"\n"
+                            + "selected_sha256 = \"" + selectedSha256 + "\"\n");
+        } catch (IOException e) { throw w009("cannot write local compiler selection: " + why(e)); }
+    }
+
+    static void clearLocalCompiler(Path root) {
+        try { Files.deleteIfExists(localCompilerFile(root)); }
+        catch (IOException e) { throw w009("cannot clear local compiler selection: " + why(e)); }
+    }
+
+    static LocalCompiler selectLocalCompiler(Path root, String typedPath) {
+        try {
+            Path jar = Paths.get(typedPath).toRealPath();
+            if (!Files.isRegularFile(jar))
+                throw w008("pin: --local-jar=" + typedPath + " is not a readable file");
+            return new LocalCompiler(jar, sha256(jar));
+        } catch (java.nio.file.InvalidPathException e) {
+            throw w008("pin: --local-jar has an invalid path " + q(typedPath));
+        } catch (IOException e) {
+            throw w008("pin: --local-jar=" + typedPath + " is not a readable file");
+        }
+    }
+
     // ---- ./flix.jar for the VS Code Flix extension ----------------------------
 
     /**
@@ -4375,6 +4479,19 @@ public final class flixw {
 
     static void pin(Path root, Pin what) {
         if (what.refresh()) { refreshPin(root); return; }
+        if (what.localJar() != null) {
+            LocalCompiler local = selectLocalCompiler(root, what.localJar());
+            writeLocalCompiler(root, local.path(), local.selectedSha256());
+            System.err.println("flixw: selected local compiler " + local.path());
+            System.err.println("       " + local.selectedSha256().substring(0, 16)
+                             + "... (unverified; the lock remains the fallback)");
+            return;
+        }
+        if (what.stock()) {
+            clearLocalCompiler(root);
+            System.err.println("flixw: local compiler selection cleared; using the locked compiler");
+            return;
+        }
         String repo = what.repo(), version = what.version(), java = what.java();
         boolean clearJava = what.clearJava();
         Path lockFile0 = lockPath(root);
@@ -5743,13 +5860,23 @@ public final class flixw {
 
         Path jar;
         String fj = env("FLIX_JAR");
-        boolean override = fj != null;
+        LocalCompiler local = fj == null ? readLocalCompiler(root) : null;
+        boolean override = fj != null || local != null;
         if (override) {
-            jar = Paths.get(fj).toAbsolutePath();
-            if (!Files.isRegularFile(jar)) throw w008("FLIX_JAR=" + fj + " is not a file");
-            System.err.println("flixw: note: FLIX_JAR override in use; the JAR is NOT digest-verified"
-                             + " and this run is not stock-compatibility evidence");
-            reportOverrideGap(lock, jar);
+            if (fj != null) {
+                jar = Paths.get(fj).toAbsolutePath();
+                if (!Files.isRegularFile(jar)) throw w008("FLIX_JAR=" + fj + " is not a file");
+                System.err.println("flixw: note: FLIX_JAR override in use; the JAR is NOT digest-verified"
+                                 + " and this run is not stock-compatibility evidence");
+                reportOverrideGap(lock, jar);
+            } else {
+                jar = local.path();
+                if (!Files.isRegularFile(jar))
+                    throw w008("local compiler " + jar + " is not a readable file"
+                             + "\n       run: ./flixw pin --stock   (to restore the locked compiler)");
+                System.err.println("flixw: note: local compiler override in use; the JAR is NOT digest-verified"
+                                 + " and this run is not stock-compatibility evidence");
+            }
         } else jar = acquire(lock);
 
         String verbId = verbIdentity(jar, lock, override);

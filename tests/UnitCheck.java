@@ -740,6 +740,29 @@ public final class UnitCheck {
         else bad("editor-jar: with no recorded preference, a regular file is a stranger's", "owned");
     }
 
+    /** Local compiler selection is machine state: it never changes the release lock, and
+     *  its absolute canonical path plus selection-time digest survive a round-trip. */
+    static void localCompilerPrefs() throws IOException {
+        Path root = Files.createTempDirectory("flixw-local-compiler-uc-");
+        Path jar = root.resolve("build/flix.jar");
+        Files.createDirectories(jar.getParent());
+        Files.writeString(jar, "local compiler bytes");
+        String digest = flixw.sha256(jar);
+        flixw.writeLocalCompiler(root, jar.toRealPath(), digest);
+        flixw.LocalCompiler selected = flixw.readLocalCompiler(root);
+        if (selected != null && selected.path().equals(jar.toRealPath())
+            && selected.selectedSha256().equals(digest)) ok();
+        else bad("local compiler: state round-trips", String.valueOf(selected));
+
+        flixw.Pin local = flixw.parsePin(java.util.List.of("--local-jar", jar.toString()),
+                                         new flixw.Lock("0.76.1", "https://x/f.jar", "a".repeat(64),
+                                                        null, null, null, java.util.Map.of()));
+        eq("local compiler: pin accepts --local-jar", jar.toString(), local.localJar());
+        if (flixw.parsePin(java.util.List.of("--stock"), new flixw.Lock("0.76.1", "https://x/f.jar",
+                                               "a".repeat(64), null, null, null, java.util.Map.of())).stock()) ok();
+        else bad("local compiler: pin accepts --stock", "not selected");
+    }
+
     /**
      * {@code flixw-local.java}'s manifest reading and {@code packages.toml} round-trip --
      * the pure logic behind {@code local add/list/remove}, exercised with no compiler and
@@ -1612,6 +1635,7 @@ public final class UnitCheck {
         optionRows();
         curationTruthTable();
         editorJarPrefs();
+        localCompilerPrefs();
         pluginDescription();
         declaredVerbs();
         upgradeUrls();
