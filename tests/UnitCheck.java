@@ -768,16 +768,20 @@ public final class UnitCheck {
             && selected.selectedSha256().equals(digest)) ok();
         else bad("local compiler: state round-trips", String.valueOf(selected));
 
-        flixw.Pin local = flixw.parsePin(java.util.List.of("--local-jar", jar.toString()),
+        flixw.Pin local = flixw.parsePin(java.util.List.of("--local", jar.toString()),
                                          new flixw.Lock("0.76.1", "https://x/f.jar", "a".repeat(64),
                                                         null, null, null, java.util.Map.of()));
-        eq("local compiler: pin accepts --local-jar", jar.toString(), local.localJar());
+        eq("local compiler: pin accepts --local", jar.toString(), local.localJar());
+        Path checkoutJar = root.resolve("flix-checkout/out/flix/assembly.dest/out.jar");
+        Files.createDirectories(checkoutJar.getParent());
+        Files.writeString(checkoutJar, "checkout compiler bytes");
+        flixw.LocalCompiler discovered = flixw.selectLocalCompiler(root, checkoutJar.getParent()
+            .getParent().getParent().getParent().toString());
+        eq("local compiler: checkout resolves Mill assembly", checkoutJar.toRealPath().toString(),
+           discovered.path().toString());
         if (flixw.parsePin(java.util.List.of("--stock"), new flixw.Lock("0.76.1", "https://x/f.jar",
                                                "a".repeat(64), null, null, null, java.util.Map.of())).stock()) ok();
         else bad("local compiler: pin accepts --stock", "not selected");
-        if (flixw.parsePin(java.util.List.of("--local-jar=off"), new flixw.Lock("0.76.1", "https://x/f.jar",
-                                               "a".repeat(64), null, null, null, java.util.Map.of())).stock()) ok();
-        else bad("local compiler: pin accepts --local-jar=off", "not selected");
     }
 
     /**

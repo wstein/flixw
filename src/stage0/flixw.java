@@ -1033,7 +1033,7 @@ public final class flixw {
     static final String PIN_USAGE =
           "usage: ./flixw pin [<owner>/<repo>] [<version>] [--java <version>]"
         + " [--editor-jar=copy|off]"
-        + "\n          or: ./flixw pin --local-jar <path/to/flix.jar> | --stock"
+        + "\n          or: ./flixw pin --local <path/to/flix.jar-or-checkout> | --stock"
         + "\n          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)"
         + "\n          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)";
 
@@ -1221,14 +1221,11 @@ public final class flixw {
                 editorJar = a.substring("--editor-jar=".length());
                 if (!editorJar.equals("copy") && !editorJar.equals("off"))
                     throw w008("pin: --editor-jar must be 'copy' or 'off', not " + q(editorJar));
-            } else if (a.equals("--local-jar=off")) {
-                if (stock) throw w009("pin: two local compiler selectors given");
-                stock = true;
-            } else if (a.equals("--local-jar")) {
-                if (localJar != null) throw w009("pin: two --local-jar values given");
+            } else if (a.equals("--local")) {
+                if (localJar != null) throw w009("pin: two --local values given");
                 if (i + 1 >= args.size())
-                    throw w002("pin: --local-jar needs a path\n       for example:"
-                             + " ./flixw pin --local-jar ../flix/build/flix.jar");
+                    throw w002("pin: --local needs a JAR or Flix checkout path\n       for example:"
+                             + " ./flixw pin --local ../flix");
                 localJar = args.get(++i);
             } else if (a.equals("--stock")) {
                 if (stock) throw w009("pin: two --stock flags given");
@@ -1275,12 +1272,12 @@ public final class flixw {
         }
         if (localJar != null || stock) {
             if (localJar != null && stock)
-                throw w008("pin: --local-jar and --stock are alternatives\n       " + PIN_USAGE);
+                throw w008("pin: --local and --stock are alternatives\n       " + PIN_USAGE);
             if (version != null || repoGiven || java != null || clearJava != null || editorJar != null)
                 throw w008("pin: local compiler selection takes no release-pin options"
                          + "\n       " + PIN_USAGE);
             if (existing == null)
-                throw w002("pin: --local-jar or --stock needs an existing lock"
+                throw w002("pin: --local or --stock needs an existing lock"
                          + "\n       run: ./flixw pin <version>");
             return new Pin(null, null, null, false, false, null, localJar, stock);
         }
@@ -4287,15 +4284,27 @@ public final class flixw {
         catch (IOException e) { throw w009("cannot clear local compiler selection: " + why(e)); }
     }
 
+    /** The one output produced by Flix's supported Mill assembly task. */
+    static final String MILL_COMPILER_JAR = "out/flix/assembly.dest/out.jar";
+
+    /** Resolves either a built compiler JAR or a Flix checkout containing Mill's output. */
     static LocalCompiler selectLocalCompiler(Path root, String typedPath) {
         try {
-            Path jar = Paths.get(typedPath).toRealPath();
-            if (!Files.isRegularFile(jar)) throw w008("pin: --local-jar=" + typedPath + " is not a readable file");
+            Path selected = Paths.get(typedPath).toRealPath();
+            Path jar = Files.isDirectory(selected) ? selected.resolve(MILL_COMPILER_JAR) : selected;
+            if (!Files.isRegularFile(jar)) {
+                if (Files.isDirectory(selected))
+                    throw w008("pin: no built Flix compiler in " + q(typedPath)
+                             + "\n       looked for: " + MILL_COMPILER_JAR
+                             + "\n       build it: (cd " + typedPath + " && ./mill flix.assembly)");
+                throw w008("pin: --local=" + typedPath + " is not a readable JAR");
+            }
+            jar = jar.toRealPath();
             return new LocalCompiler(jar, sha256(jar));
         } catch (java.nio.file.InvalidPathException e) {
-            throw w008("pin: --local-jar has an invalid path " + q(typedPath));
+            throw w008("pin: --local has an invalid path " + q(typedPath));
         } catch (IOException e) {
-            throw w008("pin: --local-jar=" + typedPath + " is not a readable file");
+            throw w008("pin: --local=" + typedPath + " is not a readable file or checkout");
         }
     }
 

@@ -1450,11 +1450,15 @@ echo "local compiler"
 t 0 "a local compiler selection persists, syncs the editor jar, and yields to FLIX_JAR" sh -c '
   jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") || exit 1
   cp "$jar" "$1/local-compiler.jar" || exit 1
-  ./flixw pin --local-jar "$1/local-compiler.jar" || exit 1
+  ./flixw pin --local "$1/local-compiler.jar" || exit 1
   grep -Fq "path = \"$1/local-compiler.jar\"" .flixw/local/compiler.toml || exit 1
   cmp -s "$1/local-compiler.jar" flix.jar || exit 1
   ./flixw info 2>&1 | grep -Fq "local compiler=$1/local-compiler.jar" || exit 1
   FLIX_JAR="$jar" ./flixw info 2>&1 | grep -Fq "FLIX_JAR=$jar"' sh "$work"
+t 87 "an unbuilt Flix checkout names Mill's assembly task" sh -c '
+  mkdir "$1/unbuilt-flix" || exit 1
+  out=$(./flixw pin --local "$1/unbuilt-flix" 2>&1); rc=$?
+  test "$rc" = 87 && printf "%s" "$out" | grep -Fq "./mill flix.assembly"' sh "$work"
 t 0 "a missing selected local compiler names --stock as the repair" sh -c '
   rm -f "$1/local-compiler.jar"
   out=$(./flixw check 2>&1); rc=$?
