@@ -595,16 +595,38 @@ See [`docs/CONTRACT.md`](docs/CONTRACT.md#plugins-and-tasks) for exactly what is
 
 ## Testing a locally built compiler
 
-If you build Flix yourself — a fork, or a patch you have not tagged yet — run it with:
+If you build Flix yourself — a fork, or a patch you have not tagged yet — select its JAR
+for this checkout:
+
+```sh
+./flixw pin --local-jar ../flix-fork/build/flix.jar
+```
+
+The path is immediately canonicalized and recorded only in ignored
+`.flixw/local/compiler.toml`; it does not change the committed release lock. flixw also
+keeps a flixw-owned `./flix.jar` pointing at that same JAR, so the VS Code Flix extension
+and terminal commands use the same compiler. Rebuilding the JAR in place is enough for the
+next command to see it.
+
+```sh
+./flixw info                 # shows the selected path and whether it changed since selection
+./flixw pin --stock          # clear local state and return to the locked compiler
+```
+
+The selected JAR is **not** digest-verified by the lock, every run says so on stderr, and
+it is not stock-compatibility evidence. A missing JAR fails with the `pin --stock` repair;
+flixw never silently falls back to a different compiler.
+
+For a one-command override — including CI or bisection — use `FLIX_JAR`; it takes
+precedence over the persistent selection:
 
 ```sh
 FLIX_JAR=/path/to/flix.jar ./flixw run
 ```
 
-Two caveats. The jar is **not** digest-verified, every such run says so on stderr, and
-those runs are not evidence about the stock compiler. And a valid `.flixw/lock.toml` is
-still required: the lock is read and drift is checked before the override is, so pin a
-release first even if you intend to override it every time.
+Both local modes still require a valid `.flixw/lock.toml`: the lock is read and drift is
+checked before the override is selected, so pin a release first even if you intend to use a
+local build every time.
 
 To set this and the other variables — `FLIX_JAVA_HOME`, `FLIX_CACHE_HOME`,
 `FLIX_DIST_URL`, `FLIX_JVM_OPTS` — per project rather than per shell, write them into an

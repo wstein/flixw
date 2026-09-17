@@ -113,10 +113,12 @@ the bounds on `runCapture`, the four completion scripts with the note they read,
 `examples/` discovery and symlink containment, the verb-flags-before-`<name>` grammar
 (including a Windows-only regression: a `\r\n`-terminated `--help` silently lost every
 flag's arity until `captureHelp` started normalizing line endings), `autoRunBoundary`, and
-`isUpstream` (the provenance gate excluding a fork or `FLIX_JAR` override from both
+`isUpstream` (the provenance gate excluding a fork, `FLIX_JAR`, or selected local compiler
+from both
 `autoRunBoundary` and `help flix <command>`'s option curation), a truth table over every
-curated option/verb rule, the `.flixw/local/editor-jar.toml` round-trip `ownsEditorJar`
-reads to tell its own prior write from a stranger's file, `flixw-local.java`'s
+curated option/verb rule, `.flixw/local/compiler.toml` selection and precedence beneath
+`FLIX_JAR`, the `.flixw/local/editor-jar.toml` round-trip `ownsEditorJar` reads to tell its
+own prior write from a stranger's file, `flixw-local.java`'s
 manifest reading (`[package]` fields, bare-string and inline-table `[dependencies]`
 entries) and `.flixw/local/packages.toml` round-trip, the `tag_name` extraction
 `--upgrade --pre-release` reads out of a GitHub releases API response, and that every
@@ -904,7 +906,8 @@ them and makes the author say which this is.
 These come from the paper's prototype contract (§5) and are easy to break accidentally:
 
 - **Stock compiler only.** Never patch, wrap, or link against `flix.jar`; it is an opaque
-  process. `FLIX_JAR` overrides are announced as unverified and are not compatibility evidence.
+  process. `FLIX_JAR` and selected local-compiler overrides are announced as unverified and
+  are not compatibility evidence.
   An override *disagreeing* with the lock is the ordinary case — that is what it is for — so
   it is reported in `info`/`doctor`, not per run. An override pointing **inside
   `<cache>/compilers/`** is different and always wrong: those names carry the digest, so a

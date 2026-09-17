@@ -336,6 +336,36 @@ What this is **not**: independent authenticity. GitHub serves both the bytes and
 digest, over the same TLS trust anchor, and a release asset can be replaced. The pin is
 trust-on-first-generation. See [LIMITATIONS.md](LIMITATIONS.md).
 
+### A persistent local compiler selection
+
+`./flixw pin --local-jar <path>` selects a developer-built JAR for one checkout. The path
+is resolved with `toRealPath()` immediately, hashed once, and recorded in the ignored
+`.flixw/local/compiler.toml` as its absolute canonical path and selection-time digest. It
+is not a lock field and does not replace the committed release pin: that pin remains the
+digest-verified fallback for a clean clone, CI, and `./flixw pin --stock`.
+
+Selection requires a pre-existing, valid lock. This is deliberate: a local JAR has no
+release provenance from which flixw can construct a reproducible compiler identity. At run
+time the priority is `FLIX_JAR`, then this local selection, then the lock. Thus a script can
+always temporarily override a developer's state without editing it.
+
+The selected JAR must remain a readable regular file. If it disappears — a clean build
+directory, for example — the command fails with `./flixw pin --stock`; it never silently
+runs the locked compiler. Normal launches use the path, size and mtime identity already
+used for `FLIX_JAR`, so rebuilding a JAR in place invalidates captured help and verb data
+without hashing 40 MB on every command. `info` and `doctor` hash it and say whether it has
+changed since selection.
+
+Selecting a local JAR also maintains a flixw-owned root `./flix.jar` through the same
+symlink, hard-link and explicit-copy policy used for a release pin. The VS Code Flix
+extension therefore sees the same bytes. A symlink resolving to the selected local JAR is
+recognized as flixw-owned editor state; a foreign `./flix.jar` is still never replaced
+without `--editor-jar=copy`. `pin --stock` removes local selection and restores the locked
+editor JAR when it can reach the pinned compiler.
+
+Like `FLIX_JAR`, a local selection is unverified and not stock-compatibility evidence.
+Upstream-only help curation and automatic `run` forwarding are disabled for it.
+
 ### An override that names flixw's own cache
 
 `FLIX_JAR` exists to run a compiler you built yourself, so a jar that is *not* the pinned
