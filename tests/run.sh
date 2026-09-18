@@ -1447,14 +1447,18 @@ g 0 'override digest' "info prints the digest of the overridden jar"  sh -c '
 # the release lock, keeps VS Code's root flix.jar on the same bytes, and is still outranked
 # by an explicit environment override for bisection and CI.
 echo "local compiler"
-t 0 "a local compiler selection persists, syncs the editor jar, and yields to FLIX_JAR" sh -c '
+t 0 "a local compiler selection persists and syncs the editor jar" sh -c '
   jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") || exit 1
   cp "$jar" "$1/local-compiler.jar" || exit 1
+  printf "%s" "$jar" > "$1/locked-compiler.path" || exit 1
   ./flixw pin --local "$1/local-compiler.jar" || exit 1
-  cmp -s "$1/local-compiler.jar" flix.jar || exit 1
+  cmp -s "$1/local-compiler.jar" flix.jar' sh "$work"
+t 0 "info reports the persisted local compiler" sh -c '
   selected=$(sed -n "s/^path = \"\(.*\)\"$/\1/p" .flixw/local/compiler.toml) || exit 1
   test -n "$selected" || exit 1
-  ./flixw info 2>&1 | grep -Fq "local compiler=$selected" || exit 1
+  ./flixw info 2>&1 | grep -Fq "local compiler=$selected"' sh "$work"
+t 0 "FLIX_JAR outranks a persistent local compiler" sh -c '
+  jar=$(cat "$1/locked-compiler.path") || exit 1
   FLIX_JAR="$jar" ./flixw info 2>&1 | grep -Fq "FLIX_JAR=$jar"' sh "$work"
 t 0 "an unbuilt Flix checkout names Mill's assembly task" sh -c '
   mkdir "$1/unbuilt-flix" || exit 1
