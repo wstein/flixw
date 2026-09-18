@@ -745,6 +745,10 @@ public final class UnitCheck {
             flixw.writeEditorJarPref(root, "hard", flixw.sha256(hard));
             if (flixw.ownsEditorJar(hard, flixw.readEditorJarPref(root))) ok();
             else bad("editor-jar: a recorded hard link is owned", "not owned");
+            Path replacement = root.resolve("replacement.jar");
+            Files.writeString(replacement, "replacement bytes");
+            if (flixw.tryEditorJarLink(hard, replacement, true) && Files.isSameFile(hard, replacement)) ok();
+            else bad("editor-jar: a hard link can replace an owned hard link", "not replaced");
         } catch (UnsupportedOperationException | IOException ignored) {
             ok(); // Hard links need a filesystem that supports them; CI covers Windows itself.
         }
