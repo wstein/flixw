@@ -4430,10 +4430,7 @@ public final class flixw {
         Path localJar = local == null ? null : local.path();
         Path link = root.resolve("flix.jar");
         if ("off".equals(requestedMode)) {
-            // A link or copy already there is flixw's own to remove -- left in place, it
-            // would go stale at the very next pin with nothing to say so, which is worse
-            // than absent: VS Code would keep using a compiler this project moved past. A
-            // foreign file is never touched, opting out or not.
+            // Remove only owned state: a stale editor JAR is worse than no editor JAR.
             if (Files.exists(link, LinkOption.NOFOLLOW_LINKS) && ownsEditorJar(link, pref, localJar)) {
                 try { Files.delete(link); } catch (IOException e) { tr("cannot remove flix.jar: " + e.getMessage()); }
             }
@@ -4461,8 +4458,8 @@ public final class flixw {
         if (tryEditorJarLink(link, jar, false)) return;
         if (tryEditorJarLink(link, jar, true)) { writeEditorJarPref(root, "hard", sha256(link)); return; }
 
-        boolean copy = "copy".equals(requestedMode) || (pref != null && pref.mode().equals("copy"));
-        boolean persist = "copy".equals(requestedMode);
+        boolean copy = "copy".equals(requestedMode) || (pref != null && pref.mode().equals("copy")) || (local != null && isWindows());
+        boolean persist = "copy".equals(requestedMode) || (local != null && isWindows());
         if (!copy && requestedMode == null && System.console() != null) {
             System.err.print("flixw: could not link ./flix.jar for VS Code (a different volume"
                             + " than the cache, or no symlink privilege). Create a managed copy"
