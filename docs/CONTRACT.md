@@ -964,11 +964,13 @@ and asks again next time; `a` copies and records the choice in
 `.flixw/local/editor-jar.toml` (`mode = "copy"`), so every later pin copies without asking.
 A non-interactive run (`System.console() == null` — CI included) never prompts and never
 copies on its own; `./flixw pin --editor-jar=copy` is the explicit, one-time way to record
-the same choice from a script. `./flixw pin --editor-jar=off` records the opposite
-choice — flixw stops touching `./flix.jar` at all, and removes one it owns rather than
-leaving it to go stale with nothing to say so. Either flag works with or without a compiler
-version: `./flixw pin --editor-jar=copy` alone changes only this preference, exactly like
-`./flixw pin --java <version>` changes only the java pin.
+the same choice from a script. The exception is `pin --local` on Windows: the explicit
+selection authorizes a managed copy when neither link form can be installed or replaced, so
+the editor follows the terminal's local compiler. `./flixw pin --editor-jar=off` records
+the opposite choice — flixw stops touching `./flix.jar` at all, and removes one it owns
+rather than leaving it to go stale with nothing to say so. Either flag works with or without
+a compiler version: `./flixw pin --editor-jar=copy` alone changes only this preference,
+exactly like `./flixw pin --java <version>` changes only the java pin.
 
 **A file this project's own flixw did not create is never silently replaced.** Ownership is
 a symlink resolving into this machine's compiler cache, or a regular file whose digest
