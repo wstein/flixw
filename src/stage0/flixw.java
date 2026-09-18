@@ -4379,13 +4379,13 @@ public final class flixw {
         } catch (IOException e) { return false; }
     }
 
-    /** Atomically attempts a symlink or hard link; failure lets the caller try its fallback. */
+    /** Attempts a symlink or hard link; failure lets the caller try its fallback. */
     static boolean tryEditorJarLink(Path link, Path target, boolean hard) {
         try {
             Files.createDirectories(link.getParent()); Path tmp = Files.createTempFile(link.getParent(), ".flix.jar-", ".part");
             Files.delete(tmp); if (hard) Files.createLink(tmp, target); else Files.createSymbolicLink(tmp, target);
             try { Files.move(tmp, link, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
-            catch (IOException e) { Files.move(tmp, link, StandardCopyOption.REPLACE_EXISTING); }
+            catch (IOException e) { try { Files.move(tmp, link, StandardCopyOption.REPLACE_EXISTING); } catch (IOException replace) { Files.deleteIfExists(link); Files.move(tmp, link); } }
             return true;
         } catch (IOException | UnsupportedOperationException e) { return false; }
     }
