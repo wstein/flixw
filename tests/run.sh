@@ -3176,6 +3176,21 @@ g 87 'no checked-in flixw wrapper' "...but pin still refuses: it would leave an 
   sh -c 'cd "$1" && "$2" pin 0.75.3' sh "$work" "$cache_native/bin/flixw"
 g 87 'no checked-in flixw wrapper' "...and so does a compiler verb like check" \
   sh -c 'cd "$1" && "$2" check' sh "$work" "$cache_native/bin/flixw"
+# wrapper --version, --schema, bare --help and completion are answered by stage 0 before
+# it ever computes a project root, same as --schema at the top of this file -- so, unlike
+# help/info/doctor/validate above, they need no FLIX_PROJECT_ROOT stand-in either.
+g 0  "flixw $wrapper_version" "global launcher answers wrapper --version with no project" \
+  sh -c 'cd "$1" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
+g 0  '\$schema' "global launcher answers wrapper --schema with no project" \
+  sh -c 'cd "$1" && "$2" wrapper --schema' sh "$work" "$cache_native/bin/flixw"
+g 0  "wrapper's own commands" "a bare wrapper answers its own usage with no project" \
+  sh -c 'cd "$1" && "$2" wrapper' sh "$work" "$cache_native/bin/flixw"
+g 0  '#!/usr/bin/env bash' "global launcher answers completion bash with no project" \
+  sh -c 'cd "$1" && "$2" completion bash' sh "$work" "$cache_native/bin/flixw"
+# --upgrade resolves a project on purpose -- it rewrites that project's own vendored
+# copy -- so it is the one wrapper operation still refused here, same as pin above.
+g 87 'no checked-in flixw wrapper' "...but wrapper --upgrade still refuses: it rewrites a project's own files" \
+  sh -c 'cd "$1" && "$2" wrapper --upgrade' sh "$work" "$cache_native/bin/flixw"
 
 echo
 echo "passed=$pass failed=$fail skipped=$skipped"

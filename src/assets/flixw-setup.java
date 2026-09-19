@@ -852,6 +852,27 @@ final class flixwsetup {
             if [ -n "$s0" ]; then exec java -cp "$(dirname -- "$s0")" flixw "$@"; fi
             ;;
         esac
+        # --version, --schema, --install-jdk, --purge and bare --help are flixw's own
+        # operations, and stage 0 answers them before ever computing a project root.
+        # --upgrade is the one operation in this namespace that resolves a project on
+        # purpose, because it rewrites *that* project's own vendored copy in place --
+        # handing it a directory that is not a project either misnames the compiled
+        # classpath as "the project" in its own diagnostic, or silently bootstraps wrapper
+        # files into whatever directory the caller happened to be standing in. So it stays
+        # refused here, same as pin, with the same fix already at hand.
+        case ${1-}:${2-} in
+          wrapper:--version | wrapper:--schema | wrapper:--install-jdk \
+          | wrapper:--purge | wrapper:--help | wrapper:)
+            if [ -n "$s0" ]; then exec java -cp "$(dirname -- "$s0")" flixw "$@"; fi
+            ;;
+        esac
+        # completion is a pure function of (shell, verb table) with no project of its own
+        # either -- generated once for setting up a shell, often before any project exists.
+        case ${1-} in
+          completion)
+            if [ -n "$s0" ]; then exec java -cp "$(dirname -- "$s0")" flixw "$@"; fi
+            ;;
+        esac
         # help/info/doctor/validate are read-only reports (doctor --fix repairs missing
         # wrapper files, same as it always has -- that is the point of --fix, not a new
         # side effect of running it from here) and mean something with no project: cwd
