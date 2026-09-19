@@ -5061,8 +5061,10 @@ public final class flixw {
         if (want == null || !want.matches("[0-9a-f]{64}"))
             throw w005("the published SHA256SUMS names no digest for flixw.java");
 
-        Path current = root.resolve(WRAPPER_DIR).resolve("flixw.java");
-        if (Files.isRegularFile(current) && sha256(current).equals(want)) {
+        // root is null for --global: there is no project file to compare against, so a
+        // global upgrade always downloads to find out, the same as `plugin upgrade` does.
+        Path current = root == null ? null : root.resolve(WRAPPER_DIR).resolve("flixw.java");
+        if (current != null && Files.isRegularFile(current) && sha256(current).equals(want)) {
             // Same sentence as the version guard below, because it is the same outcome:
             // nothing was changed and nothing needed to be. They differ only in how it was
             // established -- a matching digest here, a version comparison there.
@@ -5133,15 +5135,19 @@ public final class flixw {
             }
             System.err.println("flixw: " + WRAPPER_VERSION + " -> "
                              + (published == null ? "the latest release" : published));
-            // Hand over: the new stage 0 writes its own shims and its own copy of itself.
+            // Hand over: the new stage 0 writes its own shims and its own copy of itself --
+            // or, for --global, its own global launcher and nothing else. Either way this
+            // process must not be the one deciding what a newer release's files look like.
             Path javaExe = exeIn(System.getProperty("java.home"));
             // The installer of the release being moved to, given the stage 0 this already
             // downloaded and verified -- stage 0 has no install verb to hand over to any
             // more, and fetching a second copy would be a chance to disagree with itself.
             Path installer = ensureAsset(SETUP_ASSET, published == null ? WRAPPER_VERSION : published);
-            ProcessBuilder pb = new ProcessBuilder(javaExe.toString(), installer.toString(),
-                                                   "setup", root.toString(), fresh.toString())
-                                    .inheritIO();
+            ProcessBuilder pb = root == null
+                ? new ProcessBuilder(javaExe.toString(), installer.toString(),
+                                     "global-upgrade", fresh.toString()).inheritIO()
+                : new ProcessBuilder(javaExe.toString(), installer.toString(),
+                                     "setup", root.toString(), fresh.toString()).inheritIO();
             // The child is a different file in a different directory. Both markers describe
             // *this* process and mean nothing to it -- FLIXW_SOURCE would anchor it in this
             // project, and FLIXW_RELAUNCHED would spend its one relaunch before it starts.
@@ -5195,9 +5201,10 @@ public final class flixw {
             }
             case "--upgrade" -> {
                 String to = null;
-                boolean pre = false;
+                boolean pre = false, global = false;
                 for (String a : rest) {
                     if (a.equals("--pre-release")) { pre = true; continue; }
+                    if (a.equals("--global")) { global = true; continue; }
                     if (to != null)
                         throw w008(wrapperUsage("'--upgrade' takes at most one version"));
                     to = strip(a);
@@ -5209,9 +5216,12 @@ public final class flixw {
                 // refused rather than one being honoured over the other.
                 if (pre && to != null)
                     throw w008(wrapperUsage("'--upgrade --pre-release' takes no version"));
-                // The only operation here that needs a project, and it resolves one itself
-                // rather than making the others depend on being inside one.
-                upgradeWrapper(findRoot(wrapperAnchor()), to, pre);
+                // Without --global, the only operation here that needs a project, and it
+                // resolves one itself rather than making the others depend on being inside
+                // one. --global is the one caller that must NOT resolve a project: passing
+                // it a null root is how upgradeWrapper knows to refresh the machine-wide
+                // cache alone, writing nothing under any project's .flixw/.
+                upgradeWrapper(global ? null : findRoot(wrapperAnchor()), to, pre);
             }
             case "--install-jdk" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--install-jdk' takes no arguments"));
@@ -5260,6 +5270,8 @@ public final class flixw {
              + "\n         --pre-release  with --upgrade and no version, the newest published"
              + "\n                        release even if still finishing its own verification"
              + "\n                        (releases/latest skips it until that passes)"
+             + "\n         --global       with --upgrade, refresh the machine-wide cache instead"
+             + "\n                        of a project: no project needed, and none written"
              + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
              + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for"
              + "\n                        that many days, 14 by default"

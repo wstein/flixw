@@ -448,7 +448,8 @@ final class flixwhelp {
         s.addOption(OptionSpec.builder("--version").description("the wrapper version").build());
         s.addOption(OptionSpec.builder("--upgrade")
                     .description("move this project to the newest published flixw, or to"
-                                + " --upgrade <version>; --pre-release for one not yet promoted").build());
+                                + " --upgrade <version>; --pre-release for one not yet promoted;"
+                                + " --global refreshes the machine-wide cache instead of a project").build());
         s.addOption(OptionSpec.builder("--install-jdk")
                     .description("fetch a verified Temurin into the cache").build());
         s.addOption(OptionSpec.builder("--purge")

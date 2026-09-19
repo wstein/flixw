@@ -2258,6 +2258,19 @@ g 0 "$wrapper_version -> 9.9.9" "upgrade --pre-release moves the project via the
 t 0 "...and the project now carries that stage 0"                sh -c '
   grep -q "WRAPPER_VERSION = \"9.9.9\"" "$1/.flixw/flixw.java"' sh "$upgpre"
 
+# --global answers a different question from every other --upgrade spelling: not "move
+# this project", but "is the machine-wide cache the no-project fallback reads from
+# current". Run with no project anywhere in scope -- $work, not a fixture -- since needing
+# one at all would be the bug this closes.
+g 0 "$wrapper_version -> 9.9.9" "upgrade --global needs no project at all" sh -c '
+  cd "$1" && FLIXW_RELEASE_SOURCE="$2/" FLIXW_ASSET_SOURCE="$2/" \
+    java "$3/src/stage0/flixw.java" wrapper --upgrade --global --pre-release 2>&1' \
+  sh "$work" "$(fileurl "$newrel")" "$root"
+t 0 "...and wrote no project files anywhere it ran"              sh -c '
+  test ! -e "$1/.flixw" && test ! -e "$1/flixw" && test ! -e "$1/flix.toml"' sh "$work"
+g 0 'flixw 9.9.9' "...and the global launcher answers with that version, still with no project" \
+  sh -c 'cd "$1" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
+
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
 # that keeps it from walking backwards -- and it must hold whether this version is newer
 # than the newest release (working on flixw) or exactly it (the commit a release was cut

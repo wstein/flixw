@@ -545,6 +545,19 @@ naming one is already exact, so combining the two is refused rather than picking
 and every other rule above still applies to what it finds: the digest is still checked,
 walking backwards is still refused and still said out loud.
 
+**`--upgrade --global` needs no project at all, and writes none.** Every other spelling of
+`--upgrade` resolves a project on purpose, because it rewrites that project's own vendored
+`.flixw/flixw.java`, `./flixw` and `./flixw.cmd` — there is no meaningful "upgrade" without
+one to rewrite. `--global` answers a different question: is the *machine-wide* cache the
+"no project" fallback reads from — `<cache>/bin/flixw` and the newest self-compiled stage 0
+under `<cache>/stage0/` — current, independent of any single project ever running its own
+upgrade. It fetches, verifies and version-compares exactly as any other `--upgrade` does,
+then hands the same verified bytes to the new release's own installer as `global-upgrade`
+rather than `setup <dir>`: that verb writes `<cache>/bin/flixw` and self-compiles the
+fetched source into the shared cache, and touches nothing else — no project directory is
+created, read, or required to exist. Combinable with `--pre-release` and with a named
+version, the same as plain `--upgrade`.
+
 **It also warms every companion asset that release publishes**, so the commands needing
 one work offline afterwards. Which assets those are is read out of the release's own
 `SHA256SUMS` rather than from a list inside the wrapper: an upgrade runs in the *old* stage
@@ -576,15 +589,24 @@ that merely happens to share the name) paired with `.flixw/flixw.java` — then 
 It owns no Java, compiler, cache or lock policy; those remain solely with the checked-in
 wrapper it found.
 
-Outside such a project it still answers two kinds of word, against whatever stage 0 it
-finds already self-compiled in the cache: the `plugin` verbs that manage the machine-wide
-install (`list`, `remove`, `install`, `upgrade` — none of them touch a project) run exactly
-as they would inside one, and the read-only verbs `help`, `info`, `doctor` and `validate`
-run with the current directory standing in for the project root that is missing, reporting
-its absence rather than guessing at one. Everything else — `pin` included, since it would
-leave a lock behind with no manifest or shim to make sense of it, same as `task`, `examples`
-and `local` having nothing to override, alias or run — still fails rather than searching
-elsewhere or downloading anything.
+Outside such a project it still answers three kinds of word. The `plugin` verbs that manage
+the machine-wide install (`list`, `remove`, `install`, `upgrade` — none of them touch a
+project) run exactly as they would inside one. `wrapper --version`, `--schema`,
+`--install-jdk`, `--purge`, bare `--help` and `completion <shell>` run too, against
+whatever stage 0 it finds already self-compiled in the cache — none of them ever compute a
+project root, inside a project or out of one. The read-only verbs `help`, `info`, `doctor`
+and `validate` run the same way, but *with* the current directory standing in for the
+project root that is missing, reporting its absence rather than guessing at one — that
+stand-in is what the other project-free operations above do not need.
+
+`wrapper --upgrade` is the one operation in that namespace that stays refused here, and the
+one exception is `--global` (see above): every other spelling resolves a project on
+purpose, rewriting that project's own vendored copy, and handing it a directory that is not
+a project would either misname the compiled classpath as "the project" in its own
+diagnostic or silently bootstrap wrapper files into whatever directory the caller happened
+to be standing in. `pin`, `task`, `examples` and `local` stay refused outright: `pin` would
+leave a lock behind with no manifest or shim to make sense of it, and the rest have nothing
+to override, alias or run without a real project.
 
 `install` is therefore a name flixw does not own, and `./flixw install` reaches the
 compiler like any other word it does not own — which is where a project asking to install

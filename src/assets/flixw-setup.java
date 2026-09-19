@@ -417,10 +417,11 @@ final class flixwsetup {
             throw new Exit(87);
         }
         boolean scripted = !rest.isEmpty()
-                           && (rest.get(0).equals("setup") || rest.get(0).equals("update"));
+                           && (rest.get(0).equals("setup") || rest.get(0).equals("update")
+                               || rest.get(0).equals("global-upgrade"));
         String verb = scripted ? rest.remove(0) : "setup";
         boolean pinning = wanted != null || !scripted;
-        if (rest.size() > 2 || (wanted != null && verb.equals("update"))) {
+        if (rest.size() > 2 || (wanted != null && !verb.equals("setup"))) {
             System.err.println("usage: java flixw-setup.java [dir] [--pin <version>]"
                              + "\n       java flixw-setup.java setup [dir] [--pin <version>]"
                              + "\n       java flixw-setup.java update <dir>"
@@ -454,6 +455,23 @@ final class flixwsetup {
                 case "update" -> {
                     if (rest.size() != 1) throw w008("update needs exactly one directory");
                     updateWrapper(target);
+                }
+                // `wrapper --upgrade --global`'s handoff: no project, so nothing under
+                // WRAPPER_DIR is touched -- only the machine-wide launcher and the shared
+                // stage 0 class cache, exactly the two things a project has no copy of its
+                // own to keep current on its own.
+                case "global-upgrade" -> {
+                    if (rest.size() != 1)
+                        throw w008("global-upgrade needs exactly one stage 0 source");
+                    Path source = Paths.get(rest.get(0));
+                    try {
+                        installGlobalShim();
+                    } catch (IOException e) {
+                        throw w007("cannot refresh the global launcher: " + why(e));
+                    }
+                    selfCompileStage0(source);
+                    System.err.println("flixw: refreshed the global launcher and cache for "
+                                     + WRAPPER_VERSION);
                 }
                 default -> throw w008("unknown verb " + verb);
             }
