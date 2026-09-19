@@ -2198,6 +2198,22 @@ t 0 "...and its shims were rewritten by the new release"         sh -c '
 # later --completion and --install-jdk reaching for the network.
 t 0 "...and the new release's assets were warmed"                sh -c '
   find "$FLIX_CACHE_HOME/wrapper/assets/9.9.9" -name "flixw-setup.java" | grep -q .'
+# Compiled here rather than left for this project's own next full dispatch to discover
+# lazily -- pin never reaches that path either, so a project that only ever upgrades and
+# pins would sit uncompiled indefinitely. Asserted directly against the cache, by the same
+# hash the shim itself would compute, because nothing else observes a self-compile.
+t 0 "...and 9.9.9's stage 0 was self-compiled into the shared cache too" sh -c '
+  if command -v sha256sum >/dev/null 2>&1
+  then h=$(sha256sum "$1/.flixw/flixw.java" | cut -d" " -f1)
+  else h=$(shasum -a 256 "$1/.flixw/flixw.java" | cut -d" " -f1); fi
+  test -f "$FLIX_CACHE_HOME/stage0/$h/flixw.class"' sh "$upgproj"
+# And the global launcher, which has no project of its own to run that lazy dispatch in,
+# sees it immediately too -- the newest self-compiled class is now this one, with no other
+# project on the machine needing to touch it first. This is the exact bug report this fix
+# answers: `flixw info` run from outside any project going on naming an older release than
+# the one a real project had just upgraded to, because nothing had recompiled it yet.
+g 0 'flixw 9.9.9' "...and the global launcher's \"no project\" fallback finds it right away" \
+  sh -c 'cd "$1" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
 # A tampered release must not be installed, and must leave the project on what it had.
 #
 # From a project that has *not* already been upgraded. The first version of this case
@@ -3163,6 +3179,18 @@ g 88 'known tasks: greet' "...including the list itself"          sh -c '
 # fallback: pin would leave a lock behind with no manifest or shim to make
 # sense of it, and the rest have nothing to override, alias or run without a
 # real project -- confirmed by leaving them (and a compiler verb) refused.
+#
+# The upgrade section above deliberately self-compiled a decoy "9.9.9" stage 0 to prove
+# an upgrade refreshes the global launcher's view -- and left it as the newest-touched
+# entry in the shared cache, exactly the state a real upgrade to a genuinely newer release
+# would leave behind. selfCompile no-ops on an already-compiled class without touching its
+# mtime, so $proj's own real dispatches below never re-claim "newest" on their own. Restored
+# here, explicitly, so the assertions below are about this section's own fallback logic and
+# not about which fixture happened to compile something last.
+if command -v sha256sum >/dev/null 2>&1
+then h=$(sha256sum "$proj/.flixw/flixw.java" | cut -d' ' -f1)
+else h=$(shasum -a 256 "$proj/.flixw/flixw.java" | cut -d' ' -f1); fi
+touch "$FLIX_CACHE_HOME/stage0/$h/flixw.class"
 echo "global launcher (no project)"
 g 0  'Wrapper commands:' "global launcher answers help with no project"    \
   sh -c 'cd "$1" && "$2" help' sh "$work" "$cache_native/bin/flixw"

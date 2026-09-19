@@ -51,6 +51,13 @@ final class flixwsetup {
      * pass the value already baked in here.
      */
     static final String WRAPPER_DIR = ".flixw";
+    /**
+     * Mirrors stage 0's own {@code MIN_JAVA}, for the one place here that also compiles
+     * stage 0 rather than merely writing it out: {@link #selfCompileStage0}. A class file
+     * pinned any higher would be one a floor-Java shim cannot load; {@code tests/lint.sh}
+     * checks the two stay equal, the same way it already checks the floor in both shims.
+     */
+    static final int STAGE0_MIN_JAVA = 21;
     /** Where GitHub redirects to the newest Flix; the tag is in the target URL. */
     static final String FLIX_LATEST = "https://github.com/flix/flix/releases/latest";
 
@@ -434,6 +441,7 @@ final class flixwsetup {
                                                    : (fetched = fetchStage0(tempDir()));
                     try {
                         install(target, source, willPin(pinning, target, wanted));
+                        selfCompileStage0(source);
                         pinAfterSetup(pinning, target, wanted);
                     } finally {
                         if (fetched != null) {
@@ -951,6 +959,54 @@ final class flixwsetup {
             Files.createDirectories(dir);
             Files.copy(from, to, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException | RuntimeException ignored) { }
+    }
+
+    /**
+     * Compiles a freshly installed stage 0 straight into the shared cache, keyed the same
+     * way stage 0's own {@code selfCompile} keys it: by the source's own SHA-256.
+     *
+     * <p>Without this, a brand-new project's stage 0 sits uncompiled until that project's
+     * own next full dispatch happens to reach it -- which `pin` alone never does. Until
+     * then, the global launcher's "no project" fallback still picks whichever compiled
+     * class is newest by modification time, and a fresh install changes nothing there:
+     * `flixw info` run from outside any project could go on reporting an older release
+     * than the one just installed. Best-effort and silent throughout, the same as
+     * {@link #cacheSelf()}: a convenience copy failing to appear is not a reason to fail
+     * an install that has otherwise written every file it promised.
+     */
+    static void selfCompileStage0(Path source) {
+        if (source == null) return;
+        try {
+            Path dir = globalBin().getParent().resolve("stage0").resolve(sha256(source));
+            if (Files.isRegularFile(dir.resolve("flixw.class"))) return;
+            javax.tools.JavaCompiler jc = javax.tools.ToolProvider.getSystemJavaCompiler();
+            if (jc == null) return;
+            Path parent = Files.createDirectories(dir.getParent());
+            try { parent.toFile().setReadable(false, false); parent.toFile().setReadable(true, true);
+                  parent.toFile().setWritable(false, false); parent.toFile().setWritable(true, true);
+                  parent.toFile().setExecutable(false, false); parent.toFile().setExecutable(true, true);
+            } catch (SecurityException ignored) { }
+            Path tmp = Files.createTempDirectory(parent, ".stage0-");
+            try {
+                int rc = jc.run(null, java.io.OutputStream.nullOutputStream(),
+                                java.io.OutputStream.nullOutputStream(),
+                                "-d", tmp.toString(), "-nowarn",
+                                "--release", String.valueOf(STAGE0_MIN_JAVA), source.toString());
+                if (rc != 0) return;
+                Files.writeString(tmp.resolve("source.path"), source.toAbsolutePath() + "\n");
+                Files.move(tmp, dir, StandardCopyOption.ATOMIC_MOVE);
+                tmp = null;
+            } finally {
+                if (tmp != null) deleteTree(tmp);
+            }
+        } catch (IOException | RuntimeException ignored) { }
+    }
+
+    static void deleteTree(Path dir) {
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder())
+                .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) { } });
+        } catch (IOException ignored) { }
     }
 
     static void install(Path target, Path source) { install(target, source, false); }

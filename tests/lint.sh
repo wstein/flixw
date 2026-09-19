@@ -325,6 +325,13 @@ else
   else
     bad "Java floor disagrees: MIN_JAVA=$min, shims say $(echo "$floors" | tr '\n' ' ')"
   fi
+  setup_min=$(sed -n 's/.*static final int STAGE0_MIN_JAVA = \([0-9][0-9]*\).*/\1/p' \
+              "$root/src/assets/flixw-setup.java")
+  if [ "$setup_min" = "$min" ]; then
+    say "ok    STAGE0_MIN_JAVA agrees with MIN_JAVA"
+  else
+    bad "Java floor disagrees: MIN_JAVA=$min, flixw-setup.java's STAGE0_MIN_JAVA=$setup_min"
+  fi
 fi
 
 # --- 5. stage 0 still compiles at its own floor ----------------------------
@@ -593,10 +600,12 @@ fi
 # `/*`, which any leading-token classifier reads as javadoc -- so the density floor
 # could otherwise be met by shipping more embedded shell, which is the opposite of what
 # it is asking for.
-MAX_CODE_LINES=3875          # local compiler selection accepts a JAR or Mill checkout;
-                             # help also owns focused compiler-help rendering; target: 2900
+MAX_CODE_LINES=3876          # wrapper --upgrade self-compiles the release it moves to,
+                             # so the global launcher's "no project" fallback finds it
+                             # as the newest cached stage 0 without a project of its own
+                             # to trigger that lazily; target: 2900
 MIN_COMMENT_PCT=25           # floor, not a ceiling; today 34
-MAX_BYTES=353259             # same local-compiler capability; target: 225000
+MAX_BYTES=353697             # same self-compile-on-upgrade capability; target: 225000
 # The byte ceiling may move *up* when code lines move down and density moves up -- that is
 # the two gates pulling against each other as intended, not drift. Refusing that would let
 # them deadlock: any change trading code for the explanation this repository asks for would

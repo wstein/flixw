@@ -5088,6 +5088,14 @@ public final class flixw {
             if (!got.equals(want))
                 throw w006("digest mismatch for the downloaded flixw.java"
                          + "\n       published " + want + "\n       downloaded " + got);
+            // Compiled here, not left for this project's own next dispatch to discover
+            // lazily: the global launcher picks its "no project" stage 0 by newest mtime
+            // under <cache>/stage0/, and that heuristic is only as fresh as the last self-
+            // compile. Without this, an upgrade updates the version everywhere except the
+            // one place with no project of its own to trigger it -- so `flixw info` run
+            // from outside any project could report an older release than the one just
+            // fetched, until something happened to run a full dispatch somewhere else.
+            selfCompile(fresh);
 
             // Newest published is not the same as newer than this. Anyone working on
             // flixw itself runs a version no release has yet, and "upgrade" must not walk
