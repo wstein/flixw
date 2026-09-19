@@ -448,6 +448,17 @@ echo
 g 0  'flixw' "global launcher delegates to the project wrapper" "$cache_native/bin/flixw" wrapper --version
 g 87 'no checked-in flixw wrapper' "global launcher refuses outside a project" \
   sh -c 'cd "$1" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
+# A directory named "flixw" -- this project's own checkout, say -- passes -x too, since a
+# directory's execute bit means "searchable", not "runnable". Paired with an unrelated
+# .flixw/flixw.java one level up (left behind by, say, a `setup` run in the wrong
+# directory), the walk used to `exec` the directory and crash with a shell-internal error
+# instead of the "no checked-in wrapper" diagnostic.
+g 87 'no checked-in flixw wrapper' "global launcher is not fooled by a directory named flixw" \
+  sh -c '
+    d="$1/decoy-parent"; rm -rf "$d"
+    mkdir -p "$d/flixw" "$d/.flixw"
+    : > "$d/.flixw/flixw.java"
+    cd "$d" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
 
 # --- lock lifecycle --------------------------------------------------------
 echo "lock lifecycle"

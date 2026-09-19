@@ -830,7 +830,11 @@ final class flixwsetup {
 
         here=$(pwd -P)
         while :; do
-          if [ -x "$here/flixw" ] && [ -f "$here/.flixw/flixw.java" ]; then
+          # -f before -x: a directory named "flixw" (this project's own checkout, say)
+          # passes -x too, since a directory's execute bit means "searchable", not
+          # "runnable" -- and exec on one fails with a shell-internal error instead of
+          # the diagnostic below.
+          if [ -f "$here/flixw" ] && [ -x "$here/flixw" ] && [ -f "$here/.flixw/flixw.java" ]; then
             exec "$here/flixw" "$@"
           fi
           parent=$(dirname -- "$here")
