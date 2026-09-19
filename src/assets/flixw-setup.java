@@ -843,14 +843,30 @@ final class flixwsetup {
         done
         # Every `plugin` verb manages the machine-wide cache, so not finding a project is not
         # a reason to refuse one. A lock is consulted when there is one and written when there
-        # is one; none of them require it. Stage 0 is already in the
-        # cache -- compiled, keyed by the source it came from -- so the newest of those answers
-        # here. Every other word still needs a project, and still says so.
+        # is one; none of them require it. Stage 0 is already in the cache -- compiled, keyed
+        # by the source it came from -- so the newest of those answers here.
+        cache=$(flixw_cache_home "$0")
+        s0=$(ls -1dt "$cache"/stage0/*/flixw.class 2>/dev/null | head -1)
         case ${1-}:${2-} in
           plugin:list | plugin:remove | plugin:install | plugin:upgrade)
-            cache=$(flixw_cache_home "$0")
-            s0=$(ls -1dt "$cache"/stage0/*/flixw.class 2>/dev/null | head -1)
             if [ -n "$s0" ]; then exec java -cp "$(dirname -- "$s0")" flixw "$@"; fi
+            ;;
+        esac
+        # help/info/doctor/validate are read-only reports (doctor --fix repairs missing
+        # wrapper files, same as it always has -- that is the point of --fix, not a new
+        # side effect of running it from here) and mean something with no project: cwd
+        # stands in for the project root that does not exist, and stage 0 reports the
+        # absence instead of the shell refusing outright. FLIX_PROJECT_ROOT makes that
+        # cwd, standing in for the search a real project's shim would otherwise anchor at
+        # the wrapper's own directory. pin, task, examples and local stay excluded -- pin
+        # would leave a lock behind with no manifest or shim to make sense of it, and the
+        # rest have nothing to override, alias or run without a real project.
+        case ${1-} in
+          help | --help | -h | info | doctor | validate)
+            if [ -n "$s0" ]; then
+              FLIX_PROJECT_ROOT=$(pwd -P); export FLIX_PROJECT_ROOT
+              exec java -cp "$(dirname -- "$s0")" flixw "$@"
+            fi
             ;;
         esac
         echo "flixw: no checked-in flixw wrapper found above $(pwd -P)" >&2

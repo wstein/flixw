@@ -571,10 +571,20 @@ it the stage 0 it has already verified rather than letting it fetch a second cop
 
 Setup also writes `<cache>/bin/flixw` as a machine-wide convenience launcher, where
 `<cache>` is the cache `./flixw info` reports. It walks upward from the caller's working
-directory for the nearest executable `flixw` with `.flixw/flixw.java`, then `exec`s it. It
-owns no Java, compiler, cache or lock policy; those remain solely with the checked-in
-wrapper it found. Outside such a project it fails rather than searching elsewhere or
-downloading anything.
+directory for the nearest project — a regular, executable `flixw` file (not a directory
+that merely happens to share the name) paired with `.flixw/flixw.java` — then `exec`s it.
+It owns no Java, compiler, cache or lock policy; those remain solely with the checked-in
+wrapper it found.
+
+Outside such a project it still answers two kinds of word, against whatever stage 0 it
+finds already self-compiled in the cache: the `plugin` verbs that manage the machine-wide
+install (`list`, `remove`, `install`, `upgrade` — none of them touch a project) run exactly
+as they would inside one, and the read-only verbs `help`, `info`, `doctor` and `validate`
+run with the current directory standing in for the project root that is missing, reporting
+its absence rather than guessing at one. Everything else — `pin` included, since it would
+leave a lock behind with no manifest or shim to make sense of it, same as `task`, `examples`
+and `local` having nothing to override, alias or run — still fails rather than searching
+elsewhere or downloading anything.
 
 `install` is therefore a name flixw does not own, and `./flixw install` reaches the
 compiler like any other word it does not own — which is where a project asking to install

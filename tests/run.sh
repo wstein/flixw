@@ -3153,6 +3153,30 @@ g 88 "no task 'nope'" "an unknown task names the tasks that exist" sh -c '
 g 88 'known tasks: greet' "...including the list itself"          sh -c '
   cd "$1" && ./flixw task nope' sh "$pp"
 
+# --- global launcher: read-only verbs need no project ---------------------
+# help/info/doctor/validate report something meaningful even where no project
+# exists at all -- cwd stands in for the missing project root, the same way
+# `flixw setup` itself has none yet. Reached here at the tail of the suite
+# because it relies on stage 0 already being self-compiled into the cache by
+# every real dispatch above; earlier, no compiled class exists to route to.
+# pin, task, examples and local stay excluded from the global launcher's
+# fallback: pin would leave a lock behind with no manifest or shim to make
+# sense of it, and the rest have nothing to override, alias or run without a
+# real project -- confirmed by leaving them (and a compiler verb) refused.
+echo "global launcher (no project)"
+g 0  'Wrapper commands:' "global launcher answers help with no project"    \
+  sh -c 'cd "$1" && "$2" help' sh "$work" "$cache_native/bin/flixw"
+g 0  'project root' "global launcher answers info with no project"         \
+  sh -c 'cd "$1" && "$2" info' sh "$work" "$cache_native/bin/flixw"
+g 88 'missing \.flixw/flixw\.java' "global launcher answers doctor with no project" \
+  sh -c 'cd "$1" && "$2" doctor' sh "$work" "$cache_native/bin/flixw"
+g 88 'missing \.flixw/flixw\.java' "global launcher answers validate with no project" \
+  sh -c 'cd "$1" && "$2" validate' sh "$work" "$cache_native/bin/flixw"
+g 87 'no checked-in flixw wrapper' "...but pin still refuses: it would leave an orphan lock" \
+  sh -c 'cd "$1" && "$2" pin 0.75.3' sh "$work" "$cache_native/bin/flixw"
+g 87 'no checked-in flixw wrapper' "...and so does a compiler verb like check" \
+  sh -c 'cd "$1" && "$2" check' sh "$work" "$cache_native/bin/flixw"
+
 echo
 echo "passed=$pass failed=$fail skipped=$skipped"
 [ "$fail" -eq 0 ]
