@@ -50,13 +50,13 @@ pd=$(sed -n 's/^PICOCLI_SHA256=\([0-9a-f]\{64\}\)$/\1/p' "$root/tests/pack.sh")
 # src/assets/flixw-help.java against a classpath entry that does not exist, which javac reports as
 # a warning about a missing path and then a pile of unrelated symbol errors -- a diagnostic
 # that sends the reader looking at the wrong file entirely.
-picocli="$work/picocli-$pv.jar"
+picocli="$root/tests/.work/picocli-$pv.jar"
 if [ ! -f "$picocli" ]; then
   curl -fsSL -o "$picocli" \
     "$(picocli_url "$pv")" || {
     rm -f "$picocli"
     bad "cannot fetch picocli $pv; src/assets/flixw-help.java cannot be checked without it"
-    say "      it caches in $work, so this is a one-time download per machine"
+    say "      it caches in $root/tests/.work, so this is a one-time download per machine"
     exit 1
   }
 fi
