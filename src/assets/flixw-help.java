@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import picocli.AutoComplete;
 import picocli.CommandLine;
 import picocli.CommandLine.Help.Ansi;
+import picocli.CommandLine.Model.ArgGroupSpec;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.OptionSpec;
 import picocli.CommandLine.Model.PositionalParamSpec;
@@ -104,13 +105,17 @@ final class flixwhelp {
         String name = args.length > 2 ? args[2] : null;
         List<String> jvmOpts = args.length > 3 ? List.of(args).subList(3, args.length) : List.of();
 
-        if (topic == null) { overview(c); return; }
+        boolean xhelp = false;
+        if ("--Xhelp".equals(topic)) { topic = null; xhelp = true; }
+        else if ("--Xhelp".equals(name)) { name = null; xhelp = true; }
+        else if (!jvmOpts.isEmpty() && "--Xhelp".equals(jvmOpts.get(0))) {
+            xhelp = true;
+            jvmOpts = jvmOpts.subList(1, jvmOpts.size());
+        }
+
+        if (topic == null) { overview(c, xhelp); return; }
         switch (topic) {
-            case "flix" -> flix(c, name, jvmOpts, false);
-            // Internal spelling for ./flixw <verb> --help. Unknown upstream releases keep
-            // their original flat screen instead of receiving a curation table not yet
-            // verified against their source.
-            case "flix-direct" -> flix(c, name, jvmOpts, true);
+            case "flix", "flix-direct" -> flix(c, name, jvmOpts, xhelp);
             case "wrapper" -> render(wrapperSpec(c));
             case "pin" -> render(pinSpec(c));
             case "info" -> render(infoSpec(c));
@@ -148,7 +153,7 @@ final class flixwhelp {
             }
             default -> {
                 if (c.words("compilerVerbs").contains(topic) || c.words("fallbackVerbs").contains(topic)) {
-                    flix(c, topic, jvmOpts, true);
+                    flix(c, topic, jvmOpts, xhelp);
                     return;
                 }
                 System.err.println("flixw: no help topic " + q(topic));
@@ -361,8 +366,22 @@ final class flixwhelp {
 
     /** One renderer for every topic, so the topics cannot drift apart in appearance. */
     static void render(CommandSpec spec) {
-        new CommandLine(spec).setColorScheme(CommandLine.Help.defaultColorScheme(ansi()))
-                             .usage(System.out);
+        render(spec, false);
+    }
+
+    static void render(CommandSpec spec, boolean xhelp) {
+        CommandLine cl = new CommandLine(spec)
+            .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+        if (xhelp) {
+            String exp = new CommandLine.Help(spec, cl.getColorScheme()).renderHelpSection("experimental");
+            if (exp != null && !exp.isBlank()) {
+                System.out.print(exp.endsWith("\n") ? exp : exp + "\n");
+                return;
+            }
+            System.out.println("No experimental options for this command.");
+            return;
+        }
+        cl.usage(System.out);
     }
 
     /**
@@ -535,7 +554,16 @@ final class flixwhelp {
      * work out which of them is currently winning.
      */
     static void overview(Ctx c) {
-        renderGrouped(tree(c, "./flixw"), c);
+        overview(c, false);
+    }
+
+    static void overview(Ctx c, boolean xhelp) {
+        CommandSpec t = tree(c, "./flixw");
+        if (xhelp) {
+            render(t, true);
+            return;
+        }
+        renderGrouped(t, c);
 
         System.out.println();
         System.out.println("  ./flixw help flix [<command>]    the pinned compiler's own help");
@@ -620,8 +648,19 @@ final class flixwhelp {
         if (curatedRoot.isPresent()) {
             for (OptionSpec opt : curatedRoot.get().options())
                 try { root.addOption(opt); } catch (RuntimeException ignored) { }
+            for (ArgGroupSpec grp : curatedRoot.get().argGroups())
+                try { root.addArgGroup(grp); } catch (RuntimeException ignored) { }
         } else if (!c.get("helpFile").isEmpty()) {
             addOptions(root, readOrEmpty(c.get("helpFile")));
+        }
+        if (!root.optionsMap().containsKey("--Xhelp")) {
+            try {
+                root.addOption(OptionSpec.builder("--Xhelp")
+                    .usageHelp(true)
+                    .helpSection("experimental")
+                    .description("shows the experimental options for this command.")
+                    .build());
+            } catch (RuntimeException ignored) { }
         }
         return root;
     }
@@ -779,7 +818,7 @@ final class flixwhelp {
 
     // ---- flix ----------------------------------------------------------------
 
-    static void flix(Ctx c, String name, List<String> jvmOpts, boolean direct)
+    static void flix(Ctx c, String name, List<String> jvmOpts, boolean xhelp)
             throws IOException, InterruptedException {
         String path = c.get("helpFile");
         if (path.isEmpty()) {
@@ -789,7 +828,14 @@ final class flixwhelp {
         }
         String help = readOrEmpty(path);
         String version = c.get("compilerVersion");
-        if (name == null) { flixOverview(c, help, version); return; }
+        if (name == null) {
+            if (xhelp) {
+                render(tree(c, "./flixw"), true);
+                return;
+            }
+            flixOverview(c, help, version);
+            return;
+        }
 
         // The probe, and why it is a comparison rather than an exit-status check: scopt does
         // not reject `check --help`, it prints the *top-level* help and exits 0. Trusting the
@@ -819,23 +865,13 @@ final class flixwhelp {
             throw new Exit(89);
         }
 
-        // Layout alone proves neither provenance nor flag meaning; upstream protects forks,
-        // and layout protects a future upstream parser change. Curation only omits options.
-        // A curated spec is the same guarantee at higher fidelity, so it counts as curated too.
         CommandSpec fromSpec = specVerb(c, name);
-        boolean curated = fromSpec != null
-                       || (format(help).equals("scopt-v1") && "true".equals(c.get("upstream"))
-                       && CURATED_UPSTREAM_VERSIONS.contains(version));
-        if (direct && !curated) {
-            System.out.print(help.endsWith("\n") ? help : help + "\n");
-            return;
-        }
-        if (fromSpec != null) { render(fromSpec); return; }
+        if (fromSpec != null) { render(fromSpec, xhelp); return; }
         CommandSpec s = base("./flixw " + name,
             known.get(name).isEmpty() ? "(the compiler's help gives no description)"
                                       : known.get(name));
-        addOptions(s, help, curated ? name : null, version);
-        render(s);
+        addOptions(s, help, name, version);
+        render(s, xhelp);
     }
 
     /**
@@ -881,14 +917,14 @@ final class flixwhelp {
         if (flag.equals("--yes")) return verb.equals(CONFIRMATION_VERB);
         if (verb.equals("init"))
             return !COMPILE_OPTIONS.contains(flag) && !BOOTSTRAP_OPTIONS.contains(flag);
-        Set<String> nonCompiling = version.equals("0.76.1")
+        Set<String> nonCompiling = version.equals("0.76.1") || version.equals("0.76.2")
             ? NON_COMPILING : PRE_0761_NON_COMPILING;
         if (nonCompiling.contains(verb)) return !COMPILE_OPTIONS.contains(flag);
         return true;
     }
 
     /** Versions whose upstream Main.scala source the table above has been re-traced against. */
-    static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0", "0.76.1");
+    static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0", "0.76.1", "0.76.2");
 
     /**
      * The curated spec for one compiler version, or empty when none has been authored --
@@ -928,6 +964,11 @@ final class flixwhelp {
                 Path disk = cur.resolve("src/assets/picocli").resolve(name);
                 if (Files.isRegularFile(disk)) {
                     String dsl = Files.readString(disk, StandardCharsets.UTF_8);
+                    return Optional.of(CommandSpecDsl.parse(dsl));
+                }
+                Path sibling = cur.resolve("flixw/src/assets/picocli").resolve(name);
+                if (Files.isRegularFile(sibling)) {
+                    String dsl = Files.readString(sibling, StandardCharsets.UTF_8);
                     return Optional.of(CommandSpecDsl.parse(dsl));
                 }
                 cur = cur.getParent();
@@ -977,16 +1018,40 @@ final class flixwhelp {
      *  a completer must offer everything a bare {@code ./flixw <verb>} accepts, not one
      *  command's curated subset. */
     static void addOptions(CommandSpec s, String help, String verb, String version) {
+        boolean hasX = false;
+        ArgGroupSpec.Builder expGroup = ArgGroupSpec.builder()
+            .heading("The following options are experimental:%n")
+            .helpSection("experimental");
+
         for (Map.Entry<String, String[]> e : options(help).entrySet()) {
             String[] o = e.getValue();
             if (verb != null && !appliesToVerb(e.getKey(), verb, version)) continue;
+            boolean isX = e.getKey().startsWith("--X");
             List<String> names = new ArrayList<>();
             if (!o[0].isEmpty()) names.add(o[0]);
             if (!o[1].isEmpty()) names.add(o[1]);
             OptionSpec.Builder b = OptionSpec.builder(names.toArray(new String[0]))
                                              .description(o[3]);
             if (!o[2].isEmpty()) b.paramLabel("<" + o[2] + ">").arity("1");
-            try { s.addOption(b.build()); } catch (RuntimeException ignored) { }
+            OptionSpec opt = b.build();
+            if (isX) {
+                hasX = true;
+                expGroup.addArg(opt);
+            } else {
+                try { s.addOption(opt); } catch (RuntimeException ignored) { }
+            }
+        }
+        if (hasX) {
+            try { s.addArgGroup(expGroup.build()); } catch (RuntimeException ignored) { }
+            if (!s.optionsMap().containsKey("--Xhelp")) {
+                try {
+                    s.addOption(OptionSpec.builder("--Xhelp")
+                        .usageHelp(true)
+                        .helpSection("experimental")
+                        .description("shows the experimental options for this command.")
+                        .build());
+                } catch (RuntimeException ignored) { }
+            }
         }
     }
 
