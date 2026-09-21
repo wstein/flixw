@@ -139,6 +139,25 @@ final class flixwhelp {
                 }
                 render(spec);
             }
+            case "local" -> {
+                boolean examples = name != null && name.equals("--examples-help");
+                CommandSpec spec = localSpec(examples ? "./flixw examples local" : "./flixw local", !examples);
+                if (name != null && !name.equals("--help") && !name.equals("-h") && !examples) {
+                    String subName = name.startsWith("--help=") ? name.substring("--help=".length()) : name;
+                    CommandLine cmd = new CommandLine(spec)
+                        .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+                    CommandLine child = cmd.getSubcommands().get(subName);
+                    if (child != null) {
+                        child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
+                        return;
+                    }
+                    System.err.println("flixw: no local subcommand " + q(subName));
+                    System.err.println("       run: ./flixw help local");
+                    throw new Exit(89);
+                }
+                render(spec);
+            }
+            case "examples-local" -> render(localSpec("./flixw examples local", false));
             default -> {
                 if (c.words("compilerVerbs").contains(topic) || c.words("fallbackVerbs").contains(topic)) {
                     flix(c, topic, jvmOpts, true);
@@ -688,6 +707,36 @@ final class flixwhelp {
         local.usageMessage().customSynopsis("./flixw examples local <verb> <name> [-- args]");
         s.usageMessage().footer("Examples are separate packages under examples/, each with its own flix.toml.");
         return s;
+    }
+
+    static CommandSpec localSpec(Ctx c) {
+        return localSpec("./flixw local", true);
+    }
+
+    static CommandSpec localSpec(String name, boolean bookkeeping) {
+        CommandSpec root = base(name, bookkeeping
+            ? "Overrides a declared GitHub dependency with an uncommitted local checkout."
+            : "Runs an example against this project's uncommitted local source.");
+        if (bookkeeping) {
+            CommandSpec add = sub(root, "add", "adds an override for a declared GitHub dependency.");
+            add.addPositional(PositionalParamSpec.builder().paramLabel("<path>")
+                .description("the local package checkout").build());
+            add.usageMessage().footer("e.g. ../pkg; must be declared in flix.toml.");
+            sub(root, "list", "lists active overrides.");
+            CommandSpec remove = sub(root, "remove", "removes an active override.");
+            remove.addPositional(PositionalParamSpec.builder().paramLabel("<coordinate>")
+                .description("a declared github:<owner>/<repo> dependency").build());
+            sub(root, "status", "reports whether active overrides still match their manifests.");
+        }
+        for (String verb : List.of("run", "check", "build", "build-jar", "build-fatjar", "build-pkg", "test", "doc")) {
+            CommandSpec child = sub(root, verb, "runs Flix " + verb + " in a disposable overlay.");
+            child.usageMessage().customSynopsis(name + " " + verb + " [-- args]");
+        }
+        root.usageMessage().footer(bookkeeping
+            ? "State: .flixw/local/packages.toml is machine-local and gitignored.\n"
+            + "Arguments after -- are forwarded unchanged to the compiler in a disposable overlay."
+            : "Arguments after -- are forwarded unchanged to the compiler in a disposable overlay.");
+        return root;
     }
 
     // ---- flix ----------------------------------------------------------------

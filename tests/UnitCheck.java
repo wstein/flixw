@@ -751,6 +751,21 @@ public final class UnitCheck {
         eq("examplesSpec: run has <name> positional", "<name>",
            exSpec.subcommands().get("run").getCommandSpec().positionalParameters().get(0).paramLabel());
         eq("examplesSpec: has local", "true", String.valueOf(exSpec.subcommands().containsKey("local")));
+
+        var locSpec = flixwhelp.localSpec(null);
+        eq("localSpec: has add", "true", String.valueOf(locSpec.subcommands().containsKey("add")));
+        eq("localSpec: has list", "true", String.valueOf(locSpec.subcommands().containsKey("list")));
+        eq("localSpec: has remove", "true", String.valueOf(locSpec.subcommands().containsKey("remove")));
+        eq("localSpec: has status", "true", String.valueOf(locSpec.subcommands().containsKey("status")));
+        eq("localSpec: has run", "true", String.valueOf(locSpec.subcommands().containsKey("run")));
+        eq("localSpec: add has <path> positional", "<path>",
+           locSpec.subcommands().get("add").getCommandSpec().positionalParameters().get(0).paramLabel());
+        eq("localSpec: remove has <coordinate> positional", "<coordinate>",
+           locSpec.subcommands().get("remove").getCommandSpec().positionalParameters().get(0).paramLabel());
+
+        var exLocSpec = flixwhelp.localSpec("./flixw examples local", false);
+        eq("examplesLocalSpec: does not have add", "false", String.valueOf(exLocSpec.subcommands().containsKey("add")));
+        eq("examplesLocalSpec: has run", "true", String.valueOf(exLocSpec.subcommands().containsKey("run")));
     }
 
     /**
