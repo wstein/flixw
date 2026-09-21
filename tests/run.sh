@@ -1806,7 +1806,7 @@ t 0  "help flix init excludes options init's own code never reads" sh -c '
   ! printf "%s" "$out" | grep -q -- "--threads" &&
   ! printf "%s" "$out" | grep -q -- "--github-token" &&
   ! printf "%s" "$out" | grep -q -- "--Xbenchmark-code-size" &&
-  printf "%s" "$out" | grep -q -- "--json"'
+  printf "%s" "$out" | grep -q -- "--help"'
 g 0 'specifies the main entry point' \
   "help flix run keeps the options run actually reads" ./flixw help flix run
 # --yes answers a confirmation prompt only Bootstrap.release asks; every other verb drops

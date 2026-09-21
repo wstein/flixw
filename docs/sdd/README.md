@@ -1,33 +1,27 @@
 # Spec-driven compiler help and completion
 
 `flixw-help.java` renders `./flixw help` and generates `./flixw completion <shell>` from one
-picocli `CommandSpec` (see `tree()`). Two ways that model gets built for a given compiler verb:
+picocli `CommandSpec` (see `tree()`).
 
-1. **Regex-derived** (the default, every version): `commands()`/`options()` scrape the pinned
-   compiler's own `--help` text, and `appliesToVerb` narrows which options apply to which verb
-   from a hand-maintained table re-traced against flix/flix's `Main.scala`/`Bootstrap.scala`.
-2. **Spec-derived** (curated versions only): a [picocli-spec](https://github.com/wstein/picocli/tree/develop/picocli-spec)
-   DSL file under [`src/assets/picocli/`](../../src/assets/picocli/) describes the exact
-   command/option/positional set for one compiler version, built the same way the table in (1)
-   is -- by reading flix's own source, not just its `--help` text -- but as a `CommandSpec`
-   directly, so nothing is lost translating it back out of prose.
+The command model is **spec-derived**: a [picocli-spec](https://github.com/wstein/picocli/tree/develop/picocli-spec)
+DSL file under [`src/assets/picocli/`](../../src/assets/picocli/) describes the exact
+command/option/positional set for each compiler version range, authored directly from flix's
+own source as a `CommandSpec`. This replaces the historical regex scraping of captured `--help`
+text (`commands()` / `options()`) and the hand-maintained `appliesToVerb` truth table.
 
-`loadSpec(version)` (in `flixw-help.java`) looks up a curated spec for the pinned compiler
-version and returns it, or nothing. `specVerb(c, name)` additionally gates it on the same
-provenance check `appliesToVerb`'s table already relies on -- upstream, not a fork, `FLIX_JAR`,
-or a selected local compiler -- since a spec authored against one exact upstream release is not
-a claim about anything else. `tree()` and `flix()` both prefer the spec-derived `CommandSpec`
-for a verb when one exists, and fall back to (1) otherwise: an uncurated version, a fork, or a
-parse failure in the spec text all degrade to the regex path exactly as before curation existed.
+`loadSpec(version)` (in `flixw-help.java`) resolves a curated spec for the pinned compiler
+version. `specVerb(c, name)` additionally gates it on provenance -- upstream, not a fork,
+`FLIX_JAR`, or a selected local compiler -- since a spec authored against an exact upstream
+release is not a claim about anything else. An uncurated version, fork, or `FLIX_JAR` override
+gracefully falls back to the compiler's own captured help text verbatim.
 
-## Why a spec instead of growing the regex table further
+## Why a spec instead of scraping and regex tables
 
-The regex table only ever *removes* options from what `--help` already printed; it cannot add a
-positional's arity, a required flag, or a nested option group `--help` never lays out clearly.
-A spec is authored once against the compiler's real source and carries all of that as data, so
-`./flixw help flix check` and `./flixw completion <shell>` both gain accurate positionals and
-per-command flags without new code in this repository -- only a new spec file for a new curated
-version.
+The historical regex table only ever *removed* options from what `--help` already printed;
+it could not add a positional's arity, a required flag, or a nested option group that
+`--help` never laid out clearly. A spec is authored once against the compiler's real source
+and carries all of that as data, so `./flixw help flix check` and `./flixw completion <shell>`
+both gain accurate positionals and per-command flags without heuristic text scraping.
 
 ## Adding a curated version
 
@@ -74,7 +68,7 @@ logic cleanly separated from CLI presentation.
 
 `tree(c, name)` in `flixw-help.java` builds the unified command hierarchy for both `./flixw help`
 and `./flixw completion <shell>`. It incorporates:
-- Curated or scraped compiler commands and root options
+- Curated spec compiler commands and root options
 - Wrapper commands with full subcommand models (`examplesSpec`, `localSpec`, `wrapperSpec`)
 - Installed plugins from `lock.toml` under both `plugin <name>` and declared bare verbs
 - Configured tasks from `tasks.toml`

@@ -247,109 +247,6 @@ final class flixwhelp {
         return "raw";
     }
 
-    /** scopt: {@code Command: check} and then its indented prose. */
-    static final Pattern SCOPT_ENTRY = Pattern.compile(
-        "(?m)^Command:\\s+([A-Za-z][A-Za-z0-9_-]*)[^\\n]*\\n((?:[ \\t]+[^\\n]*\\n?)*)");
-
-    /** picocli: an indented two-column row inside the {@code Commands:} block. */
-    static final Pattern PICOCLI_ENTRY = Pattern.compile("^ {2}([a-z][a-z0-9_-]*)(?:\\s\\s+(.*))?$");
-
-    /**
-     * An option row in either layout: a short form, a long form, or both, then prose.
-     *
-     * <p>Two things here are for picocli's layout rather than scopt's, and both were found by
-     * running a fork's real help through it. Its parameter is attached with {@code =} instead
-     * of a space, and requiring the space dropped every value-taking option on the floor --
-     * from the help screen and from the generated completions with it, which is where a
-     * value-taking option matters most. And its prose is optional, because a name long enough
-     * to fill the column pushes the description onto the next line entirely; that row is an
-     * option with its description still to come, not a non-match.
-     */
-    static final Pattern OPTION_ENTRY = Pattern.compile(
-        "^(\\s*)(?:-([A-Za-z0-9])(?:[, ]\\s*)?)?(--[A-Za-z][A-Za-z0-9-]*)?"
-      + "(?:[\\s=]+<([^>]*)>)?(?:\\s\\s+(\\S.*))?$");
-
-    /**
-     * Command name to description, in the order the compiler listed them.
-     *
-     * <p>Empty for {@code raw}, and that is a result rather than a failure. An unrecognised
-     * layout means flixw does not know what the commands are, and a hopeful regex over
-     * unknown prose is how a help screen starts inventing them: run the widely used
-     * {@code gencomp} against Flix and every entry it produces is the first word of a
-     * *description* -- {@code creates}, {@code checks}, {@code builds} five times -- because
-     * its section detector consumes the very line the command name is on. Saying nothing is
-     * the better failure.
-     */
-    static Map<String, String> commands(String help) {
-        Map<String, String> out = new LinkedHashMap<>();
-        String fmt = format(help);
-        if (fmt.equals("scopt-v1")) {
-            Matcher m = SCOPT_ENTRY.matcher(help);
-            while (m.find()) out.put(m.group(1), collapse(m.group(2)));
-        } else if (fmt.equals("picocli-v1")) {
-            boolean inBlock = false;
-            for (String line : help.split("\n", -1)) {
-                if (!inBlock) { inBlock = line.startsWith("Commands:"); continue; }
-                Matcher m = PICOCLI_ENTRY.matcher(line);
-                if (m.find()) out.put(m.group(1), collapse(m.group(2)));
-                else if (!line.isBlank() && !line.startsWith("   ")) break;
-            }
-        }
-        return out;
-    }
-
-    /** An option's spelling to its description, for both layouts alike. */
-    static Map<String, String[]> options(String help) {
-        Map<String, String[]> out = new LinkedHashMap<>();
-        String key = null;                  // the row still open for continuation lines
-        String[] row = null;
-        StringBuilder prose = new StringBuilder();
-        int indent = 0;
-        for (String raw : help.split("\n", -1)) {
-            String line = raw.replace('\t', ' ');
-            Matcher m = OPTION_ENTRY.matcher(line);
-            boolean isOption = m.matches() && (m.group(2) != null || m.group(3) != null);
-            if (isOption) {
-                if (key != null) out.put(key, finish(row, prose));
-                indent = m.group(1).length();
-                String shortOpt = m.group(2), longOpt = m.group(3);
-                key = longOpt != null ? longOpt : "-" + shortOpt;
-                row = new String[] { shortOpt == null ? "" : "-" + shortOpt,
-                                     longOpt == null ? "" : longOpt,
-                                     m.group(4) == null ? "" : m.group(4), "" };
-                prose = new StringBuilder(m.group(5) == null ? "" : m.group(5));
-            } else if (key != null && !line.isBlank() && leading(line) > indent
-                       && !line.startsWith("Command:")) {
-                // Wrapped prose, which picocli indents past the description column. Anything
-                // at or left of the option's own indent has left the block -- a `Commands:`
-                // heading, the next section -- and swallowing it would append a command list
-                // to whichever option happened to be last.
-                prose.append(' ').append(line.trim());
-            } else if (key != null && !line.isBlank()) {
-                out.put(key, finish(row, prose));
-                key = null;
-            }
-        }
-        if (key != null) out.put(key, finish(row, prose));
-        return out;
-    }
-
-    /** Seals a row with its prose collapsed onto one line. */
-    static String[] finish(String[] row, StringBuilder prose) {
-        row[3] = collapse(prose.toString());
-        return row;
-    }
-
-    /** Leading spaces, which is how a continuation line is told from a new section. */
-    static int leading(String s) {
-        int i = 0;
-        while (i < s.length() && s.charAt(i) == ' ') i++;
-        return i;
-    }
-
-    /** Wrapped prose onto one line; a description is a sentence, not a layout. */
-    static String collapse(String s) { return s == null ? "" : s.replaceAll("\\s+", " ").trim(); }
-
     // ---- rendering ----------------------------------------------------------
 
     /**
@@ -584,8 +481,6 @@ final class flixwhelp {
      */
     static CommandSpec tree(Ctx c, String name) {
         List<String> compilerVerbs = c.words("compilerVerbs");
-        Map<String, String> desc = c.get("helpFile").isEmpty()
-            ? Map.of() : commands(readOrEmpty(c.get("helpFile")));
 
         CommandSpec root = base(name,
             "flixw " + c.get("flixwVersion") + " -- repository-local Flix bootstrap.",
@@ -597,12 +492,10 @@ final class flixwhelp {
           + " so the wrapper's own verbs retire by themselves as Flix grows.");
 
         for (String v : compilerVerbs) {
-            // A curated spec gives full option/positional fidelity for this one verb; a bare
-            // description string (or none at all) falls back to the regex-derived screen this
-            // project already had, so an uncurated version or a fork loses nothing.
+            // A curated spec gives full option/positional fidelity for this one verb.
             CommandSpec fromSpec = specVerb(c, v);
             if (fromSpec != null) root.addSubcommand(v, new CommandLine(fromSpec));
-            else sub(root, v, desc.getOrDefault(v, ""));
+            else sub(root, v, "");
         }
         for (String v : c.words("wrapperVerbs")) {
             if (compilerVerbs.contains(v)) continue;
@@ -650,8 +543,6 @@ final class flixwhelp {
                 try { root.addOption(opt); } catch (RuntimeException ignored) { }
             for (ArgGroupSpec grp : curatedRoot.get().argGroups())
                 try { root.addArgGroup(grp); } catch (RuntimeException ignored) { }
-        } else if (!c.get("helpFile").isEmpty()) {
-            addOptions(root, readOrEmpty(c.get("helpFile")));
         }
         if (!root.optionsMap().containsKey("--Xhelp")) {
             try {
@@ -855,84 +746,44 @@ final class flixwhelp {
         // exit code instead of replacing a real failure with a successful screen.
         if (probed != null && probed.status != 0) throw new Exit(probed.status);
 
-        Map<String, String> known = commands(help);
-        if (!known.containsKey(name)) {
+        CommandSpec fromSpec = specVerb(c, name);
+        if (fromSpec != null) { render(fromSpec, xhelp); return; }
+
+        List<String> compilerVerbs = c.words("compilerVerbs");
+        if (!compilerVerbs.contains(name) && !c.words("fallbackVerbs").contains(name)) {
             System.err.println("flixw: Flix " + version + " lists no command " + q(name));
-            System.err.println(known.isEmpty()
+            System.err.println(compilerVerbs.isEmpty()
                 ? "       flixw does not recognise this compiler's help layout;"
                 + "\n       run: ./flixw help flix   (to see it unedited)"
-                : "       known commands: " + String.join(" ", known.keySet()));
+                : "       known commands: " + String.join(" ", compilerVerbs));
             throw new Exit(89);
         }
 
-        CommandSpec fromSpec = specVerb(c, name);
-        if (fromSpec != null) { render(fromSpec, xhelp); return; }
-        CommandSpec s = base("./flixw " + name,
-            known.get(name).isEmpty() ? "(the compiler's help gives no description)"
-                                      : known.get(name));
-        addOptions(s, help, name, version);
-        render(s, xhelp);
+        System.out.print(help.endsWith("\n") ? help : help + "\n");
+    }
+
+    static final Set<String> SPECS = Set.of(
+        "flix-0.60.0.picocli", "flix-0.67.0.picocli", "flix-0.67.1.picocli",
+        "flix-0.68.0.picocli", "flix-0.73.0.picocli", "flix-0.75.2.picocli",
+        "flix-0.75.3.picocli", "flix-0.76.0.picocli", "flix-0.76.2.picocli");
+
+    static String specFileForVersion(String version) {
+        if (version == null || version.isEmpty()) return null;
+        String exact = "flix-" + version + ".picocli";
+        if (SPECS.contains(exact)) return exact;
+        if (version.equals("0.76.1")) return "flix-0.76.0.picocli";
+        if (version.startsWith("0.73.") || version.startsWith("0.74.") || version.equals("0.75.0") || version.equals("0.75.1"))
+            return "flix-0.73.0.picocli";
+        if (version.startsWith("0.68.") || version.startsWith("0.69.") || version.startsWith("0.70.") || version.startsWith("0.71.") || version.startsWith("0.72."))
+            return "flix-0.68.0.picocli";
+        if (version.equals("0.67.2")) return "flix-0.67.1.picocli";
+        if (version.startsWith("0.60.") || version.startsWith("0.61.") || version.startsWith("0.62.") || version.startsWith("0.63.") || version.startsWith("0.64.") || version.startsWith("0.65.") || version.startsWith("0.66."))
+            return "flix-0.60.0.picocli";
+        return exact;
     }
 
     /**
-     * Flags read only through the compile-options bag ({@code Flix().setOptions(...)}),
-     * which {@code init} and {@code clean} never construct at all. Before 0.76.1,
-     * {@code build-pkg} did not either; 0.76.1 now checks a configured compiler before it
-     * packages. Traced directly against flix/flix's {@code Main.scala}, not inferred from
-     * {@code --help} text, which draws no distinction between them whatsoever. Every one of
-     * these is grammatically global in the compiler's own scopt parser -- none of this is a
-     * real per-command partition Flix defines -- so a verb loses one only when the source
-     * proves it is never read there. The experimental {@code -X} flags that feed the same
-     * {@code Options(...)} constructor belong here too -- {@code --Xlib}, {@code
-     * --Xno-deprecated}, {@code --Xprint-phases}, {@code --Xsummary}, {@code
-     * --Xsubeffecting}, {@code --Xnewmono}, {@code --Xverify} -- distinct from the {@code --Xbenchmark-*}
-     * flags below, which are not.
-     */
-    static final Set<String> COMPILE_OPTIONS = Set.of(
-        "--entrypoint", "--threads", "--top", "--Xlib", "--Xno-deprecated",
-        "--Xprint-phases", "--Xsummary", "--Xsubeffecting", "--Xnewmono", "--Xverify");
-
-    /** Flags read only when a command resolves dependencies via {@code Bootstrap.bootstrap},
-     *  which {@code init} alone never calls. */
-    static final Set<String> BOOTSTRAP_OPTIONS = Set.of("--github-token", "--no-install");
-
-    /** {@code clean} resolves dependencies but never constructs a compiler instance. */
-    static final Set<String> NON_COMPILING = Set.of("clean");
-
-    /** Before 0.76.1, {@code build-pkg} never constructed a compiler instance either. */
-    static final Set<String> PRE_0761_NON_COMPILING = Set.of("clean", "build-pkg");
-
-    /** {@code --yes} answers a confirmation prompt {@code Bootstrap.release} alone asks. */
-    static final String CONFIRMATION_VERB = "release";
-
-    /** Read only with no command at all ({@code Command.None}) -- each one is checked in
-     *  that branch specifically and nowhere a named verb's own handler runs, so none of
-     *  them is ever applicable to any named verb, on any per-command screen. */
-    static final Set<String> NO_COMMAND_OPTIONS = Set.of("--listen",
-        "--Xbenchmark-code-size", "--Xbenchmark-incremental", "--Xbenchmark-phases",
-        "--Xbenchmark-frontend", "--Xbenchmark-throughput");
-
-    static boolean appliesToVerb(String flag, String verb, String version) {
-        if (NO_COMMAND_OPTIONS.contains(flag)) return false;
-        if (flag.equals("--yes")) return verb.equals(CONFIRMATION_VERB);
-        if (verb.equals("init"))
-            return !COMPILE_OPTIONS.contains(flag) && !BOOTSTRAP_OPTIONS.contains(flag);
-        Set<String> nonCompiling = version.equals("0.76.1") || version.equals("0.76.2")
-            ? NON_COMPILING : PRE_0761_NON_COMPILING;
-        if (nonCompiling.contains(verb)) return !COMPILE_OPTIONS.contains(flag);
-        return true;
-    }
-
-    /** Versions whose upstream Main.scala source the table above has been re-traced against. */
-    static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0", "0.76.1", "0.76.2");
-
-    /**
-     * The curated spec for one compiler version, or empty when none has been authored --
-     * the graceful-fallback half of the spec-driven path: an uncurated or custom build keeps
-     * getting {@link #appliesToVerb}'s regex-derived screen exactly as before. A spec that
-     * fails to parse is treated the same as a missing one rather than thrown, since a syntax
-     * issue in a spec file must not turn every {@code help}/{@code completion} invocation into a
-     * hard failure.
+     * The curated spec for one compiler version, or empty when none has been authored.
      *
      * <p>Loads on-demand: first from classpath resource {@code /specs/flix-<version>.picocli}
      * (bundled inside {@code picocli.jar}), falling back to {@code src/assets/picocli/flix-<version>.picocli}
@@ -940,7 +791,8 @@ final class flixwhelp {
      */
     static Optional<CommandSpec> loadSpec(String version) {
         if (version == null || version.isEmpty()) return Optional.empty();
-        String name = "flix-" + version + ".picocli";
+        String name = specFileForVersion(version);
+        if (name == null) return Optional.empty();
         // 1. Check classpath resource (bundled in picocli.jar under /specs/)
         try (InputStream in = flixwhelp.class.getResourceAsStream("/specs/" + name)) {
             if (in != null) {
@@ -979,10 +831,10 @@ final class flixwhelp {
     }
 
     /**
-     * The spec-derived model for one compiler verb, gated the same way {@link
-     * #appliesToVerb}'s table is: only when this run has already established the pinned
-     * compiler is genuinely upstream at that exact version, never for {@code FLIX_JAR}, a
-     * fork, or a selected local compiler, none of which this spec was authored against.
+     * The spec-derived model for one compiler verb, gated by provenance: only when
+     * this run has already established the pinned compiler is genuinely upstream
+     * at that exact version, never for {@code FLIX_JAR}, a fork, or a selected
+     * local compiler, none of which this spec was authored against.
      */
     static CommandSpec specVerb(Ctx c, String name) {
         if (!"true".equals(c.get("upstream"))) return null;
@@ -1007,52 +859,6 @@ final class flixwhelp {
         System.out.println("For it straight from the compiler instead: ./flixw -- --help");
         System.out.println();
         System.out.print(help.endsWith("\n") ? help : help + "\n");
-    }
-
-    static void addOptions(CommandSpec s, String help) {
-        addOptions(s, help, null, "");
-    }
-
-    /** {@code verb} narrows to {@link #appliesToVerb}; null keeps every captured option,
-     *  which is what the root tree (shared by completion and the top-level screen) needs --
-     *  a completer must offer everything a bare {@code ./flixw <verb>} accepts, not one
-     *  command's curated subset. */
-    static void addOptions(CommandSpec s, String help, String verb, String version) {
-        boolean hasX = false;
-        ArgGroupSpec.Builder expGroup = ArgGroupSpec.builder()
-            .heading("The following options are experimental:%n")
-            .helpSection("experimental");
-
-        for (Map.Entry<String, String[]> e : options(help).entrySet()) {
-            String[] o = e.getValue();
-            if (verb != null && !appliesToVerb(e.getKey(), verb, version)) continue;
-            boolean isX = e.getKey().startsWith("--X");
-            List<String> names = new ArrayList<>();
-            if (!o[0].isEmpty()) names.add(o[0]);
-            if (!o[1].isEmpty()) names.add(o[1]);
-            OptionSpec.Builder b = OptionSpec.builder(names.toArray(new String[0]))
-                                             .description(o[3]);
-            if (!o[2].isEmpty()) b.paramLabel("<" + o[2] + ">").arity("1");
-            OptionSpec opt = b.build();
-            if (isX) {
-                hasX = true;
-                expGroup.addArg(opt);
-            } else {
-                try { s.addOption(opt); } catch (RuntimeException ignored) { }
-            }
-        }
-        if (hasX) {
-            try { s.addArgGroup(expGroup.build()); } catch (RuntimeException ignored) { }
-            if (!s.optionsMap().containsKey("--Xhelp")) {
-                try {
-                    s.addOption(OptionSpec.builder("--Xhelp")
-                        .usageHelp(true)
-                        .helpSection("experimental")
-                        .description("shows the experimental options for this command.")
-                        .build());
-                } catch (RuntimeException ignored) { }
-            }
-        }
     }
 
     /**

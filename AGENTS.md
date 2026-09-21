@@ -115,15 +115,15 @@ the bounds on `runCapture`, the four completion scripts with the note they read,
 flag's arity until `captureHelp` started normalizing line endings), `autoRunBoundary`, and
 `isUpstream` (the provenance gate excluding a fork, `FLIX_JAR`, or selected local compiler
 from both
-`autoRunBoundary` and `help flix <command>`'s option curation), a truth table over every
-curated option/verb rule, `.flixw/local/compiler.toml` selection and precedence beneath
+`autoRunBoundary` and `help flix <command>`'s spec routing), curated picocli specs covering
+each compiler version range, `.flixw/local/compiler.toml` selection and precedence beneath
 `FLIX_JAR`, the `.flixw/local/editor-jar.toml` round-trip `ownsEditorJar` reads to tell its
 own prior write from a stranger's file, `flixw-local.java`'s
 manifest reading (`[package]` fields, bare-string and inline-table `[dependencies]`
 entries) and `.flixw/local/packages.toml` round-trip, the `tag_name` extraction
 `--upgrade --pre-release` reads out of a GitHub releases API response, and that every
 `WRAPPER_VERBS` entry renders a real description in `flixw-help.java`'s `wrapperDesc`
-rather than the blank line `local` shipped with — 460 assertions in total.
+rather than the blank line `local` shipped with — 513 assertions in total.
 Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
