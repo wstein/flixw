@@ -1,0 +1,159 @@
+// Realistic picocli-spec DSL for the real flix CLI (v0.67.0, covering v0.67.0), based on
+// structural analysis of flix's own scopt-based parser (Main.scala) and Bootstrap.scala at git
+// tag v0.67.0.
+//
+// Introduces the 'clean' command ("recursively removes class files from the build directory."),
+// which delegates to Bootstrap#clean() via Bootstrap.bootstrap(cwd, options.githubToken) and
+// therefore uses dependencyResolution.
+//
+// Standard help/version options are provided via mixinStandardHelpOptions and genuinely short-circuit execution.
+// Shared options/positionals are declared once in definitions { ... } and referenced by name
+// (option --explain, no ':') rather than via inheritance.
+
+definitions {
+  option --explain : boolean "provides suggestions on how to solve a problem."
+  option --json : boolean "enables json output."
+  option --github-token : String "API key to use for GitHub dependency resolution."
+  option --no-install : boolean "disables automatic installation of dependencies."
+  option --threads : int "number of threads to use for compilation."
+  option --entrypoint : String "specifies the main entry point."
+  option --yes : boolean "automatically answer yes to all prompts."
+
+  // Not part of real flix's own --help; this proxy's own addition, paired with hiding the
+  // --X* flags from standard help. Triggers rendering of the "experimental" help section.
+  option --Xhelp : boolean "shows the experimental options for this command." helpSection="experimental"
+
+  option --Xbenchmark-code-size : boolean "[experimental] benchmarks the size of the generated JVM files."
+  option --Xbenchmark-incremental : boolean "[experimental] benchmarks the performance of each compiler phase in incremental mode."
+  option --Xbenchmark-phases : boolean "[experimental] benchmarks the performance of each compiler phase."
+  option --Xbenchmark-frontend : boolean "[experimental] benchmarks the performance of the frontend."
+  option --Xbenchmark-throughput : boolean "[experimental] benchmarks the performance of the entire compiler."
+  option --Xlib : String "[experimental] controls the amount of std. lib. to include (nix, min, all)."
+  option --Xno-deprecated : boolean "[experimental] disables deprecated features."
+  option --Xprint-phases : boolean "[experimental] prints the ASTs after the each phase."
+  option --Xsummary : boolean "[experimental] prints a summary of the compiled modules."
+  option --Xfuzzer : boolean "[experimental] enables compiler fuzzing."
+  option --Xprint-typer : String "[experimental] writes constraints to dot files."
+  option --Xsubeffecting : String "[experimental] enables sub-effecting in select places"
+  option --Xchaos-monkey : boolean "[experimental] introduces randomness."
+  option --Xiterations : int "[experimental] sets the maximum number of constraint resolution iterations during typechecking"
+
+  // Bundles the 14 flags above, under the hidden/heading group, so each of check/build/run/test
+  // can pull in the whole thing with one "use xflags" instead of repeating both the group
+  // wrapper and every option name.
+  bundle xflags {
+    group cooperative helpSection="experimental" "The following options are experimental:%n" {
+      option --Xbenchmark-code-size
+      option --Xbenchmark-incremental
+      option --Xbenchmark-phases
+      option --Xbenchmark-frontend
+      option --Xbenchmark-throughput
+      option --Xlib
+      option --Xno-deprecated
+      option --Xprint-phases
+      option --Xsummary
+      option --Xfuzzer
+      option --Xprint-typer
+      option --Xsubeffecting
+      option --Xchaos-monkey
+      option --Xiterations
+    }
+  }
+
+  positional files : Path[] "input Flix source code files, Flix packages, and Java archives." arity=0..*
+
+  // The 11 commands needing GitHub-backed dependency resolution always need both together;
+  // 9 of those 11 also need --threads (all but outdated and clean, which don't compile anything)
+  // -- so compileOptions builds on dependencyResolution rather than duplicating it.
+  bundle dependencyResolution {
+    option --github-token
+    option --no-install
+  }
+
+  bundle compileOptions {
+    use dependencyResolution
+    option --threads
+  }
+
+  // check/build/test are identical bodies; run adds --args/--entrypoint on top. All four are the
+  // "compile something and report on it" commands, so this bundle captures that whole shape.
+  bundle devLoop {
+    use compileOptions
+    option --explain
+    option --json
+    option --Xhelp
+    use xflags
+    positional files
+  }
+}
+
+command flix "The Flix Programming Language 0.67.0" {
+  mixinStandardHelpOptions
+  option --listen : int "starts the socket server and listens on the given port."
+
+  command init "creates a new project in the current directory." {
+    option --yes
+  }
+
+  command check "checks the current project for errors." {
+    use devLoop
+  }
+
+  command build "builds (i.e. compiles) the current project." {
+    use devLoop
+  }
+
+  command build-jar "builds a jar-file from the current project." {
+    option --entrypoint
+    use compileOptions
+  }
+
+  command build-fatjar "builds a fatjar-file from the current project." {
+    option --entrypoint
+    use compileOptions
+  }
+
+  command build-pkg "builds a fpkg-file from the current project." {
+    use compileOptions
+    option --yes
+  }
+
+  command clean "recursively removes class files from the build directory." {
+    use dependencyResolution
+  }
+
+  command doc "generates API documentation." {
+    use compileOptions
+  }
+
+  command run "runs main for the current project." {
+    use devLoop
+    option --args : String "arguments passed to main. Must be a single quoted string."
+    option --entrypoint
+  }
+
+  command test "runs the tests for the current project." {
+    use devLoop
+  }
+
+  command repl "starts a repl for the current project, or provided Flix source files." {
+    use compileOptions
+    positional files
+  }
+
+  command lsp "starts the Plain-LSP server." {}
+
+  command lsp-vscode "starts the VSCode-LSP server and listens on the given port." {
+    positional port : int "the port to listen on." required
+  }
+
+  command release "releases a new version to GitHub." {
+    use compileOptions
+    option --yes
+  }
+
+  command outdated "shows dependencies which have newer versions available." {
+    use dependencyResolution
+    option --json
+  }
+}

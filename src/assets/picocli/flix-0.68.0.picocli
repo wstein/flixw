@@ -1,0 +1,152 @@
+// Realistic picocli-spec DSL for the real flix CLI (v0.68.0, covering v0.68.0 - v0.72.0), based
+// on structural analysis of flix's own scopt-based parser (Main.scala) and Bootstrap.scala at git
+// tag v0.68.0.
+//
+// Key changes in this version:
+// 1. Introduces the 'eff-check' and 'eff-lock' commands ("checks that dependencies respect the
+//    'effects.lock' file." and "locks the current effect signatures."), both compiling through
+//    Bootstrap#checkEffects / Bootstrap#lockEffects and using compileOptions.
+// 2. Removes the --explain option from the compiler CLI.
+//
+// Standard help/version options are provided via mixinStandardHelpOptions and genuinely short-circuit execution.
+// Shared options/positionals are declared once in definitions { ... } and pulled in via "use".
+
+definitions {
+  option --github-token : String "API key to use for GitHub dependency resolution."
+  option --no-install : boolean "disables automatic installation of dependencies."
+  option --threads : int "number of threads to use for compilation."
+  option --entrypoint : String "specifies the main entry point."
+  option --yes : boolean "automatically answer yes to all prompts."
+
+  // Not part of real flix's own --help; this proxy's own addition, paired with hiding the
+  // --X* flags from standard help. Triggers rendering of the "experimental" help section.
+  option --Xhelp : boolean "shows the experimental options for this command." helpSection="experimental"
+
+  option --Xbenchmark-code-size : boolean "[experimental] benchmarks the size of the generated JVM files."
+  option --Xbenchmark-incremental : boolean "[experimental] benchmarks the performance of each compiler phase in incremental mode."
+  option --Xbenchmark-phases : boolean "[experimental] benchmarks the performance of each compiler phase."
+  option --Xbenchmark-frontend : boolean "[experimental] benchmarks the performance of the frontend."
+  option --Xbenchmark-throughput : boolean "[experimental] benchmarks the performance of the entire compiler."
+  option --Xlib : String "[experimental] controls the amount of std. lib. to include (nix, min, all)."
+  option --Xno-deprecated : boolean "[experimental] disables deprecated features."
+  option --Xprint-phases : boolean "[experimental] prints the ASTs after the each phase."
+  option --Xsummary : boolean "[experimental] prints a summary of the compiled modules."
+  option --Xsubeffecting : String "[experimental] enables sub-effecting in select places"
+
+  // 10 experimental flags for this version.
+  bundle xflags {
+    group cooperative helpSection="experimental" "The following options are experimental:%n" {
+      option --Xbenchmark-code-size
+      option --Xbenchmark-incremental
+      option --Xbenchmark-phases
+      option --Xbenchmark-frontend
+      option --Xbenchmark-throughput
+      option --Xlib
+      option --Xno-deprecated
+      option --Xprint-phases
+      option --Xsummary
+      option --Xsubeffecting
+    }
+  }
+
+  // Only check, doc, format, and test accept file arguments.
+  positional files : Path[] "input Flix source code files, Flix packages, and Java archives." arity=0..*
+
+  bundle dependencyResolution {
+    option --github-token
+    option --no-install
+  }
+
+  bundle compileOptions {
+    use dependencyResolution
+    option --threads
+  }
+
+  bundle devLoop {
+    use compileOptions
+    option --Xhelp
+    use xflags
+  }
+}
+
+command flix "The Flix Programming Language 0.68.0" {
+  mixinStandardHelpOptions
+  option --json : boolean "enables json output."
+  option --listen : int "starts the socket server and listens on the given port."
+
+  command init "creates a new project in the current directory." {}
+
+  command check "checks the current project for errors." {
+    use devLoop
+    positional files
+  }
+
+  command build "builds (i.e. compiles) the current project." {
+    use devLoop
+  }
+
+  command build-jar "builds a jar-file from the current project." {
+    option --entrypoint
+    use compileOptions
+  }
+
+  command build-fatjar "builds a fatjar-file from the current project." {
+    option --entrypoint
+    use compileOptions
+  }
+
+  command build-pkg "builds a fpkg-file from the current project." {
+    use compileOptions
+  }
+
+  command clean "recursively removes class files from the build directory." {
+    use dependencyResolution
+  }
+
+  command doc "generates API documentation." {
+    use compileOptions
+    positional files
+  }
+
+  command format "formats Flix source code files." {
+    use compileOptions
+    positional files
+  }
+
+  command run "runs main for the current project." {
+    use devLoop
+    option --entrypoint
+  }
+
+  command test "runs the tests for the current project." {
+    use devLoop
+    positional files
+  }
+
+  command repl "starts a repl for the current project, or provided Flix source files." {
+    use compileOptions
+  }
+
+  command lsp "starts the Plain-LSP server." {}
+
+  command lsp-vscode "starts the VSCode-LSP server and listens on the given port." {
+    positional port : int "the port to listen on." required
+  }
+
+  command release "releases a new version to GitHub." {
+    use compileOptions
+    option --yes
+  }
+
+  command outdated "shows dependencies which have newer versions available." {
+    use dependencyResolution
+  }
+
+  command eff-check "checks that dependencies respect the 'effects.lock' file." {
+    use compileOptions
+  }
+
+  command eff-lock "locks the current effect signatures." {
+    use compileOptions
+  }
+}
