@@ -752,7 +752,7 @@ public final class UnitCheck {
            String.valueOf(runHelpCapture(new String[]{treeCtx.toString(), "flix-direct", "build", "--Xhelp"}, buildXCapture)));
         String buildXOut = buildXCapture.toString();
         eq("help: build --Xhelp renders experimental heading", "true",
-           String.valueOf(buildXOut.contains("The following options are experimental:")));
+           String.valueOf(buildXOut.contains("The following options are experimental:") || buildXOut.contains("The following options and commands are experimental:")));
         eq("help: build --Xhelp renders experimental options", "true",
            String.valueOf(buildXOut.contains("--Xbenchmark-code-size")));
 
@@ -769,6 +769,17 @@ public final class UnitCheck {
         eq("exactCompilerHelp: [build, --experimental-help]", "true", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build", "--experimental-help"))));
         eq("exactCompilerHelp: [build, --help, extra]", "false", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build", "--help", "extra"))));
         eq("exactCompilerHelp: [build]", "false", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build"))));
+
+        // Subcommands tagged with helpSection in picocli spec (eff-check, eff-lock)
+        var spec0762 = flixwhelp.loadSpec("0.76.2").orElseThrow();
+        eq("subcommand: eff-check has helpSection experimental", "experimental",
+           spec0762.subcommands().get("eff-check").getCommandSpec().helpSection());
+        eq("subcommand: eff-lock has helpSection experimental", "experimental",
+           spec0762.subcommands().get("eff-lock").getCommandSpec().helpSection());
+        eq("section: root has experimental HelpSectionSpec", "true",
+           String.valueOf(spec0762.helpSectionSpec("experimental") != null));
+        eq("section: emptyMessage is present", "No experimental options for this command.",
+           spec0762.helpSectionSpec("experimental").emptyMessage());
     }
 
     /**

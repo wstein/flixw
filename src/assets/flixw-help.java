@@ -18,6 +18,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Model.ArgGroupSpec;
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Model.HelpSectionSpec;
 import picocli.CommandLine.Model.OptionSpec;
 import picocli.CommandLine.Model.PositionalParamSpec;
 import picocli.CommandLine.Model.UsageMessageSpec;
@@ -284,7 +285,10 @@ final class flixwhelp {
                 System.out.print(exp.endsWith("\n") ? exp : exp + "\n");
                 return;
             }
-            System.out.println("No experimental options for this command.");
+            HelpSectionSpec secSpec = spec.helpSectionSpec(section);
+            String empty = (secSpec != null && secSpec.emptyMessage() != null && !secSpec.emptyMessage().isEmpty())
+                ? secSpec.emptyMessage() : "No experimental options for this command.";
+            System.out.println(empty.endsWith("\n") ? empty.stripTrailing() : empty);
             return;
         }
         cl.usage(System.out);
@@ -548,10 +552,19 @@ final class flixwhelp {
         Optional<CommandSpec> curatedRoot = "true".equals(c.get("upstream"))
             ? loadSpec(c.get("compilerVersion")) : Optional.empty();
         if (curatedRoot.isPresent()) {
-            for (OptionSpec opt : curatedRoot.get().options())
+            CommandSpec cs = curatedRoot.get();
+            for (OptionSpec opt : cs.options())
                 try { root.addOption(opt); } catch (RuntimeException ignored) { }
-            for (ArgGroupSpec grp : curatedRoot.get().argGroups())
+            for (ArgGroupSpec grp : cs.argGroups())
                 try { root.addArgGroup(grp); } catch (RuntimeException ignored) { }
+            for (HelpSectionSpec sec : cs.helpSectionSpecs().values())
+                try { root.addHelpSectionSpec(sec); } catch (RuntimeException ignored) { }
+            for (String secName : cs.helpSections()) {
+                Optional<OptionSpec> trig = cs.findHelpSectionTrigger(secName);
+                if (trig.isPresent() && !root.optionsMap().containsKey(trig.get().longestName())) {
+                    try { root.addOption(trig.get()); } catch (RuntimeException ignored) { }
+                }
+            }
         }
         if (!root.optionsMap().containsKey("--Xhelp")) {
             try {

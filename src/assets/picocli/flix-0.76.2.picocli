@@ -91,6 +91,7 @@ definitions {
 
 command flix "The Flix Programming Language 0.76.2" {
   mixinStandardHelpOptions
+  section experimental "The following options and commands are experimental:%n" emptyMessage="No experimental options for this command."
 
   // Confirmed (Main.scala) to affect nothing except --version's own output in this version --
   // no subcommand reads it. Kept top-level, paired with --version, not attached to any command.
@@ -191,11 +192,11 @@ command flix "The Flix Programming Language 0.76.2" {
     use compileOptions
   }
 
-  command eff-check "checks that dependencies respect the 'effects.lock' file." {
+  command eff-check helpSection="experimental" "checks that dependencies respect the 'effects.lock' file." {
     use compileOptions
   }
 
-  command eff-lock "locks the current effect signatures." {
+  command eff-lock helpSection="experimental" "locks the current effect signatures." {
     use compileOptions
   }
 }

@@ -95,6 +95,7 @@ definitions {
 
 command flix "The Flix Programming Language 0.60.0" {
   mixinStandardHelpOptions
+  section experimental "The following options and commands are experimental:%n" emptyMessage="No experimental options for this command."
   option --listen : int "starts the socket server and listens on the given port."
 
   command init "creates a new project in the current directory." {
