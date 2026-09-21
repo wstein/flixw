@@ -711,6 +711,28 @@ public final class UnitCheck {
     }
 
     /**
+     * {@code loadSpec} reads a picocli-spec DSL for one curated compiler version -- exact
+     * command/option/positional fidelity, in place of {@link #curationTruthTable}'s
+     * hand-maintained approximation, for the one version a spec has been authored for.
+     * An untraced version must fall back rather than guess, the same way an untraced
+     * version already falls back out of {@code CURATED_UPSTREAM_VERSIONS}.
+     */
+    static void curatedSpecs() {
+        eq("specs: no curated spec for an untraced version", "true",
+           String.valueOf(flixwhelp.loadSpec("0.75.3").isEmpty()));
+        var spec = flixwhelp.loadSpec("0.76.2");
+        eq("specs: 0.76.2 is curated", "true", String.valueOf(spec.isPresent()));
+        var check = spec.get().subcommands().get("check");
+        eq("specs: check is a subcommand of the curated spec", "true",
+           String.valueOf(check != null));
+        eq("specs: check keeps its own positional", "1",
+           String.valueOf(check.getCommandSpec().positionalParameters().size()));
+        var install = spec.get().subcommands().get("install");
+        eq("specs: install's package argument is required", "true",
+           String.valueOf(install.getCommandSpec().positionalParameters().get(0).required()));
+    }
+
+    /**
      * {@code .flixw/local/editor-jar.toml} round-trips, and {@code ownsEditorJar} is the
      * one check standing between a future {@code ./flixw pin --editor-jar=copy} and
      * silently overwriting a file this project's flixw never created.
@@ -1669,6 +1691,7 @@ public final class UnitCheck {
         releaseAssets();
         optionRows();
         curationTruthTable();
+        curatedSpecs();
         editorJarPrefs();
         localCompilerPrefs();
         pluginDescription();

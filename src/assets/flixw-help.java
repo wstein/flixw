@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -19,6 +20,7 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.OptionSpec;
 import picocli.CommandLine.Model.PositionalParamSpec;
 import picocli.CommandLine.Model.UsageMessageSpec;
+import picocli.spec.CommandSpecDsl;
 
 /**
  * Renders {@code ./flixw help}: a wrapper-owned companion asset, not a plugin.
@@ -501,7 +503,14 @@ final class flixwhelp {
             "Dispatch is compiler-first: a word the compiler implements goes to the compiler,"
           + " so the wrapper's own verbs retire by themselves as Flix grows.");
 
-        for (String v : compilerVerbs) sub(root, v, desc.getOrDefault(v, ""));
+        for (String v : compilerVerbs) {
+            // A curated spec gives full option/positional fidelity for this one verb; a bare
+            // description string (or none at all) falls back to the regex-derived screen this
+            // project already had, so an uncurated version or a fork loses nothing.
+            CommandSpec fromSpec = specVerb(c, v);
+            if (fromSpec != null) root.addSubcommand(v, new CommandLine(fromSpec));
+            else sub(root, v, desc.getOrDefault(v, ""));
+        }
         for (String v : c.words("wrapperVerbs"))
             if (!compilerVerbs.contains(v)) sub(root, v, "(wrapper) " + wrapperDesc(v));
         // `wrapper` and `completion` are words a user types and neither is in WRAPPER_VERBS:
@@ -604,12 +613,16 @@ final class flixwhelp {
 
         // Layout alone proves neither provenance nor flag meaning; upstream protects forks,
         // and layout protects a future upstream parser change. Curation only omits options.
-        boolean curated = format(help).equals("scopt-v1") && "true".equals(c.get("upstream"))
-                       && CURATED_UPSTREAM_VERSIONS.contains(version);
+        // A curated spec is the same guarantee at higher fidelity, so it counts as curated too.
+        CommandSpec fromSpec = specVerb(c, name);
+        boolean curated = fromSpec != null
+                       || (format(help).equals("scopt-v1") && "true".equals(c.get("upstream"))
+                       && CURATED_UPSTREAM_VERSIONS.contains(version));
         if (direct && !curated) {
             System.out.print(help.endsWith("\n") ? help : help + "\n");
             return;
         }
+        if (fromSpec != null) { render(fromSpec); return; }
         CommandSpec s = base("./flixw " + name,
             known.get(name).isEmpty() ? "(the compiler's help gives no description)"
                                       : known.get(name));
@@ -668,6 +681,217 @@ final class flixwhelp {
 
     /** Versions whose upstream Main.scala source the table above has been re-traced against. */
     static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0", "0.76.1");
+
+    /**
+     * A picocli-spec DSL description of the real {@code flix} CLI for one compiler version,
+     * giving exact command/option/positional fidelity instead of {@link #appliesToVerb}'s
+     * hand-maintained approximation over the compiler's own {@code --help} text.
+     *
+     * <p>The canonical, reviewable copy of this text lives at {@code
+     * src/assets/picocli/flix-0.76.2.picocli} -- edit that file and this constant together,
+     * the same convention the shim templates already follow, and see the README beside it
+     * for how another version is added.
+     */
+    static final String FLIX_0_76_2_SPEC = """
+        definitions {
+          option --github-token : String "API key to use for GitHub dependency resolution."
+          option --no-install : boolean "disables automatic installation of dependencies."
+          option --threads : int "number of threads to use for compilation."
+          option --top : boolean "displays a live view of where the compiler spends its time."
+          option --entrypoint : String "specifies the main entry point."
+          option --yes : boolean "automatically answer yes to all prompts."
+          option --library : boolean "documents the bundled library instead of the current project."
+
+          option --Xhelp : boolean "shows the experimental options for this command." helpSection="experimental"
+
+          option --Xbenchmark-code-size : boolean "[experimental] benchmarks the size of the generated JVM files."
+          option --Xbenchmark-incremental : boolean "[experimental] benchmarks the performance of each compiler phase in incremental mode."
+          option --Xbenchmark-phases : boolean "[experimental] benchmarks the performance of each compiler phase."
+          option --Xbenchmark-frontend : boolean "[experimental] benchmarks the performance of the frontend."
+          option --Xbenchmark-throughput : boolean "[experimental] benchmarks the performance of the entire compiler."
+          option --Xlib : String "[experimental] controls the amount of std. lib. to include (nix, min, all)."
+          option --Xno-deprecated : boolean "[experimental] disables deprecated features."
+          option --Xprint-phases : boolean "[experimental] writes the ASTs after each phase to './build/asts/'."
+          option --Xverify : boolean "[experimental] enables internal verifiers of compiler invariants."
+          option --Xsubeffecting : String "[experimental] enables sub-effecting in select places"
+          option --Xnewmono : boolean "[experimental] uses the constraint-based monomorphization pipeline instead of the demand-driven one."
+
+          bundle xflags {
+            group cooperative helpSection="experimental" "The following options are experimental:%n" {
+              option --Xbenchmark-code-size
+              option --Xbenchmark-incremental
+              option --Xbenchmark-phases
+              option --Xbenchmark-frontend
+              option --Xbenchmark-throughput
+              option --Xlib
+              option --Xno-deprecated
+              option --Xprint-phases
+              option --Xverify
+              option --Xsubeffecting
+              option --Xnewmono
+            }
+          }
+
+          positional files : Path[] "input Flix source code files." arity=0..*
+
+          bundle dependencyResolution {
+            option --github-token
+            option --no-install
+          }
+
+          bundle compileOptions {
+            use dependencyResolution
+            option --threads
+            option --top
+          }
+
+          bundle devLoop {
+            use compileOptions
+            option --Xhelp
+            use xflags
+          }
+        }
+
+        command flix "The Flix Programming Language 0.76.2" {
+          mixinStandardHelpOptions
+
+          option --json : boolean "enables json output."
+          option --listen : int "starts the socket server and listens on the given port."
+
+          command init "creates a new project in the current directory." {}
+
+          command check "checks the current project for errors." {
+            use devLoop
+            positional files
+          }
+
+          command build "builds (i.e. compiles) the current project." {
+            use devLoop
+          }
+
+          command build-classes "builds the current project and writes the class files to the build directory." {
+            use compileOptions
+          }
+
+          command build-jar "builds a jar-file from the current project." {
+            option --entrypoint
+            use compileOptions
+          }
+
+          command build-fatjar "builds a fatjar-file from the current project." {
+            option --entrypoint
+            use compileOptions
+          }
+
+          command build-pkg "builds a fpkg-file from the current project." {
+            use compileOptions
+          }
+
+          command clean "removes the build directory (class files and generated documentation)." {
+            use dependencyResolution
+          }
+
+          command doc "generates API documentation." {
+            use compileOptions
+            option --library
+            positional files
+          }
+
+          command format "formats Flix source code files." {
+            use compileOptions
+            positional files
+          }
+
+          command run "runs main for the current project." {
+            option --entrypoint
+            use devLoop
+          }
+
+          command test "runs the tests for the current project." {
+            use devLoop
+            positional files
+          }
+
+          command repl "starts a repl for the current project, or provided Flix source files." {
+            use compileOptions
+          }
+
+          command lsp "starts the Plain-LSP server." {}
+
+          command lsp-vscode "starts the VSCode-LSP server and listens on the given port." {
+            positional port : int "the port number to listen on." required
+          }
+
+          command release "releases a new version to GitHub." {
+            use compileOptions
+            option --yes
+          }
+
+          command install "adds a dependency to the current project." {
+            option --github-token
+            option --yes
+            positional package : String "the package to add, e.g. 'flix/museum-clerk' or 'flix/museum-clerk@1.1.0'." required
+          }
+
+          command remove "removes a dependency from the current project." {
+            option --github-token
+            positional package : String "the package to remove, e.g. 'flix/museum-clerk'." required
+          }
+
+          command upgrade "declares a dependency of the current project at another version." {
+            option --github-token
+            positional package : String "the package to upgrade, e.g. 'flix/museum-clerk' or 'flix/museum-clerk@1.1.0'." required
+          }
+
+          command outdated "shows dependencies which have newer versions available." {
+            use dependencyResolution
+          }
+
+          command stat "prints statistics about the current project." {
+            use compileOptions
+          }
+
+          command eff-check "checks that dependencies respect the 'effects.lock' file." {
+            use compileOptions
+          }
+
+          command eff-lock "locks the current effect signatures." {
+            use compileOptions
+          }
+        }
+        """;
+
+    /** Every compiler version a spec has been authored and round-trip tested for. */
+    static final Map<String, String> CURATED_SPECS = Map.of("0.76.2", FLIX_0_76_2_SPEC);
+
+    /**
+     * The curated spec for one compiler version, or empty when none has been authored --
+     * the graceful-fallback half of the spec-driven path: an uncurated or custom build keeps
+     * getting {@link #appliesToVerb}'s regex-derived screen exactly as before. A spec that
+     * fails to parse is treated the same as a missing one rather than thrown, since a bug in
+     * this constant must not turn every {@code help}/{@code completion} invocation into a
+     * hard failure.
+     */
+    static Optional<CommandSpec> loadSpec(String version) {
+        String dsl = CURATED_SPECS.get(version);
+        if (dsl == null) return Optional.empty();
+        try { return Optional.of(CommandSpecDsl.parse(dsl)); }
+        catch (RuntimeException e) { return Optional.empty(); }
+    }
+
+    /**
+     * The spec-derived model for one compiler verb, gated the same way {@link
+     * #appliesToVerb}'s table is: only when this run has already established the pinned
+     * compiler is genuinely upstream at that exact version, never for {@code FLIX_JAR}, a
+     * fork, or a selected local compiler, none of which this spec was authored against.
+     */
+    static CommandSpec specVerb(Ctx c, String name) {
+        if (!"true".equals(c.get("upstream"))) return null;
+        return loadSpec(c.get("compilerVersion"))
+            .map(s -> s.subcommands().get(name))
+            .map(CommandLine::getCommandSpec)
+            .orElse(null);
+    }
 
     /**
      * The compiler's own help, verbatim.
