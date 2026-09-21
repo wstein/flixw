@@ -1,0 +1,200 @@
+// Realistic picocli-spec DSL for the real flix CLI (v0.76.2), based on structural analysis of
+// flix's own scopt-based parser (Main.scala) and its command implementations (Bootstrap.scala),
+// read directly from git tag v0.76.2 (https://github.com/flix/flix/tree/v0.76.2/main/src/ca/
+// uwaterloo/flix) -- precisely because scopt only records which text is a global option, never
+// which subcommands actually consult it, or whether a subcommand even accepts file arguments.
+// Confirmed empirically against the actual flix-0.76.2 jar (`--help`, plus running
+// build/run/repl/check/test/doc/format with a loose file argument, `--version --json`,
+// `check --json`, `--listen` standalone, and `init --yes`/`build-pkg`).
+//
+// Origin: picocli-spec/examples/flix-0.76.2.picocli in https://github.com/wstein/picocli
+// (develop branch); copied here rather than fetched at run time -- see README.md in this
+// directory for how flixw-help.java resolves and falls back when no spec matches the
+// pinned compiler version.
+//
+// Standard help/version options are provided via mixinStandardHelpOptions and genuinely short-circuit execution.
+// Shared options/positionals/groups are declared once in definitions { ... } as bundles and pulled
+// in via "use" -- see the picocli-spec module README's "Reusable bundles" section.
+
+definitions {
+  option --github-token : String "API key to use for GitHub dependency resolution."
+  option --no-install : boolean "disables automatic installation of dependencies."
+  option --threads : int "number of threads to use for compilation."
+  option --top : boolean "displays a live view of where the compiler spends its time."
+  option --entrypoint : String "specifies the main entry point."
+  option --yes : boolean "automatically answer yes to all prompts."
+  option --library : boolean "documents the bundled library instead of the current project."
+
+  // Not part of real flix's own --help; this proxy's own addition, paired with hiding the
+  // --X* flags from standard help. Triggers rendering of the "experimental" help section.
+  option --Xhelp : boolean "shows the experimental options for this command." helpSection="experimental"
+
+  option --Xbenchmark-code-size : boolean "[experimental] benchmarks the size of the generated JVM files."
+  option --Xbenchmark-incremental : boolean "[experimental] benchmarks the performance of each compiler phase in incremental mode."
+  option --Xbenchmark-phases : boolean "[experimental] benchmarks the performance of each compiler phase."
+  option --Xbenchmark-frontend : boolean "[experimental] benchmarks the performance of the frontend."
+  option --Xbenchmark-throughput : boolean "[experimental] benchmarks the performance of the entire compiler."
+  option --Xlib : String "[experimental] controls the amount of std. lib. to include (nix, min, all)."
+  option --Xno-deprecated : boolean "[experimental] disables deprecated features."
+  option --Xprint-phases : boolean "[experimental] writes the ASTs after each phase to './build/asts/'."
+  option --Xverify : boolean "[experimental] enables internal verifiers of compiler invariants."
+  option --Xsubeffecting : String "[experimental] enables sub-effecting in select places"
+  option --Xnewmono : boolean "[experimental] uses the constraint-based monomorphization pipeline instead of the demand-driven one."
+
+  // 11 experimental flags for this version (down from 14 in flix-0.60.0.picocli: Xsummary,
+  // Xfuzzer, Xprint-typer, and Xchaos-monkey are gone from the CLI; Xverify and Xnewmono are new).
+  bundle xflags {
+    group cooperative helpSection="experimental" "The following options are experimental:%n" {
+      option --Xbenchmark-code-size
+      option --Xbenchmark-incremental
+      option --Xbenchmark-phases
+      option --Xbenchmark-frontend
+      option --Xbenchmark-throughput
+      option --Xlib
+      option --Xno-deprecated
+      option --Xprint-phases
+      option --Xverify
+      option --Xsubeffecting
+      option --Xnewmono
+    }
+  }
+
+  // Only check/doc/format/test actually read cmdOpts.files (confirmed in Bootstrap.scala) --
+  // build/run/repl do NOT accept file arguments in this version and so do not reference this
+  // positional.
+  positional files : Path[] "input Flix source code files." arity=0..*
+
+  // clean/outdated both call Bootstrap.bootstrap(cwd, githubToken) but never actually compile.
+  bundle dependencyResolution {
+    option --github-token
+    option --no-install
+  }
+
+  // Every command that also calls Bootstrap#mkFlix (i.e. actually compiles) builds on top of
+  // dependencyResolution instead of repeating --github-token/--no-install.
+  bundle compileOptions {
+    use dependencyResolution
+    option --threads
+    option --top
+  }
+
+  // check/build/run/test all invoke the compiler pipeline end to end; the experimental --X*
+  // flags and --Xhelp are deliberately scoped to just these four (not build-classes/build-pkg/
+  // doc/format/repl/etc.) purely to keep those other commands' own --help clean.
+  bundle devLoop {
+    use compileOptions
+    option --Xhelp
+    use xflags
+  }
+}
+
+command flix "The Flix Programming Language 0.76.2" {
+  mixinStandardHelpOptions
+
+  // Confirmed (Main.scala) to affect nothing except --version's own output in this version --
+  // no subcommand reads it. Kept top-level, paired with --version, not attached to any command.
+  option --json : boolean "enables json output."
+
+  option --listen : int "starts the socket server and listens on the given port."
+
+  command init "creates a new project in the current directory." {}
+
+  command check "checks the current project for errors." {
+    use devLoop
+    positional files
+  }
+
+  command build "builds (i.e. compiles) the current project." {
+    use devLoop
+  }
+
+  command build-classes "builds the current project and writes the class files to the build directory." {
+    use compileOptions
+  }
+
+  command build-jar "builds a jar-file from the current project." {
+    option --entrypoint
+    use compileOptions
+  }
+
+  command build-fatjar "builds a fatjar-file from the current project." {
+    option --entrypoint
+    use compileOptions
+  }
+
+  command build-pkg "builds a fpkg-file from the current project." {
+    use compileOptions
+  }
+
+  command clean "removes the build directory (class files and generated documentation)." {
+    use dependencyResolution
+  }
+
+  command doc "generates API documentation." {
+    use compileOptions
+    option --library
+    positional files
+  }
+
+  command format "formats Flix source code files." {
+    use compileOptions
+    positional files
+  }
+
+  command run "runs main for the current project." {
+    option --entrypoint
+    use devLoop
+  }
+
+  command test "runs the tests for the current project." {
+    use devLoop
+    positional files
+  }
+
+  command repl "starts a repl for the current project, or provided Flix source files." {
+    use compileOptions
+  }
+
+  command lsp "starts the Plain-LSP server." {}
+
+  command lsp-vscode "starts the VSCode-LSP server and listens on the given port." {
+    positional port : int "the port number to listen on." required
+  }
+
+  command release "releases a new version to GitHub." {
+    use compileOptions
+    option --yes
+  }
+
+  command install "adds a dependency to the current project." {
+    option --github-token
+    option --yes
+    positional package : String "the package to add, e.g. 'flix/museum-clerk' or 'flix/museum-clerk@1.1.0'." required
+  }
+
+  command remove "removes a dependency from the current project." {
+    option --github-token
+    positional package : String "the package to remove, e.g. 'flix/museum-clerk'." required
+  }
+
+  command upgrade "declares a dependency of the current project at another version." {
+    option --github-token
+    positional package : String "the package to upgrade, e.g. 'flix/museum-clerk' or 'flix/museum-clerk@1.1.0'." required
+  }
+
+  command outdated "shows dependencies which have newer versions available." {
+    use dependencyResolution
+  }
+
+  command stat "prints statistics about the current project." {
+    use compileOptions
+  }
+
+  command eff-check "checks that dependencies respect the 'effects.lock' file." {
+    use compileOptions
+  }
+
+  command eff-lock "locks the current effect signatures." {
+    use compileOptions
+  }
+}
