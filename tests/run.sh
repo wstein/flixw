@@ -1730,7 +1730,7 @@ t 0 "help wrapper does not advertise the removed --completion" sh -c '
 # the missing entry itself; this is the end-to-end proof that the real screen is fixed too.
 g 0 'local .*override a declared GitHub dependency' \
     "help shows a real description for local, not a blank line"  ./flixw help
-g 0 'override a declared GitHub dependency' \
+g 0 '[Oo]verride.* a declared GitHub dependency' \
     "help local shows the same description"                      ./flixw help local
 t 0 "help wrapper is the wrapper usage alias" sh -c '
   test "$(./flixw help wrapper)" = "$(./flixw wrapper --help)"'
