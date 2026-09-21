@@ -5304,6 +5304,10 @@ public final class flixw {
      * {@code completion}, this stands aside and lets compiler-first routing take it, exactly
      * as a bare wrapper verb would -- which is why the word is not in {@code WRAPPER_VERBS}:
      * it is not answered from there, so listing it would advertise a route that does not run.
+     *
+     * <p>Note: because completion runs before compiler acquisition, {@code jar} and {@code jvm}
+     * are passed as null to {@link #helpContext}; {@code flixw-help.java}'s {@code tree()} model
+     * must never probe or launch a subprocess during tree construction.
      */
     static boolean completionEarly(List<String> args) {
         if (!args.isEmpty() && (args.get(0).equals("--help") || args.get(0).equals("-h"))) {
