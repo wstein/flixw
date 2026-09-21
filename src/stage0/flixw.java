@@ -5526,12 +5526,13 @@ public final class flixw {
     }
 
     /** On renderer failure, launch the original compiler argv. */
-    static boolean compilerVerbHelp(String verb, Path root, Lock lock, Path jar, Jvm jvm,
+    static boolean compilerVerbHelp(String verb, String flag, Path root, Lock lock, Path jar, Jvm jvm,
                                     List<String> compilerVerbs, String identity,
                                     List<String> jvmOpts) {
         try {
-            return renderHelp(List.of("flix-direct", verb), root, lock, jar, jvm,
-                              compilerVerbs, identity, jvmOpts) == 0;
+            List<String> a = new ArrayList<>(List.of("flix-direct", verb));
+            if (flag != null) a.add(flag);
+            return renderHelp(a, root, lock, jar, jvm, compilerVerbs, identity, jvmOpts) == 0;
         } catch (IOException | RuntimeException e) {
             tr("cannot render compiler help for " + verb + ": " + why(e));
             return false;
@@ -5979,21 +5980,23 @@ public final class flixw {
 
         // `help` retires if Flix claims it; bare --help cannot, while forced compiler stays raw.
         if (!toCompiler && "help".equals(first)
-            || (!forcedCompiler && ("--help".equals(first) || "-h".equals(first)) && argv.size() == 1)) {
+            || (!forcedCompiler && ("--help".equals(first) || "-h".equals(first) || "--Xhelp".equals(first)) && argv.size() == 1)) {
             // It used to print the routing table and then launch the compiler for its half,
             // which put two differently-shaped help screens on one page and left the reader
             // to work out which side would actually answer a given word. The renderer is
             // handed both verb sets and says so per command instead.
-            helpTopic(forward.subList(Math.min(1, forward.size()), forward.size()),
-                      root, lock, jar, jvm, compilerVerbs, verbId, opts, true);
+            List<String> helpArgs = "--Xhelp".equals(first) ? List.of("--Xhelp")
+                : forward.subList(Math.min(1, forward.size()), forward.size());
+            helpTopic(helpArgs, root, lock, jar, jvm, compilerVerbs, verbId, opts, true);
             return;                                  // helpTopic exits; this is for the reader
         }
 
         // Only exact help is presentation-only; all other argv remains the compiler's.
         if (toCompiler && !forcedCompiler && first != null && compilerVerbs.contains(first)
-            && exactCompilerHelp(forward)
-            && compilerVerbHelp(first, root, lock, jar, jvm, compilerVerbs, verbId, opts))
+            && exactCompilerHelp(forward)) {
+            compilerVerbHelp(first, forward.get(1), root, lock, jar, jvm, compilerVerbs, verbId, opts);
             return;
+        }
 
         if (!toCompiler && pluginOwner != null && !WRAPPER_VERBS.contains(first)) {
             runDeclaredPlugin(pluginOwner, first, forward.subList(1, forward.size()),
@@ -6024,7 +6027,8 @@ public final class flixw {
     }
 
     static boolean exactCompilerHelp(List<String> argv) {
-        return argv.size() == 2 && ("--help".equals(argv.get(1)) || "-h".equals(argv.get(1)));
+        return argv.size() == 2 && ("--help".equals(argv.get(1)) || "-h".equals(argv.get(1))
+                                 || "--Xhelp".equals(argv.get(1)));
     }
 
     /**
