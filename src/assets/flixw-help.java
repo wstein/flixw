@@ -125,52 +125,24 @@ final class flixwhelp {
             case "examples" -> {
                 CommandSpec spec = examplesSpec(c);
                 if (name != null && !name.equals("--help") && !name.equals("-h")) {
-                    String subName = name.startsWith("--help=") ? name.substring("--help=".length()) : name;
-                    CommandLine cmd = new CommandLine(spec)
-                        .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
-                    CommandLine child = cmd.getSubcommands().get(subName);
-                    if (child != null) {
-                        child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
-                        return;
-                    }
-                    System.err.println("flixw: no examples subcommand " + q(subName));
-                    System.err.println("       run: ./flixw help examples");
-                    throw new Exit(89);
+                    renderSub(spec, name, "examples", "help examples");
+                    return;
                 }
                 render(spec);
             }
             case "local" -> {
-                boolean examples = name != null && name.equals("--examples-help");
-                CommandSpec spec = localSpec(examples ? "./flixw examples local" : "./flixw local", !examples);
-                if (name != null && !name.equals("--help") && !name.equals("-h") && !examples) {
-                    String subName = name.startsWith("--help=") ? name.substring("--help=".length()) : name;
-                    CommandLine cmd = new CommandLine(spec)
-                        .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
-                    CommandLine child = cmd.getSubcommands().get(subName);
-                    if (child != null) {
-                        child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
-                        return;
-                    }
-                    System.err.println("flixw: no local subcommand " + q(subName));
-                    System.err.println("       run: ./flixw help local");
-                    throw new Exit(89);
+                CommandSpec spec = localSpec(c);
+                if (name != null && !name.equals("--help") && !name.equals("-h")) {
+                    renderSub(spec, name, "local", "help local");
+                    return;
                 }
                 render(spec);
             }
             case "examples-local" -> {
                 CommandSpec spec = localSpec("./flixw examples local", false);
                 if (name != null && !name.equals("--help") && !name.equals("-h")) {
-                    String subName = name.startsWith("--help=") ? name.substring("--help=".length()) : name;
-                    CommandLine cmd = new CommandLine(spec)
-                        .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
-                    CommandLine child = cmd.getSubcommands().get(subName);
-                    if (child != null) {
-                        child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
-                        return;
-                    }
-                    System.err.println("flixw: no examples local subcommand " + q(subName));
-                    System.err.println("       run: ./flixw help examples");
-                    throw new Exit(89);
+                    renderSub(spec, name, "examples local", "help examples");
+                    return;
                 }
                 render(spec);
             }
@@ -189,7 +161,7 @@ final class flixwhelp {
                                      + " topic -- run: ./flixw " + topic + " --help"
                                      + "   or: ./flixw help wrapper");
                 else
-                    System.err.println("       topics: flix wrapper plugin task completion");
+                    System.err.println("       topics: flix wrapper plugin task completion examples local");
                 throw new Exit(89);
             }
         }
@@ -391,6 +363,24 @@ final class flixwhelp {
     static void render(CommandSpec spec) {
         new CommandLine(spec).setColorScheme(CommandLine.Help.defaultColorScheme(ansi()))
                              .usage(System.out);
+    }
+
+    /**
+     * Renders a subcommand's usage screen from its parent spec, or reports an unknown
+     * subcommand diagnostic if not declared.
+     */
+    static void renderSub(CommandSpec parent, String name, String label, String repair) {
+        String subName = name.startsWith("--help=") ? name.substring("--help=".length()) : name;
+        CommandLine cmd = new CommandLine(parent)
+            .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+        CommandLine child = cmd.getSubcommands().get(subName);
+        if (child != null) {
+            child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
+            return;
+        }
+        System.err.println("flixw: no " + label + " subcommand " + q(subName));
+        System.err.println("       run: ./flixw " + repair);
+        throw new Exit(89);
     }
 
     /**
@@ -707,6 +697,7 @@ final class flixwhelp {
         return s;
     }
 
+    /** The public command model for examples; {@code c} is currently unused and may be null in tests. */
     static CommandSpec examplesSpec(Ctx c) {
         CommandSpec s = base("./flixw examples",
             "Runs an examples/<name>/ package with this project's pinned compiler.");
@@ -725,6 +716,7 @@ final class flixwhelp {
         return s;
     }
 
+    /** The public command model for local overrides; {@code c} is currently unused and may be null in tests. */
     static CommandSpec localSpec(Ctx c) {
         return localSpec("./flixw local", true);
     }

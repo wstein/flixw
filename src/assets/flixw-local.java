@@ -117,8 +117,7 @@ final class flixwlocal {
     }
 
     static void body(String[] args) throws Exception {
-        if (args.length == 1 && (args[0].equals("--help") || args[0].equals("-h")
-                              || args[0].equals("--examples-help") || args[0].startsWith("--help="))) {
+        if (args.length == 1 && (args[0].equals("--help") || args[0].equals("-h"))) {
             System.out.println(protocolUsage()); return;
         }
         if (args.length < 6) {
