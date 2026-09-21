@@ -740,6 +740,10 @@ public final class UnitCheck {
         var install = spec.get().subcommands().get("install");
         eq("specs: install's package argument is required", "true",
            String.valueOf(install.getCommandSpec().positionalParameters().get(0).required()));
+
+        eq("ansi: NO_COLOR suppresses color", "OFF", flixwhelp.ansi("1").name());
+        eq("ansi: empty NO_COLOR suppresses color", "OFF", flixwhelp.ansi("").name());
+        eq("ansi: absent NO_COLOR uses AUTO", "AUTO", flixwhelp.ansi(null).name());
     }
 
     /**

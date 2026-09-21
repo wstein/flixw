@@ -324,9 +324,21 @@ final class flixwhelp {
 
     // ---- rendering ----------------------------------------------------------
 
+    /**
+     * Respects NO_COLOR (https://no-color.org) when present in the environment; otherwise
+     * defers to picocli's tty-detection via Ansi.AUTO.
+     */
+    static Ansi ansi() {
+        return ansi(System.getenv("NO_COLOR"));
+    }
+
+    static Ansi ansi(String noColor) {
+        return noColor != null ? Ansi.OFF : Ansi.AUTO;
+    }
+
     /** One renderer for every topic, so the topics cannot drift apart in appearance. */
     static void render(CommandSpec spec) {
-        new CommandLine(spec).setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.AUTO))
+        new CommandLine(spec).setColorScheme(CommandLine.Help.defaultColorScheme(ansi()))
                              .usage(System.out);
     }
 
@@ -338,7 +350,7 @@ final class flixwhelp {
      */
     static void renderGrouped(CommandSpec spec, Ctx c) {
         CommandLine cl = new CommandLine(spec)
-            .setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.AUTO));
+            .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
         cl.getHelpSectionMap().put(UsageMessageSpec.SECTION_KEY_COMMAND_LIST,
                                    help -> commandList(help, c));
         // Our groups carry their own headings, so picocli's single "Commands:"
