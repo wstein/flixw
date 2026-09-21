@@ -793,7 +793,7 @@ public final class UnitCheck {
 
     static void unifiedHelpRouting() throws Exception {
         Path ctx = Files.createTempDirectory("uc-help-").resolve("ctx.txt");
-        Files.writeString(ctx, "flixwVersion=0.34.4\n");
+        Files.writeString(ctx, "flixwVersion=0.34.5\n");
         StringBuilder capture = new StringBuilder();
 
         eq("help: local renders cleanly", "0",
@@ -820,7 +820,7 @@ public final class UnitCheck {
            String.valueOf(out.contains("Usage: ./flixw examples")));
 
         Path treeCtx = Files.createTempDirectory("uc-tree-").resolve("ctx.txt");
-        Files.writeString(treeCtx, "flixwVersion=0.34.4\n"
+        Files.writeString(treeCtx, "flixwVersion=0.34.5\n"
                                  + "compilerVersion=0.76.2\n"
                                  + "upstream=true\n"
                                  + "compilerVerbs=check build run\n"
