@@ -12,14 +12,14 @@ something a project commits, that is a regression rather than an addition.
 
 |  |  |
 |---|---|
-| **Version** | 4.9.3 |
+| **Version** | 4.9.4 |
 | **License** | Apache License 2.0 |
 | **Copyright** | Copyright 2017 Remko Popma |
 | **Homepage** | <https://picocli.info/> |
-| **Fork source** | <https://github.com/wstein/picocli/tree/v4.9.3> |
-| **Coordinate** | `io.github.wstein:picocli:4.9.3` |
-| **Artifact** | `https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.9.3/picocli-4.9.3.jar` |
-| **SHA-256** | `13354fe0c2c5db5254330a46fd1824cf42b587c58de86f47a9e5206e2f271172` |
+| **Fork source** | <https://github.com/wstein/picocli/tree/v4.9.4> |
+| **Coordinate** | `io.github.wstein:picocli:4.9.4` |
+| **Artifact** | `https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.9.4/picocli-4.9.4.jar` |
+| **SHA-256** | `fec28d0dd7a92f7fbf75953a9a9e6d99a5bf5bf4b10c5c1a73dc9d0a97608610` |
 | **Used by** | `flixw-help.java` only |
 | **Reached on** | `./flixw help [...]` only |
 
