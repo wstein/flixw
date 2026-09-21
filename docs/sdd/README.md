@@ -31,23 +31,18 @@ version.
 
 ## Adding a curated version
 
-1. Author (or copy from `picocli-spec/examples/` in the `picocli` fork, where it is round-trip
-   tested against the real compiler jar) a `flix-<version>.picocli` file.
-2. Add it to `src/assets/picocli/` and its row to `src/assets/picocli/README.md`.
-3. Add its text as a new `FLIX_<version>_SPEC` constant in `flixw-help.java` and register it in
-   `CURATED_SPECS` -- the embedded copy is what actually ships, the file under `src/assets/picocli/`
-   is the human-reviewable original; keep them in sync the same way the shim files exist twice.
-4. Add a `tests/UnitCheck.java` case asserting the spec parses and the subcommands it should
-   carry are present (see `curatedSpecs()`).
+1. Author a `flix-<version>.picocli` DSL file (and optional `.json` companion).
+2. Place it in `src/assets/picocli/` and record its entry in `src/assets/picocli/README.md`.
+3. In `picocli`'s build, the spec is packaged under `/specs/` in `picocli.jar`.
+4. Add a `tests/UnitCheck.java` assertion in `curatedSpecs()` to verify that `loadSpec("<version>")`
+   resolves and parses properly.
 
-## Why the spec text is embedded rather than fetched
+## On-demand spec loading
 
-Every other companion asset is its own file, fetched and verified independently. A spec is not:
-it belongs to `flixw-help.java`'s own behaviour (which options render, which subcommands the
-completer knows about) rather than being a program in its own right, and it is small enough
-(one compiler version, ~6 KB) that a second fetch-and-verify round trip would cost more than it
-saves. `src/assets/picocli/` exists purely so the spec is easy to find, diff and author as its
-own file -- not as a second distribution path.
+Specs are loaded dynamically on demand: `loadSpec(version)` first checks for the classpath resource
+`/specs/flix-<version>.picocli` inside `picocli.jar` (via `flixwhelp.class.getResourceAsStream(...)`),
+falling back to `src/assets/picocli/flix-<version>.picocli` on disk when running in development checkouts.
+Zero spec text is hardcoded into `flixw-help.java`.
 
 ## Dependency: picocli-spec
 

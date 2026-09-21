@@ -719,7 +719,17 @@ public final class UnitCheck {
      */
     static void curatedSpecs() {
         eq("specs: no curated spec for an untraced version", "true",
-           String.valueOf(flixwhelp.loadSpec("0.75.3").isEmpty()));
+           String.valueOf(flixwhelp.loadSpec("0.99.0").isEmpty()));
+        var spec060 = flixwhelp.loadSpec("0.60.0");
+        eq("specs: 0.60.0 is curated", "true", String.valueOf(spec060.isPresent()));
+        eq("specs: 0.60.0 has check", "true",
+           String.valueOf(spec060.get().subcommands().containsKey("check")));
+
+        var spec067 = flixwhelp.loadSpec("0.67.0");
+        eq("specs: 0.67.0 is curated", "true", String.valueOf(spec067.isPresent()));
+        eq("specs: 0.67.0 has clean", "true",
+           String.valueOf(spec067.get().subcommands().containsKey("clean")));
+
         var spec = flixwhelp.loadSpec("0.76.2");
         eq("specs: 0.76.2 is curated", "true", String.valueOf(spec.isPresent()));
         var check = spec.get().subcommands().get("check");

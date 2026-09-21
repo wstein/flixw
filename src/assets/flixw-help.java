@@ -683,200 +683,38 @@ final class flixwhelp {
     static final Set<String> CURATED_UPSTREAM_VERSIONS = Set.of("0.75.3", "0.76.0", "0.76.1");
 
     /**
-     * A picocli-spec DSL description of the real {@code flix} CLI for one compiler version,
-     * giving exact command/option/positional fidelity instead of {@link #appliesToVerb}'s
-     * hand-maintained approximation over the compiler's own {@code --help} text.
-     *
-     * <p>The canonical, reviewable copy of this text lives at {@code
-     * src/assets/picocli/flix-0.76.2.picocli} -- edit that file and this constant together,
-     * the same convention the shim templates already follow, and see the README beside it
-     * for how another version is added.
-     */
-    static final String FLIX_0_76_2_SPEC = """
-        definitions {
-          option --github-token : String "API key to use for GitHub dependency resolution."
-          option --no-install : boolean "disables automatic installation of dependencies."
-          option --threads : int "number of threads to use for compilation."
-          option --top : boolean "displays a live view of where the compiler spends its time."
-          option --entrypoint : String "specifies the main entry point."
-          option --yes : boolean "automatically answer yes to all prompts."
-          option --library : boolean "documents the bundled library instead of the current project."
-
-          option --Xhelp : boolean "shows the experimental options for this command." helpSection="experimental"
-
-          option --Xbenchmark-code-size : boolean "[experimental] benchmarks the size of the generated JVM files."
-          option --Xbenchmark-incremental : boolean "[experimental] benchmarks the performance of each compiler phase in incremental mode."
-          option --Xbenchmark-phases : boolean "[experimental] benchmarks the performance of each compiler phase."
-          option --Xbenchmark-frontend : boolean "[experimental] benchmarks the performance of the frontend."
-          option --Xbenchmark-throughput : boolean "[experimental] benchmarks the performance of the entire compiler."
-          option --Xlib : String "[experimental] controls the amount of std. lib. to include (nix, min, all)."
-          option --Xno-deprecated : boolean "[experimental] disables deprecated features."
-          option --Xprint-phases : boolean "[experimental] writes the ASTs after each phase to './build/asts/'."
-          option --Xverify : boolean "[experimental] enables internal verifiers of compiler invariants."
-          option --Xsubeffecting : String "[experimental] enables sub-effecting in select places"
-          option --Xnewmono : boolean "[experimental] uses the constraint-based monomorphization pipeline instead of the demand-driven one."
-
-          bundle xflags {
-            group cooperative helpSection="experimental" "The following options are experimental:%n" {
-              option --Xbenchmark-code-size
-              option --Xbenchmark-incremental
-              option --Xbenchmark-phases
-              option --Xbenchmark-frontend
-              option --Xbenchmark-throughput
-              option --Xlib
-              option --Xno-deprecated
-              option --Xprint-phases
-              option --Xverify
-              option --Xsubeffecting
-              option --Xnewmono
-            }
-          }
-
-          positional files : Path[] "input Flix source code files." arity=0..*
-
-          bundle dependencyResolution {
-            option --github-token
-            option --no-install
-          }
-
-          bundle compileOptions {
-            use dependencyResolution
-            option --threads
-            option --top
-          }
-
-          bundle devLoop {
-            use compileOptions
-            option --Xhelp
-            use xflags
-          }
-        }
-
-        command flix "The Flix Programming Language 0.76.2" {
-          mixinStandardHelpOptions
-
-          option --json : boolean "enables json output."
-          option --listen : int "starts the socket server and listens on the given port."
-
-          command init "creates a new project in the current directory." {}
-
-          command check "checks the current project for errors." {
-            use devLoop
-            positional files
-          }
-
-          command build "builds (i.e. compiles) the current project." {
-            use devLoop
-          }
-
-          command build-classes "builds the current project and writes the class files to the build directory." {
-            use compileOptions
-          }
-
-          command build-jar "builds a jar-file from the current project." {
-            option --entrypoint
-            use compileOptions
-          }
-
-          command build-fatjar "builds a fatjar-file from the current project." {
-            option --entrypoint
-            use compileOptions
-          }
-
-          command build-pkg "builds a fpkg-file from the current project." {
-            use compileOptions
-          }
-
-          command clean "removes the build directory (class files and generated documentation)." {
-            use dependencyResolution
-          }
-
-          command doc "generates API documentation." {
-            use compileOptions
-            option --library
-            positional files
-          }
-
-          command format "formats Flix source code files." {
-            use compileOptions
-            positional files
-          }
-
-          command run "runs main for the current project." {
-            option --entrypoint
-            use devLoop
-          }
-
-          command test "runs the tests for the current project." {
-            use devLoop
-            positional files
-          }
-
-          command repl "starts a repl for the current project, or provided Flix source files." {
-            use compileOptions
-          }
-
-          command lsp "starts the Plain-LSP server." {}
-
-          command lsp-vscode "starts the VSCode-LSP server and listens on the given port." {
-            positional port : int "the port number to listen on." required
-          }
-
-          command release "releases a new version to GitHub." {
-            use compileOptions
-            option --yes
-          }
-
-          command install "adds a dependency to the current project." {
-            option --github-token
-            option --yes
-            positional package : String "the package to add, e.g. 'flix/museum-clerk' or 'flix/museum-clerk@1.1.0'." required
-          }
-
-          command remove "removes a dependency from the current project." {
-            option --github-token
-            positional package : String "the package to remove, e.g. 'flix/museum-clerk'." required
-          }
-
-          command upgrade "declares a dependency of the current project at another version." {
-            option --github-token
-            positional package : String "the package to upgrade, e.g. 'flix/museum-clerk' or 'flix/museum-clerk@1.1.0'." required
-          }
-
-          command outdated "shows dependencies which have newer versions available." {
-            use dependencyResolution
-          }
-
-          command stat "prints statistics about the current project." {
-            use compileOptions
-          }
-
-          command eff-check "checks that dependencies respect the 'effects.lock' file." {
-            use compileOptions
-          }
-
-          command eff-lock "locks the current effect signatures." {
-            use compileOptions
-          }
-        }
-        """;
-
-    /** Every compiler version a spec has been authored and round-trip tested for. */
-    static final Map<String, String> CURATED_SPECS = Map.of("0.76.2", FLIX_0_76_2_SPEC);
-
-    /**
      * The curated spec for one compiler version, or empty when none has been authored --
      * the graceful-fallback half of the spec-driven path: an uncurated or custom build keeps
      * getting {@link #appliesToVerb}'s regex-derived screen exactly as before. A spec that
-     * fails to parse is treated the same as a missing one rather than thrown, since a bug in
-     * this constant must not turn every {@code help}/{@code completion} invocation into a
+     * fails to parse is treated the same as a missing one rather than thrown, since a syntax
+     * issue in a spec file must not turn every {@code help}/{@code completion} invocation into a
      * hard failure.
+     *
+     * <p>Loads on-demand: first from classpath resource {@code /specs/flix-<version>.picocli}
+     * (bundled inside {@code picocli.jar}), falling back to {@code src/assets/picocli/flix-<version>.picocli}
+     * if present on disk.
      */
     static Optional<CommandSpec> loadSpec(String version) {
-        String dsl = CURATED_SPECS.get(version);
-        if (dsl == null) return Optional.empty();
-        try { return Optional.of(CommandSpecDsl.parse(dsl)); }
-        catch (RuntimeException e) { return Optional.empty(); }
+        if (version == null || version.isEmpty()) return Optional.empty();
+        String name = "flix-" + version + ".picocli";
+        // 1. Check classpath resource (bundled in picocli.jar under /specs/)
+        try (InputStream in = flixwhelp.class.getResourceAsStream("/specs/" + name)) {
+            if (in != null) {
+                String dsl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                return Optional.of(CommandSpecDsl.parse(dsl));
+            }
+        } catch (Exception ignored) { }
+
+        // 2. Check local workspace asset file if running from source checkout
+        try {
+            Path disk = Paths.get("src/assets/picocli", name);
+            if (Files.isRegularFile(disk)) {
+                String dsl = Files.readString(disk, StandardCharsets.UTF_8);
+                return Optional.of(CommandSpecDsl.parse(dsl));
+            }
+        } catch (Exception ignored) { }
+
+        return Optional.empty();
     }
 
     /**
