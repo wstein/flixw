@@ -5191,6 +5191,10 @@ public final class flixw {
      * FLIX_BACKEND does not reach them either.
      */
     static void wrapperNamespace(List<String> argv) {
+        if (wantsHelp(argv.subList(Math.min(1, argv.size()), argv.size()))) {
+            renderWrapperHelp("wrapper", wrapperUsage(""), null, null, null, null, List.of(), null, List.of());
+            return;
+        }
         String op = argv.size() > 1 ? argv.get(1) : "--help";
         List<String> rest = argv.subList(Math.min(2, argv.size()), argv.size());
         switch (op) {
@@ -5264,24 +5268,10 @@ public final class flixw {
     }
 
     static String wrapperUsage(String problem) {
-        return "./flixw wrapper: " + problem
-             + "\n       usage: ./flixw wrapper [--help | --version | --upgrade"
-             + "\n                              | --install-jdk | --purge [days] [--yes] | --schema]"
-             + "\n         --help         the routing table for this project"
-             + "\n         --version      the wrapper version and how stage 0 was launched"
-             + "\n         --upgrade [<version>]  move this project to the newest published"
-             + "\n                        flixw, or to the release you name"
-             + "\n                        (to repair the files it has: ./flixw doctor --fix)"
-             + "\n         --pre-release  with --upgrade and no version, the newest published"
-             + "\n                        release even if still finishing its own verification"
-             + "\n                        (releases/latest skips it until that passes)"
-             + "\n         --global       with --upgrade, refresh the machine-wide cache instead"
-             + "\n                        of a project: no project needed, and none written"
-             + "\n         --install-jdk  fetch a verified Temurin " + MIN_JAVA + " into the cache"
-             + "\n         --purge [days] [--yes]  ask before deleting cache entries unused for"
-             + "\n                        that many days, 14 by default"
-             + "\n         --schema       the JSON Schema for " + WRAPPER_DIR + "/lock.toml, on stdout"
-             + "\n       (a TAB-completion script is ./flixw completion <shell>)";
+        String p = problem.isEmpty() ? "" : problem + "\n       ";
+        return "./flixw wrapper: " + p
+             + "usage: ./flixw wrapper [--help | --version | --upgrade"
+             + "\n                              | --install-jdk | --purge [days] [--yes] | --schema]";
     }
 
     // ---- completion -------------------------------------------------------

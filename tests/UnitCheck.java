@@ -780,6 +780,15 @@ public final class UnitCheck {
            String.valueOf(spec0762.helpSectionSpec("experimental") != null));
         eq("section: emptyMessage is present", "No experimental options for this command.",
            spec0762.helpSectionSpec("experimental").emptyMessage());
+
+        // wantsHelp recognizes help flag anywhere in argument list
+        eq("wantsHelp: --help alone", "true", String.valueOf(flixw.wantsHelp(java.util.List.of("--help"))));
+        eq("wantsHelp: embedded --help", "true",
+           String.valueOf(flixw.wantsHelp(java.util.List.of("--upgrade", "--pre-release", "--global", "--help"))));
+        eq("wantsHelp: embedded -h", "true",
+           String.valueOf(flixw.wantsHelp(java.util.List.of("--purge", "7", "-h"))));
+        eq("wantsHelp: past -- delimiter is ignored", "false",
+           String.valueOf(flixw.wantsHelp(java.util.List.of("run", "--", "--help"))));
     }
 
     /**
