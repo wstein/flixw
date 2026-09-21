@@ -708,6 +708,8 @@ public final class UnitCheck {
 
         eq("curation: 0.76.1 is re-traced", "true",
            String.valueOf(flixwhelp.CURATED_UPSTREAM_VERSIONS.contains("0.76.1")));
+        eq("curation: 0.76.2 is re-traced", "true",
+           String.valueOf(flixwhelp.CURATED_UPSTREAM_VERSIONS.contains("0.76.2")));
     }
 
     /**
@@ -815,14 +817,25 @@ public final class UnitCheck {
 
         String out = capture.toString();
         eq("help: capture has local usage", "true",
-           String.valueOf(out.contains("Usage: ./flixw local")));
+           String.valueOf(out.contains("./flixw local")));
+        eq("help: capture has examples usage", "true",
+           String.valueOf(out.contains("./flixw examples")));
         eq("help: capture has examples usage", "true",
            String.valueOf(out.contains("Usage: ./flixw examples")));
 
+        Path dummyHelp = Files.createTempFile("uc-help-", ".help");
+        Files.writeString(dummyHelp, "The Flix Programming Language 0.76.2\n"
+                                   + "Usage: flix [init|check|build|run] [options]\n"
+                                   + "Command: check\n  checks project.\n"
+                                   + "Command: build\n  builds project.\n"
+                                   + "  --threads <value>  threads.\n"
+                                   + "The following options are experimental:\n"
+                                   + "  --Xbenchmark-code-size [experimental] benchmark.\n");
         Path treeCtx = Files.createTempDirectory("uc-tree-").resolve("ctx.txt");
         Files.writeString(treeCtx, "flixwVersion=0.34.5\n"
                                  + "compilerVersion=0.76.2\n"
                                  + "upstream=true\n"
+                                 + "helpFile=" + dummyHelp + "\n"
                                  + "compilerVerbs=check build run\n"
                                  + "wrapperVerbs=examples local pin info doctor validate help plugin task\n"
                                  + "\nplugins:\n"
@@ -841,6 +854,28 @@ public final class UnitCheck {
                        && tree.subcommands().get("plugin").getSubcommands().containsKey("secondtool")));
         eq("tree: curated spec root options merged into tree", "true",
            String.valueOf(tree.optionsMap().containsKey("--json")));
+        eq("tree: --Xhelp option is on root", "true",
+           String.valueOf(tree.optionsMap().containsKey("--Xhelp")));
+
+        // Compiler verb help: renders picocli spec and never delegates to flix compiler
+        StringBuilder buildCapture = new StringBuilder();
+        eq("help: build help renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{treeCtx.toString(), "flix-direct", "build"}, buildCapture)));
+        String buildOut = buildCapture.toString();
+        eq("help: build help has --Xhelp", "true", String.valueOf(buildOut.contains("--Xhelp")));
+        eq("help: build help excludes experimental options", "false",
+           String.valueOf(buildOut.contains("--Xbenchmark-code-size")));
+        eq("help: build help does not dump raw compiler usage", "false",
+           String.valueOf(buildOut.contains("Usage: flix [init|check|build")));
+
+        StringBuilder buildXCapture = new StringBuilder();
+        eq("help: build --Xhelp renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{treeCtx.toString(), "flix-direct", "build", "--Xhelp"}, buildXCapture)));
+        String buildXOut = buildXCapture.toString();
+        eq("help: build --Xhelp renders experimental heading", "true",
+           String.valueOf(buildXOut.contains("The following options are experimental:")));
+        eq("help: build --Xhelp renders experimental options", "true",
+           String.valueOf(buildXOut.contains("--Xbenchmark-code-size")));
     }
 
     /**
