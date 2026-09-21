@@ -768,6 +768,42 @@ public final class UnitCheck {
         eq("examplesLocalSpec: has run", "true", String.valueOf(exLocSpec.subcommands().containsKey("run")));
     }
 
+    static void unifiedHelpRouting() throws Exception {
+        Path ctx = Files.createTempDirectory("uc-help-").resolve("ctx.txt");
+        Files.writeString(ctx, "flixwVersion=0.34.4\n");
+        java.io.PrintStream realOut = System.out, realErr = System.err;
+        java.io.ByteArrayOutputStream capture = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream sink = new java.io.PrintStream(capture, true, StandardCharsets.UTF_8);
+        System.setOut(sink);
+        System.setErr(sink);
+        try {
+            eq("help: local renders cleanly", "0",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "local"})));
+            eq("help: local add renders cleanly", "0",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "local", "add"})));
+            eq("help: examples renders cleanly", "0",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples"})));
+            eq("help: examples run renders cleanly", "0",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples", "run"})));
+            eq("help: examples-local renders cleanly", "0",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples-local"})));
+            eq("help: examples-local run renders cleanly", "0",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples-local", "run"})));
+            eq("help: unknown local subcommand returns 89", "89",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "local", "nosuch"})));
+            eq("help: unknown examples subcommand returns 89", "89",
+               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples", "nosuch"})));
+        } finally {
+            System.setOut(realOut);
+            System.setErr(realErr);
+        }
+        String out = capture.toString(StandardCharsets.UTF_8);
+        eq("help: capture has local usage", "true",
+           String.valueOf(out.contains("Usage: ./flixw local")));
+        eq("help: capture has examples usage", "true",
+           String.valueOf(out.contains("Usage: ./flixw examples")));
+    }
+
     /**
      * {@code .flixw/local/editor-jar.toml} round-trips, and {@code ownsEditorJar} is the
      * one check standing between a future {@code ./flixw pin --editor-jar=copy} and
@@ -1706,7 +1742,7 @@ public final class UnitCheck {
         return i < 0 ? s : s.substring(0, i);
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws Exception {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         Path fixtures = Paths.get(args.length > 1 ? args[1] : "tests/schema");
         Path root = dir.toAbsolutePath().normalize().getParent().getParent();
@@ -1731,6 +1767,7 @@ public final class UnitCheck {
         optionRows();
         curationTruthTable();
         curatedSpecs();
+        unifiedHelpRouting();
         editorJarPrefs();
         localCompilerPrefs();
         pluginDescription();
