@@ -674,7 +674,7 @@ public final class UnitCheck {
 
     static void unifiedHelpRouting() throws Exception {
         Path ctx = Files.createTempDirectory("uc-help-").resolve("ctx.txt");
-        Files.writeString(ctx, "flixwVersion=0.34.5\n");
+        Files.writeString(ctx, "flixwVersion=0.34.6\n");
         StringBuilder capture = new StringBuilder();
 
         eq("help: local renders cleanly", "0",
@@ -711,7 +711,7 @@ public final class UnitCheck {
                                    + "The following options are experimental:\n"
                                    + "  --Xbenchmark-code-size [experimental] benchmark.\n");
         Path treeCtx = Files.createTempDirectory("uc-tree-").resolve("ctx.txt");
-        Files.writeString(treeCtx, "flixwVersion=0.34.5\n"
+        Files.writeString(treeCtx, "flixwVersion=0.34.6\n"
                                  + "compilerVersion=0.76.2\n"
                                  + "upstream=true\n"
                                  + "helpFile=" + dummyHelp + "\n"
