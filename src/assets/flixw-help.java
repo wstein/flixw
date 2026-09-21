@@ -576,8 +576,31 @@ final class flixwhelp {
             if (fromSpec != null) root.addSubcommand(v, new CommandLine(fromSpec));
             else sub(root, v, desc.getOrDefault(v, ""));
         }
-        for (String v : c.words("wrapperVerbs"))
-            if (!compilerVerbs.contains(v)) sub(root, v, "(wrapper) " + wrapperDesc(v));
+        for (String v : c.words("wrapperVerbs")) {
+            if (compilerVerbs.contains(v)) continue;
+            if (v.equals("examples")) {
+                CommandSpec ex = examplesSpec(c);
+                ex.usageMessage().description("(wrapper) " + wrapperDesc(v));
+                root.addSubcommand("examples", new CommandLine(ex));
+            } else if (v.equals("local")) {
+                CommandSpec loc = localSpec(c);
+                loc.usageMessage().description("(wrapper) " + wrapperDesc(v));
+                root.addSubcommand("local", new CommandLine(loc));
+            } else {
+                sub(root, v, "(wrapper) " + wrapperDesc(v));
+            }
+        }
+        // Plugins from the lock: registered under their declared bare verb (if any) and
+        // under the canonical `plugin <name>` namespace, so TAB-completion offers them.
+        for (String[] r : c.rows("plugins")) {
+            String bareVerb = r.length > 5 && !r[5].isEmpty() ? r[5] : null;
+            String descText = r.length > 4 ? r[4] : "";
+            if (bareVerb != null && !root.subcommands().containsKey(bareVerb))
+                sub(root, bareVerb, descText);
+            CommandLine pluginCmd = root.subcommands().get("plugin");
+            if (pluginCmd != null && !pluginCmd.getSubcommands().containsKey(r[0]))
+                sub(pluginCmd.getCommandSpec(), r[0], descText);
+        }
         // `wrapper` and `completion` are words a user types and neither is in WRAPPER_VERBS:
         // the first is a namespace of flags, the second is answered before that table is
         // consulted at all. Both were therefore absent from this screen while the offline
@@ -592,7 +615,14 @@ final class flixwhelp {
                 .addPositional(PositionalParamSpec.builder().paramLabel("<shell>")
                     .completionCandidates(List.of("bash", "zsh", "fish", "pwsh"))
                     .description("the shell to emit a script for").build());
-        if (!c.get("helpFile").isEmpty()) addOptions(root, readOrEmpty(c.get("helpFile")));
+        Optional<CommandSpec> curatedRoot = "true".equals(c.get("upstream"))
+            ? loadSpec(c.get("compilerVersion")) : Optional.empty();
+        if (curatedRoot.isPresent()) {
+            for (OptionSpec opt : curatedRoot.get().options())
+                try { root.addOption(opt); } catch (RuntimeException ignored) { }
+        } else if (!c.get("helpFile").isEmpty()) {
+            addOptions(root, readOrEmpty(c.get("helpFile")));
+        }
         return root;
     }
 
@@ -1153,6 +1183,12 @@ final class flixwhelp {
         }
         for (OptionSpec o : spec.options())
             for (String n : o.names()) words.append(",'").append(n).append('\'');
+        for (CommandLine sub : spec.subcommands().values()) {
+            for (String subName : sub.getSubcommands().keySet())
+                words.append(",'").append(subName).append('\'');
+            for (OptionSpec subOpt : sub.getCommandSpec().options())
+                for (String n : subOpt.names()) words.append(",'").append(n).append('\'');
+        }
         System.out.println("Register-ArgumentCompleter -Native -CommandName flixw,flixw.cmd"
                          + " -ScriptBlock {");
         System.out.println("    param($wordToComplete, $commandAst, $cursorPosition)");

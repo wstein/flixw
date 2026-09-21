@@ -818,6 +818,29 @@ public final class UnitCheck {
            String.valueOf(out.contains("Usage: ./flixw local")));
         eq("help: capture has examples usage", "true",
            String.valueOf(out.contains("Usage: ./flixw examples")));
+
+        Path treeCtx = Files.createTempDirectory("uc-tree-").resolve("ctx.txt");
+        Files.writeString(treeCtx, "flixwVersion=0.34.4\n"
+                                 + "compilerVersion=0.76.2\n"
+                                 + "upstream=true\n"
+                                 + "compilerVerbs=check build run\n"
+                                 + "wrapperVerbs=examples local pin info doctor validate help plugin task\n"
+                                 + "\nplugins:\n"
+                                 + "mytool\t1.0.0\t" + "a".repeat(64) + "\t\tRuns mytool\tmyverb\n"
+                                 + "secondtool\t2.0.0\t" + "b".repeat(64) + "\t\tRuns secondtool\t\n");
+        flixwhelp.Ctx parsed = flixwhelp.Ctx.read(treeCtx);
+        picocli.CommandLine.Model.CommandSpec tree = flixwhelp.tree(parsed, "flixw");
+        eq("tree: examples has subcommands in tree", "true",
+           String.valueOf(tree.subcommands().get("examples").getSubcommands().containsKey("run")));
+        eq("tree: local has subcommands in tree", "true",
+           String.valueOf(tree.subcommands().get("local").getSubcommands().containsKey("add")));
+        eq("tree: bare plugin verb is in tree", "true",
+           String.valueOf(tree.subcommands().containsKey("myverb")));
+        eq("tree: plugin namespace has plugin subcommands", "true",
+           String.valueOf(tree.subcommands().get("plugin").getSubcommands().containsKey("mytool")
+                       && tree.subcommands().get("plugin").getSubcommands().containsKey("secondtool")));
+        eq("tree: curated spec root options merged into tree", "true",
+           String.valueOf(tree.optionsMap().containsKey("--json")));
     }
 
     /**
