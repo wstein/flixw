@@ -143,7 +143,7 @@ cp "$shipped" "$out/flixw.java"
 # stops a silently re-uploaded artifact from being republished under a flixw tag, and keeps
 # `pack.sh` reproducible for anyone rebuilding a release from the same source.
 pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.java")
-PICOCLI_SHA256=337747a2e97bcb91e678207675575252857b3adc676aa575fdb11068c90aee6d
+PICOCLI_SHA256=13354fe0c2c5db5254330a46fd1824cf42b587c58de86f47a9e5206e2f271172
 curl -fsSL -o "$out/picocli-$pv.jar" \
   "$(picocli_url "$pv")" || {
   echo "pack: cannot fetch picocli $pv" >&2; exit 1; }
