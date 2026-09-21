@@ -912,7 +912,7 @@ final class flixwlocal {
         boolean examples = selector.equals("--examples-help");
         CommandLine command = new CommandLine(helpSpec(examples ? "./flixw examples local" : "./flixw local",
                                                        !examples))
-            .setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.OFF));
+            .setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.AUTO));
         if (selector.startsWith("--help=")) {
             CommandLine child = command.getSubcommands().get(selector.substring("--help=".length()));
             if (child != null) { child.usage(System.out); return; }

@@ -326,7 +326,7 @@ final class flixwhelp {
 
     /** One renderer for every topic, so the topics cannot drift apart in appearance. */
     static void render(CommandSpec spec) {
-        new CommandLine(spec).setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.OFF))
+        new CommandLine(spec).setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.AUTO))
                              .usage(System.out);
     }
 
@@ -338,7 +338,7 @@ final class flixwhelp {
      */
     static void renderGrouped(CommandSpec spec, Ctx c) {
         CommandLine cl = new CommandLine(spec)
-            .setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.OFF));
+            .setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.AUTO));
         cl.getHelpSectionMap().put(UsageMessageSpec.SECTION_KEY_COMMAND_LIST,
                                    help -> commandList(help, c));
         // Our groups carry their own headings, so picocli's single "Commands:"

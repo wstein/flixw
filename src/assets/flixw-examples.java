@@ -445,7 +445,7 @@ final class flixwexamples {
     }
 
     static void renderHelp() {
-        new CommandLine(helpSpec()).setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.OFF))
+        new CommandLine(helpSpec()).setColorScheme(CommandLine.Help.defaultColorScheme(Ansi.AUTO))
                                    .usage(System.out);
     }
 }
