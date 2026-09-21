@@ -1040,30 +1040,22 @@ public final class flixw {
     static final String INFO_USAGE = "usage: ./flixw info [--verbose | -v]";
     static final String DOCTOR_USAGE = "usage: ./flixw doctor [--fix]";
     static final String VALIDATE_USAGE = "usage: ./flixw validate";
+    static final String EXAMPLES_USAGE = "usage: ./flixw examples [<verb> <name> [-- args]]";
+    static final String LOCAL_USAGE = "usage: ./flixw local [add | list | remove | status | <verb>]";
+    static final String EXAMPLES_LOCAL_USAGE = "usage: ./flixw examples local <verb> <name> [-- args]";
 
-    static boolean assetHelpTopic(List<String> rest) {
-        if (rest.isEmpty()) return false;
-        if (rest.get(0).equals("local")) {
-            String selector = rest.size() == 1 ? "--help"
-                            : rest.size() == 2 && localHelpSubcommand(rest.get(1))
-                            ? "--help=" + rest.get(1) : null;
-            if (selector == null) return false;
-            assetHelp(LOCAL_ASSET, selector); return true;
-        }
-        if (rest.get(0).equals("examples") && rest.size() == 1) {
-            assetHelp(EXAMPLES_ASSET, "--help"); return true;
-        }
-        return false;
-    }
-
-    static boolean localHelpArgs(List<String> rest) {
+    static boolean localHelpArgs(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
+                                 List<String> compilerVerbs, String verbId) {
         if (rest.isEmpty()) return false;
         if (rest.get(0).equals("--help") || rest.get(0).equals("-h")) {
-            assetHelp(LOCAL_ASSET, "--help"); return true;
+            renderWrapperHelp("local", LOCAL_USAGE, root, lock, jar, jvm, compilerVerbs, verbId, List.of());
+            return true;
         }
         if (rest.size() > 1 && (rest.get(1).equals("--help") || rest.get(1).equals("-h"))
             && localHelpSubcommand(rest.get(0))) {
-            assetHelp(LOCAL_ASSET, "--help=" + rest.get(0)); return true;
+            renderWrapperHelp(List.of("local", rest.get(0)), LOCAL_USAGE, root, lock, jar, jvm,
+                              compilerVerbs, verbId, List.of());
+            return true;
         }
         return false;
     }
@@ -2740,7 +2732,6 @@ public final class flixw {
             // this is the routing table alone. Once a project is pinned, the full
             // `help`/`--help` merge in realMain runs instead and this case is not hit.
             case "help" -> {
-                if (assetHelpTopic(rest)) return;
                 helpTopic(rest, root, lock, jar, jvm,
                           compilerVerbs == null ? List.of() : compilerVerbs, verbId, List.of(), true);
             }
@@ -2865,7 +2856,8 @@ public final class flixw {
                 // wantsHelp's whole-list scan is right for every other wrapper verb, which has
                 // no such subordinate to defer to; examples is the one exception.
                 if (!rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
-                    assetHelp(EXAMPLES_ASSET, "--help"); return;
+                    renderWrapperHelp("examples", EXAMPLES_USAGE, root, lock, jar, jvm, compilerVerbs, verbId, List.of());
+                    return;
                 }
                 // "examples local <verb> <name>" is not this asset's business at all: it
                 // shares nothing with running examples/<name>/ against its own declared
@@ -2873,7 +2865,7 @@ public final class flixw {
                 // override engine directly rather than threaded through this one as a
                 // special case -- one overlay implementation, not two that could drift.
                 if (!rest.isEmpty() && rest.get(0).equals("local")) {
-                    dispatchLocal(root, jar, jvm, true, rest.subList(1, rest.size()));
+                    dispatchLocal(root, lock, jar, jvm, true, rest.subList(1, rest.size()), compilerVerbs, verbId);
                     return;
                 }
                 // info/doctor/validate answer with jar==null/jvm==null on purpose -- that is
@@ -2920,7 +2912,7 @@ public final class flixw {
             // never launches one, so it must not be gated on there being one, the same
             // "works before any project has ever been pinned" precedent `plugin install`
             // already sets.
-            case "local" -> dispatchLocal(root, jar, jvm, false, rest);
+            case "local" -> dispatchLocal(root, lock, jar, jvm, false, rest, compilerVerbs, verbId);
             default -> throw w009("no wrapper implementation for " + q(verb));
         }
     }
@@ -2929,14 +2921,20 @@ public final class flixw {
     static final Set<String> LOCAL_BOOKKEEPING_VERBS = Set.of("add", "list", "remove", "status");
 
     /** The local asset serves both {@code local} and {@code examples local}. */
-    static void dispatchLocal(Path root, Path jar, Jvm jvm, boolean forExample, List<String> rest) {
-        if (!forExample && localHelpArgs(rest)) return;
+    static void dispatchLocal(Path root, Lock lock, Path jar, Jvm jvm, boolean forExample,
+                              List<String> rest, List<String> compilerVerbs, String verbId) {
+        if (!forExample && localHelpArgs(rest, root, lock, jar, jvm, compilerVerbs, verbId)) return;
         // Examples local has no per-verb flag probe, so --help in its name slot is ours.
         boolean help = !rest.isEmpty() && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))
                     || forExample && rest.size() > 1
                        && (rest.get(1).equals("--help") || rest.get(1).equals("-h"));
         if (help) {
-            assetHelp(LOCAL_ASSET, forExample ? "--examples-help" : "--help"); return;
+            String sub = forExample && rest.size() > 1 && !rest.get(0).startsWith("-") ? rest.get(0) : null;
+            List<String> topic = sub != null ? List.of("examples-local", sub)
+                                             : List.of(forExample ? "examples-local" : "local");
+            renderWrapperHelp(topic, forExample ? EXAMPLES_LOCAL_USAGE : LOCAL_USAGE,
+                              root, lock, jar, jvm, compilerVerbs, verbId, List.of());
+            return;
         }
         String mode;
         List<String> verbAndArgs;
@@ -5411,15 +5409,6 @@ public final class flixw {
     static final String PICOCLI_ASSET = "picocli-" + PICOCLI_VERSION + ".jar";
 
     /**
-     * Public companion-asset help always comes from its Picocli command model. Stage 0 owns
-     * routing and the asset ABI; the asset owns how its user-facing command is presented.
-     */
-    static void assetHelp(String assetName, String selector) {
-        int rc = runAsset(ensureAsset(assetName), ensureAsset(PICOCLI_ASSET), List.of(selector));
-        if (rc != 0) throw w009("cannot render help for " + assetName + " (exit " + rc + ")");
-    }
-
-    /**
      * The stored help for this compiler, re-verified against its own provenance record.
      *
      * <p>The digest in {@code .helpmeta} is not decoration: this is the one place it is
@@ -5547,8 +5536,13 @@ public final class flixw {
 
     static void renderWrapperHelp(String verb, String fallback, Path root, Lock lock, Path jar,
                                   Jvm jvm, List<String> compilerVerbs, String identity, List<String> opts) {
+        renderWrapperHelp(List.of(verb), fallback, root, lock, jar, jvm, compilerVerbs, identity, opts);
+    }
+
+    static void renderWrapperHelp(List<String> words, String fallback, Path root, Lock lock, Path jar,
+                                  Jvm jvm, List<String> compilerVerbs, String identity, List<String> opts) {
         try {
-            if (renderHelp(List.of(verb), root, lock, jar, jvm, compilerVerbs, identity, opts) == 0) return;
+            if (renderHelp(words, root, lock, jar, jvm, compilerVerbs, identity, opts) == 0) return;
         } catch (IOException | RuntimeException ignored) { }
         System.out.println(fallback);
     }
@@ -5980,9 +5974,6 @@ public final class flixw {
         }
 
         // `help` retires if Flix claims it; bare --help cannot, while forced compiler stays raw.
-        if (!toCompiler && "help".equals(first)
-            && assetHelpTopic(forward.subList(Math.min(1, forward.size()), forward.size())))
-            return;
         if (!toCompiler && "help".equals(first)
             || (!forcedCompiler && ("--help".equals(first) || "-h".equals(first)) && argv.size() == 1)) {
             // It used to print the routing table and then launch the compiler for its half,

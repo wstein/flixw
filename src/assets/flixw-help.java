@@ -157,7 +157,23 @@ final class flixwhelp {
                 }
                 render(spec);
             }
-            case "examples-local" -> render(localSpec("./flixw examples local", false));
+            case "examples-local" -> {
+                CommandSpec spec = localSpec("./flixw examples local", false);
+                if (name != null && !name.equals("--help") && !name.equals("-h")) {
+                    String subName = name.startsWith("--help=") ? name.substring("--help=".length()) : name;
+                    CommandLine cmd = new CommandLine(spec)
+                        .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+                    CommandLine child = cmd.getSubcommands().get(subName);
+                    if (child != null) {
+                        child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
+                        return;
+                    }
+                    System.err.println("flixw: no examples local subcommand " + q(subName));
+                    System.err.println("       run: ./flixw help examples");
+                    throw new Exit(89);
+                }
+                render(spec);
+            }
             default -> {
                 if (c.words("compilerVerbs").contains(topic) || c.words("fallbackVerbs").contains(topic)) {
                     flix(c, topic, jvmOpts, true);
