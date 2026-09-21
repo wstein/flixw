@@ -1732,6 +1732,30 @@ g 0 'local .*override a declared GitHub dependency' \
     "help shows a real description for local, not a blank line"  ./flixw help
 g 0 'local .*override a declared GitHub dependency' \
     "help wrapper shows the same description"                    ./flixw help wrapper
+t 0 "help wrapper is the wrapper usage alias" sh -c '
+  test "$(./flixw help wrapper)" = "$(./flixw wrapper --help)"'
+t 0 "help pin is the pin usage alias" sh -c '
+  test "$(./flixw help pin)" = "$(./flixw pin --help)"'
+t 0 "help info is the info usage alias" sh -c '
+  test "$(./flixw help info)" = "$(./flixw info --help)"'
+t 0 "help doctor is the doctor usage alias" sh -c '
+  test "$(./flixw help doctor)" = "$(./flixw doctor --help)"'
+t 0 "help validate is the validate usage alias" sh -c '
+  test "$(./flixw help validate)" = "$(./flixw validate --help)"'
+t 0 "help plugin is the plugin usage alias" sh -c '
+  test "$(./flixw help plugin)" = "$(./flixw plugin --help)"'
+t 0 "help task is the task usage alias" sh -c '
+  test "$(./flixw help task)" = "$(./flixw task --help)"'
+t 0 "help completion is the completion usage alias" sh -c '
+  test "$(./flixw help completion)" = "$(./flixw completion --help)"'
+t 0 "help examples is the examples usage alias" sh -c '
+  test "$(./flixw help examples)" = "$(./flixw examples --help)"'
+t 0 "help check is the check usage alias" sh -c '
+  test "$(./flixw help check)" = "$(./flixw check --help)"'
+t 0 "help build is the build usage alias" sh -c '
+  test "$(./flixw help build)" = "$(./flixw build --help)"'
+t 0 "help init is the init usage alias" sh -c '
+  test "$(./flixw help init)" = "$(./flixw init --help)"'
 # Help is consumed by shells, editors and CI as well as a terminal.  Picocli's auto-detection
 # mistakes Git Bash on Windows for an ANSI terminal, making output-dependent callers see ESC.
 t 0 "help is terminal-escape free" sh -c '
@@ -1803,12 +1827,9 @@ t 89 "help flix rejects a command the compiler does not list"   ./flixw help fli
 t 89 "an unknown help topic is a usage error"                   ./flixw help nosuchtopic
 g 0 'topics: flix wrapper plugin task completion' \
                  "an unrecognised topic names completion too"   sh -c '! ./flixw help nosuchtopic'
-# pin is a wrapper verb, not a help topic -- it is documented under `help wrapper` alongside
-# info/doctor/validate rather than one topic each. Typing `help pin` used to answer with the
-# same generic "no help topic" as a genuine typo; it now redirects to where the words the
-# reader typed actually work.
-g 0 "'pin' is a wrapper verb, not a help topic" \
-                 "help pin redirects instead of a generic error" sh -c '! ./flixw help pin'
+# pin, info, doctor, validate and other wrapper verbs now directly render their
+# respective picocli usage screens when called via `help <verb>`, matching `<verb> --help`.
+g 0 './flixw pin' "help pin renders the pin usage" ./flixw help pin
 g 0 'no plugins\|plugin'  "help plugin answers without running anything" ./flixw help plugin
 g 0 'tasks'      "help task answers from the project's own file"  ./flixw help task
 

@@ -112,10 +112,22 @@ final class flixwhelp {
             // verified against their source.
             case "flix-direct" -> flix(c, name, jvmOpts, true);
             case "wrapper" -> render(wrapperSpec(c));
+            case "pin" -> render(pinSpec(c));
+            case "info" -> render(infoSpec(c));
+            case "doctor" -> render(doctorSpec(c));
+            case "validate" -> render(validateSpec(c));
             case "plugin" -> plugin(c, name);
             case "task" -> task(c, name);
-            case "completion" -> completion(c, name);
+            case "completion" -> {
+                if (name == null || name.equals("--help") || name.equals("-h")) render(completionSpec(c));
+                else completion(c, name);
+            }
+            case "examples" -> render(examplesSpec(c));
             default -> {
+                if (c.words("compilerVerbs").contains(topic) || c.words("fallbackVerbs").contains(topic)) {
+                    flix(c, topic, jvmOpts, true);
+                    return;
+                }
                 System.err.println("flixw: no help topic " + q(topic));
                 // pin, info, doctor and validate are commands, not topics -- they are
                 // documented together under "wrapper" rather than one topic each, which is
@@ -549,23 +561,109 @@ final class flixwhelp {
     }
 
     static CommandSpec wrapperSpec(Ctx c) {
-        CommandSpec s = base("./flixw",
-            "flixw " + c.get("flixwVersion") + " -- the wrapper's own commands.",
+        CommandSpec s = base("./flixw wrapper",
+            "flixw " + c.get("flixwVersion") + " -- wrapper management.",
             "",
-            "These are answered by the wrapper unless the pinned compiler implements the same"
-          + " word, in which case the compiler wins and the wrapper's version is deprecated.",
-            "pin, info, doctor, validate and help stay in the wrapper permanently: they are"
-          + " what a fresh clone needs before anything else can be trusted to run at all.");
-        for (String v : c.words("wrapperVerbs")) sub(s, v, wrapperDesc(v));
-        // Shared with the command tree rather than repeated. This list said `--completion`
-        // for as long as it was repeated: the flag became `./flixw completion <shell>`, and
-        // this screen went on advertising an operation stage 0 answers with FLIXW008.
+            "Manage the flixw wrapper installation, version, and cache.");
+        s.usageMessage().customSynopsis("./flixw wrapper <flags>");
         wrapperOptions(s);
-        sub(s, "completion", "a TAB-completion script for bash, zsh, fish or pwsh")
-            .addPositional(PositionalParamSpec.builder().paramLabel("<shell>")
-                .completionCandidates(List.of("bash", "zsh", "fish", "pwsh"))
-                .description("the shell to emit a script for").build());
         s.usageMessage().footer("FLIX_JAR=<path> runs a local compiler build, unverified (see docs/CONTRACT.md).");
+        return s;
+    }
+
+    static CommandSpec pinSpec(Ctx c) {
+        CommandSpec s = base("./flixw pin",
+            "Write .flixw/lock.toml: repository, compiler version and digest.",
+            "",
+            "Pins an unmodified stock flix.jar, fork, or local compiler build.");
+        s.usageMessage().customSynopsis(
+            "./flixw pin [<owner>/<repo>] [<version>] [--java <version>] [--editor-jar=copy|off]",
+            "          or: ./flixw pin --local <path/to/flix.jar-or-checkout> | --stock",
+            "          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)",
+            "          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)");
+        s.addPositional(PositionalParamSpec.builder()
+            .paramLabel("[<owner>/<repo>]")
+            .arity("0..1")
+            .description("repository (default: flix/flix)").build());
+        s.addPositional(PositionalParamSpec.builder()
+            .paramLabel("[<version>]")
+            .arity("0..1")
+            .description("compiler version, e.g. 0.76.1 or owner/repo@version").build());
+        s.addOption(OptionSpec.builder("--java")
+            .paramLabel("<version>")
+            .description("minimum Java version required for this project").build());
+        s.addOption(OptionSpec.builder("--editor-jar")
+            .paramLabel("<policy>")
+            .description("editor integration: copy compiler jar or off (copy|off)").build());
+        s.addOption(OptionSpec.builder("--local")
+            .paramLabel("<path>")
+            .description("point at a local compiler jar or build checkout").build());
+        s.addOption(OptionSpec.builder("--stock")
+            .description("revert --local to stock pinned compiler").build());
+        s.addOption(OptionSpec.builder("--refresh")
+            .description("rewrite .flixw/lock.toml in this wrapper's shape").build());
+        return s;
+    }
+
+    static CommandSpec infoSpec(Ctx c) {
+        CommandSpec s = base("./flixw info",
+            "Report project, compiler, java and cache state.");
+        s.usageMessage().customSynopsis("./flixw info [--verbose | -v]");
+        s.addOption(OptionSpec.builder("-v", "--verbose")
+            .description("list cached compilers, JDKs and assets").build());
+        return s;
+    }
+
+    static CommandSpec doctorSpec(Ctx c) {
+        CommandSpec s = base("./flixw doctor",
+            "Inspect wrapper health and project setup with diagnostic verdicts.",
+            "",
+            "Runs all validation checks, reporting PASS/WARN/FAIL for each.");
+        s.usageMessage().customSynopsis("./flixw doctor [--fix]");
+        s.addOption(OptionSpec.builder("--fix")
+            .description("automatically repair fixable issues (e.g. .gitattributes, refresh lock)").build());
+        return s;
+    }
+
+    static CommandSpec validateSpec(Ctx c) {
+        CommandSpec s = base("./flixw validate",
+            "Run wrapper validation checks alone, for CI.");
+        s.usageMessage().customSynopsis("./flixw validate");
+        return s;
+    }
+
+    static CommandSpec completionSpec(Ctx c) {
+        CommandSpec s = base("./flixw completion",
+            "Emit TAB-completion script for bash, zsh, fish or pwsh.");
+        s.usageMessage().customSynopsis("./flixw completion <bash|zsh|fish|pwsh>");
+        s.addPositional(PositionalParamSpec.builder()
+            .paramLabel("<shell>")
+            .arity("1")
+            .completionCandidates(List.of("bash", "zsh", "fish", "pwsh"))
+            .description("shell to emit completion script for (bash, zsh, fish, pwsh)").build());
+        return s;
+    }
+
+    static CommandSpec examplesSpec(Ctx c) {
+        CommandSpec s = base("./flixw examples",
+            "Runs an examples/<name>/ package with this project's pinned compiler.");
+        s.usageMessage().footer("Examples are separate packages under examples/, each with its own flix.toml.");
+        sub(s, "list", "lists discoverable examples.");
+        sub(s, "run", "runs Flix run in an example package.");
+        sub(s, "check", "runs Flix check in an example package.");
+        sub(s, "build", "runs Flix build in an example package.");
+        sub(s, "build-classes", "runs Flix build-classes in an example package.");
+        sub(s, "build-jar", "runs Flix build-jar in an example package.");
+        sub(s, "build-fatjar", "runs Flix build-fatjar in an example package.");
+        sub(s, "build-pkg", "runs Flix build-pkg in an example package.");
+        sub(s, "clean", "runs Flix clean in an example package.");
+        sub(s, "doc", "runs Flix doc in an example package.");
+        sub(s, "format", "runs Flix format in an example package.");
+        sub(s, "outdated", "runs Flix outdated in an example package.");
+        sub(s, "eff-check", "runs Flix eff-check in an example package.");
+        sub(s, "eff-lock", "runs Flix eff-lock in an example package.");
+        sub(s, "test", "runs Flix test in an example package.");
+        sub(s, "local", "runs an example against this project's local source.");
         return s;
     }
 
@@ -847,7 +945,7 @@ final class flixwhelp {
      */
     static void plugin(Ctx c, String name) {
         List<String[]> rows = c.rows("plugins");
-        if (name == null) {
+        if (name == null || name.equals("--help") || name.equals("-h")) {
             CommandSpec s = base("./flixw plugin",
                 "Verified third-party commands, installed explicitly and re-hashed on every"
               + " run.",
@@ -892,7 +990,7 @@ final class flixwhelp {
      */
     static void task(Ctx c, String name) {
         List<String[]> rows = c.rows("tasks");
-        if (name == null) {
+        if (name == null || name.equals("--help") || name.equals("-h")) {
             CommandSpec s = base("./flixw task",
                 ".flixw/tasks.toml -- npm-`scripts`-style aliases for this project.",
                 "",

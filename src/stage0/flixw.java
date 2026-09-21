@@ -1041,13 +1041,19 @@ public final class flixw {
     static final String DOCTOR_USAGE = "usage: ./flixw doctor [--fix]";
     static final String VALIDATE_USAGE = "usage: ./flixw validate";
 
-    static boolean localHelpTopic(List<String> rest) {
-        if (rest.isEmpty() || !rest.get(0).equals("local")) return false;
-        String selector = rest.size() == 1 ? "--help"
-                        : rest.size() == 2 && localHelpSubcommand(rest.get(1))
-                        ? "--help=" + rest.get(1) : null;
-        if (selector == null) return false;
-        assetHelp(LOCAL_ASSET, selector); return true;
+    static boolean assetHelpTopic(List<String> rest) {
+        if (rest.isEmpty()) return false;
+        if (rest.get(0).equals("local")) {
+            String selector = rest.size() == 1 ? "--help"
+                            : rest.size() == 2 && localHelpSubcommand(rest.get(1))
+                            ? "--help=" + rest.get(1) : null;
+            if (selector == null) return false;
+            assetHelp(LOCAL_ASSET, selector); return true;
+        }
+        if (rest.get(0).equals("examples") && rest.size() == 1) {
+            assetHelp(EXAMPLES_ASSET, "--help"); return true;
+        }
+        return false;
     }
 
     static boolean localHelpArgs(List<String> rest) {
@@ -2725,7 +2731,7 @@ public final class flixw {
                             Jvm jvm, List<String> compilerVerbs, String verbId) {
         switch (verb) {
             case "pin" -> {
-                if (wantsHelp(rest)) { System.out.println(PIN_USAGE); return; }
+                if (wantsHelp(rest)) { renderWrapperHelp("pin", PIN_USAGE, root, lock, jar, jvm, compilerVerbs, verbId, List.of()); return; }
                 if (rest.isEmpty())
                     throw w009(PIN_USAGE);
                 pin(root, parsePin(rest, lock));
@@ -2734,18 +2740,15 @@ public final class flixw {
             // this is the routing table alone. Once a project is pinned, the full
             // `help`/`--help` merge in realMain runs instead and this case is not hit.
             case "help" -> {
-                if (localHelpTopic(rest)) return;
-                if (!rest.isEmpty())
-                    throw w008("./flixw help: unknown argument " + q(rest.get(0))
-                             + "\n       usage: ./flixw help");
-                helpTopic(List.of(), root, lock, jar, jvm,
+                if (assetHelpTopic(rest)) return;
+                helpTopic(rest, root, lock, jar, jvm,
                           compilerVerbs == null ? List.of() : compilerVerbs, verbId, List.of(), true);
             }
             // info reports, validate judges, doctor does both -- which is what the word
             // means everywhere else, and what this one did not do: it printed twelve lines
             // of state, noticed nothing, and exited 0 with a shim that had been edited.
             case "info" -> {
-                if (wantsHelp(rest)) { System.out.println(INFO_USAGE); return; }
+                if (wantsHelp(rest)) { renderWrapperHelp("info", INFO_USAGE, root, lock, jar, jvm, compilerVerbs, verbId, List.of()); return; }
                 boolean verbose = rest.contains("--verbose") || rest.contains("-v");
                 for (String a : rest)
                     if (!a.equals("--verbose") && !a.equals("-v"))
@@ -2754,7 +2757,7 @@ public final class flixw {
                 if (verbose) { System.out.println(); listCache(lock, jvm); }
             }
             case "validate" -> {
-                if (wantsHelp(rest)) { System.out.println(VALIDATE_USAGE); return; }
+                if (wantsHelp(rest)) { renderWrapperHelp("validate", VALIDATE_USAGE, root, lock, jar, jvm, compilerVerbs, verbId, List.of()); return; }
                 // Unrecognised, not silently accepted: validate is CI's own gate, and a typo
                 // that reads as an accepted argument is a check that quietly stopped meaning
                 // what its exit code claims.
@@ -2765,7 +2768,7 @@ public final class flixw {
                 if (bad > 0) throw w009(bad + " validation failure(s)");
             }
             case "doctor" -> {
-                if (wantsHelp(rest)) { System.out.println(DOCTOR_USAGE); return; }
+                if (wantsHelp(rest)) { renderWrapperHelp("doctor", DOCTOR_USAGE, root, lock, jar, jvm, compilerVerbs, verbId, List.of()); return; }
                 boolean fix = rest.contains("--fix");
                 for (String a : rest)
                     if (!a.equals("--fix"))
@@ -2796,7 +2799,7 @@ public final class flixw {
                 // through to resolvePlugin("--help", ...), which failed on the name grammar
                 // and reported FLIXW009 "invalid plugin name", never mentioning --help at all.
                 if (sub.equals("--help") || sub.equals("-h")) {
-                    System.out.println(PLUGIN_USAGE);
+                    renderWrapperHelp("plugin", PLUGIN_USAGE, root, lock, jar, jvm, compilerVerbs, verbId, List.of());
                     return;
                 }
                 List<String> args = rest.subList(1, rest.size());
@@ -2827,7 +2830,11 @@ public final class flixw {
                 Map<String, String> tasks = readTasks(root);
                 // --help lists the same thing a bare `task` does: there is no separate usage
                 // grammar to document, since the alias itself is the only argument this takes.
-                if (rest.isEmpty() || rest.get(0).equals("--help") || rest.get(0).equals("-h")) {
+                if (rest.size() == 1 && (rest.get(0).equals("--help") || rest.get(0).equals("-h"))) {
+                    renderWrapperHelp("task", tasks.isEmpty() ? "(no tasks in " + tasksPath(root) + ")" : String.join("\n", tasks.keySet()), root, lock, jar, jvm, compilerVerbs, verbId, List.of());
+                    return;
+                }
+                if (rest.isEmpty()) {
                     if (tasks.isEmpty()) System.out.println("(no tasks in " + tasksPath(root) + ")");
                     else tasks.keySet().forEach(System.out::println);
                     return;
@@ -5301,6 +5308,10 @@ public final class flixw {
      * it is not answered from there, so listing it would advertise a route that does not run.
      */
     static boolean completionEarly(List<String> args) {
+        if (!args.isEmpty() && (args.get(0).equals("--help") || args.get(0).equals("-h"))) {
+            renderWrapperHelp("completion", COMPLETION_USAGE, null, null, null, null, null, null, List.of());
+            return true;
+        }
         completionShell(args);                      // fail on a bad shell before any file work
         Path root = null;
         try { root = findRoot(wrapperAnchor()); } catch (Fail ignored) { }
@@ -5532,6 +5543,14 @@ public final class flixw {
             tr("cannot render compiler help for " + verb + ": " + why(e));
             return false;
         }
+    }
+
+    static void renderWrapperHelp(String verb, String fallback, Path root, Lock lock, Path jar,
+                                  Jvm jvm, List<String> compilerVerbs, String identity, List<String> opts) {
+        try {
+            if (renderHelp(List.of(verb), root, lock, jar, jvm, compilerVerbs, identity, opts) == 0) return;
+        } catch (IOException | RuntimeException ignored) { }
+        System.out.println(fallback);
     }
 
     /**
@@ -5854,7 +5873,7 @@ public final class flixw {
             routingNotice(first, lock == null ? "none" : lock.version());
             if (first.equals("pin")) {
                 List<String> rest = argv.subList(1, argv.size());
-                if (wantsHelp(rest)) System.out.println(PIN_USAGE);
+                if (wantsHelp(rest)) renderWrapperHelp("pin", PIN_USAGE, root, lock, null, null, null, null, List.of());
                 else pin(root, parsePin(rest, lock));
             } else if (bareHelp) {
                 wrapperVerb("help", List.of(), root, lock, null, null, null, null);
@@ -5873,7 +5892,7 @@ public final class flixw {
         if ("pin".equals(first) && !forcedCompiler) {
             routingNotice("pin", lock.version());
             List<String> rest = argv.subList(1, argv.size());
-            if (wantsHelp(rest)) System.out.println(PIN_USAGE);
+            if (wantsHelp(rest)) renderWrapperHelp("pin", PIN_USAGE, root, lock, null, null, null, null, List.of());
             else pin(root, parsePin(rest, lock));
             return;
         }
@@ -5927,6 +5946,11 @@ public final class flixw {
         // candidate is not worth a diagnostic, still less a failed build.
         if (lock != null)
             reportVersionGap("the pinned compiler", lock.version(), lock.reportedVersion());
+        // ---- self-compile ------------------------------------------------
+        // Kept out of the shims deliberately: a shim has to be written in POSIX sh and in
+        // cmd.exe, and every check added there has to be maintained in two dialects and
+        // tested on two platforms. Running `javac` from inside stage 0 means the logic is
+        // Java, shared, and unit-tested in UnitCheck.
         selfCompile(selfSource());
 
         // ---- dispatch ----------------------------------------------------
@@ -5957,7 +5981,7 @@ public final class flixw {
 
         // `help` retires if Flix claims it; bare --help cannot, while forced compiler stays raw.
         if (!toCompiler && "help".equals(first)
-            && localHelpTopic(forward.subList(Math.min(1, forward.size()), forward.size())))
+            && assetHelpTopic(forward.subList(Math.min(1, forward.size()), forward.size())))
             return;
         if (!toCompiler && "help".equals(first)
             || (!forcedCompiler && ("--help".equals(first) || "-h".equals(first)) && argv.size() == 1)) {
