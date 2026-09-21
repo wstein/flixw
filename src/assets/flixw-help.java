@@ -122,7 +122,23 @@ final class flixwhelp {
                 if (name == null || name.equals("--help") || name.equals("-h")) render(completionSpec(c));
                 else completion(c, name);
             }
-            case "examples" -> render(examplesSpec(c));
+            case "examples" -> {
+                CommandSpec spec = examplesSpec(c);
+                if (name != null && !name.equals("--help") && !name.equals("-h")) {
+                    String subName = name.startsWith("--help=") ? name.substring("--help=".length()) : name;
+                    CommandLine cmd = new CommandLine(spec)
+                        .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+                    CommandLine child = cmd.getSubcommands().get(subName);
+                    if (child != null) {
+                        child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
+                        return;
+                    }
+                    System.err.println("flixw: no examples subcommand " + q(subName));
+                    System.err.println("       run: ./flixw help examples");
+                    throw new Exit(89);
+                }
+                render(spec);
+            }
             default -> {
                 if (c.words("compilerVerbs").contains(topic) || c.words("fallbackVerbs").contains(topic)) {
                     flix(c, topic, jvmOpts, true);
@@ -659,23 +675,18 @@ final class flixwhelp {
     static CommandSpec examplesSpec(Ctx c) {
         CommandSpec s = base("./flixw examples",
             "Runs an examples/<name>/ package with this project's pinned compiler.");
-        s.usageMessage().footer("Examples are separate packages under examples/, each with its own flix.toml.");
         sub(s, "list", "lists discoverable examples.");
-        sub(s, "run", "runs Flix run in an example package.");
-        sub(s, "check", "runs Flix check in an example package.");
-        sub(s, "build", "runs Flix build in an example package.");
-        sub(s, "build-classes", "runs Flix build-classes in an example package.");
-        sub(s, "build-jar", "runs Flix build-jar in an example package.");
-        sub(s, "build-fatjar", "runs Flix build-fatjar in an example package.");
-        sub(s, "build-pkg", "runs Flix build-pkg in an example package.");
-        sub(s, "clean", "runs Flix clean in an example package.");
-        sub(s, "doc", "runs Flix doc in an example package.");
-        sub(s, "format", "runs Flix format in an example package.");
-        sub(s, "outdated", "runs Flix outdated in an example package.");
-        sub(s, "eff-check", "runs Flix eff-check in an example package.");
-        sub(s, "eff-lock", "runs Flix eff-lock in an example package.");
-        sub(s, "test", "runs Flix test in an example package.");
-        sub(s, "local", "runs an example against this project's local source.");
+        for (String verb : List.of("run", "check", "build", "build-classes", "build-jar", "build-fatjar",
+                                   "build-pkg", "clean", "doc", "format", "outdated", "eff-check", "eff-lock",
+                                   "test")) {
+            CommandSpec child = sub(s, verb, "runs Flix " + verb + " in an example package.");
+            child.addPositional(PositionalParamSpec.builder().paramLabel("<name>")
+                .description("the example directory name").build());
+            child.usageMessage().customSynopsis("./flixw examples " + verb + " [flags] <name> [-- args]");
+        }
+        CommandSpec local = sub(s, "local", "runs an example against this project's local source.");
+        local.usageMessage().customSynopsis("./flixw examples local <verb> <name> [-- args]");
+        s.usageMessage().footer("Examples are separate packages under examples/, each with its own flix.toml.");
         return s;
     }
 

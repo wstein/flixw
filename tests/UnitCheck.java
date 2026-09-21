@@ -744,6 +744,13 @@ public final class UnitCheck {
         eq("ansi: NO_COLOR suppresses color", "OFF", flixwhelp.ansi("1").name());
         eq("ansi: empty NO_COLOR suppresses color", "OFF", flixwhelp.ansi("").name());
         eq("ansi: absent NO_COLOR uses AUTO", "AUTO", flixwhelp.ansi(null).name());
+
+        var exSpec = flixwhelp.examplesSpec(null);
+        eq("examplesSpec: has list", "true", String.valueOf(exSpec.subcommands().containsKey("list")));
+        eq("examplesSpec: has run", "true", String.valueOf(exSpec.subcommands().containsKey("run")));
+        eq("examplesSpec: run has <name> positional", "<name>",
+           exSpec.subcommands().get("run").getCommandSpec().positionalParameters().get(0).paramLabel());
+        eq("examplesSpec: has local", "true", String.valueOf(exSpec.subcommands().containsKey("local")));
     }
 
     /**
