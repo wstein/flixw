@@ -755,6 +755,20 @@ public final class UnitCheck {
            String.valueOf(buildXOut.contains("The following options are experimental:")));
         eq("help: build --Xhelp renders experimental options", "true",
            String.valueOf(buildXOut.contains("--Xbenchmark-code-size")));
+
+        eq("isHelpFlag: --help is recognized", "true", String.valueOf(flixw.isHelpFlag("--help")));
+        eq("isHelpFlag: -h is recognized", "true", String.valueOf(flixw.isHelpFlag("-h")));
+        eq("isHelpFlag: --Xhelp is recognized", "true", String.valueOf(flixw.isHelpFlag("--Xhelp")));
+        eq("isHelpFlag: --experimental-help is recognized", "true", String.valueOf(flixw.isHelpFlag("--experimental-help")));
+        eq("isHelpFlag: --other is not help", "false", String.valueOf(flixw.isHelpFlag("--other")));
+        eq("isHelpFlag: null is not help", "false", String.valueOf(flixw.isHelpFlag(null)));
+
+        eq("exactCompilerHelp: [build, --help]", "true", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build", "--help"))));
+        eq("exactCompilerHelp: [build, -h]", "true", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build", "-h"))));
+        eq("exactCompilerHelp: [build, --Xhelp]", "true", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build", "--Xhelp"))));
+        eq("exactCompilerHelp: [build, --experimental-help]", "true", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build", "--experimental-help"))));
+        eq("exactCompilerHelp: [build, --help, extra]", "false", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build", "--help", "extra"))));
+        eq("exactCompilerHelp: [build]", "false", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build"))));
     }
 
     /**

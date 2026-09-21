@@ -105,17 +105,21 @@ final class flixwhelp {
         String name = args.length > 2 ? args[2] : null;
         List<String> jvmOpts = args.length > 3 ? List.of(args).subList(3, args.length) : List.of();
 
-        boolean xhelp = false;
-        if ("--Xhelp".equals(topic)) { topic = null; xhelp = true; }
-        else if ("--Xhelp".equals(name)) { name = null; xhelp = true; }
-        else if (!jvmOpts.isEmpty() && "--Xhelp".equals(jvmOpts.get(0))) {
-            xhelp = true;
+        String helpFlag = null;
+        if (isHelpFlag(topic) && !"--help".equals(topic) && !"-h".equals(topic)) {
+            helpFlag = topic;
+            topic = null;
+        } else if (isHelpFlag(name) && !"--help".equals(name) && !"-h".equals(name)) {
+            helpFlag = name;
+            name = null;
+        } else if (!jvmOpts.isEmpty() && isHelpFlag(jvmOpts.get(0)) && !"--help".equals(jvmOpts.get(0)) && !"-h".equals(jvmOpts.get(0))) {
+            helpFlag = jvmOpts.get(0);
             jvmOpts = jvmOpts.subList(1, jvmOpts.size());
         }
 
-        if (topic == null) { overview(c, xhelp); return; }
+        if (topic == null) { overview(c, helpFlag); return; }
         switch (topic) {
-            case "flix", "flix-direct" -> flix(c, name, jvmOpts, xhelp);
+            case "flix", "flix-direct" -> flix(c, name, jvmOpts, helpFlag);
             case "wrapper" -> render(wrapperSpec(c));
             case "pin" -> render(pinSpec(c));
             case "info" -> render(infoSpec(c));
@@ -153,7 +157,7 @@ final class flixwhelp {
             }
             default -> {
                 if (c.words("compilerVerbs").contains(topic) || c.words("fallbackVerbs").contains(topic)) {
-                    flix(c, topic, jvmOpts, xhelp);
+                    flix(c, topic, jvmOpts, helpFlag);
                     return;
                 }
                 System.err.println("flixw: no help topic " + q(topic));
@@ -247,6 +251,10 @@ final class flixwhelp {
         return "raw";
     }
 
+    static boolean isHelpFlag(String arg) {
+        return arg != null && ("--help".equals(arg) || "-h".equals(arg) || arg.matches("^--[A-Za-z0-9_-]*help$"));
+    }
+
     // ---- rendering ----------------------------------------------------------
 
     /**
@@ -263,14 +271,15 @@ final class flixwhelp {
 
     /** One renderer for every topic, so the topics cannot drift apart in appearance. */
     static void render(CommandSpec spec) {
-        render(spec, false);
+        render(spec, null);
     }
 
-    static void render(CommandSpec spec, boolean xhelp) {
+    static void render(CommandSpec spec, String helpFlag) {
         CommandLine cl = new CommandLine(spec)
             .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
-        if (xhelp) {
-            String exp = new CommandLine.Help(spec, cl.getColorScheme()).renderHelpSection("experimental");
+        if (helpFlag != null) {
+            String section = spec.findHelpSectionForOption(helpFlag).orElse("experimental");
+            String exp = new CommandLine.Help(spec, cl.getColorScheme()).renderHelpSection(section);
             if (exp != null && !exp.isBlank()) {
                 System.out.print(exp.endsWith("\n") ? exp : exp + "\n");
                 return;
@@ -451,13 +460,13 @@ final class flixwhelp {
      * work out which of them is currently winning.
      */
     static void overview(Ctx c) {
-        overview(c, false);
+        overview(c, null);
     }
 
-    static void overview(Ctx c, boolean xhelp) {
+    static void overview(Ctx c, String helpFlag) {
         CommandSpec t = tree(c, "./flixw");
-        if (xhelp) {
-            render(t, true);
+        if (helpFlag != null) {
+            render(t, helpFlag);
             return;
         }
         renderGrouped(t, c);
@@ -709,7 +718,7 @@ final class flixwhelp {
 
     // ---- flix ----------------------------------------------------------------
 
-    static void flix(Ctx c, String name, List<String> jvmOpts, boolean xhelp)
+    static void flix(Ctx c, String name, List<String> jvmOpts, String helpFlag)
             throws IOException, InterruptedException {
         String path = c.get("helpFile");
         if (path.isEmpty()) {
@@ -720,8 +729,8 @@ final class flixwhelp {
         String help = readOrEmpty(path);
         String version = c.get("compilerVersion");
         if (name == null) {
-            if (xhelp) {
-                render(tree(c, "./flixw"), true);
+            if (helpFlag != null) {
+                render(tree(c, "./flixw"), helpFlag);
                 return;
             }
             flixOverview(c, help, version);
@@ -747,7 +756,7 @@ final class flixwhelp {
         if (probed != null && probed.status != 0) throw new Exit(probed.status);
 
         CommandSpec fromSpec = specVerb(c, name);
-        if (fromSpec != null) { render(fromSpec, xhelp); return; }
+        if (fromSpec != null) { render(fromSpec, helpFlag); return; }
 
         List<String> compilerVerbs = c.words("compilerVerbs");
         if (!compilerVerbs.contains(name) && !c.words("fallbackVerbs").contains(name)) {
