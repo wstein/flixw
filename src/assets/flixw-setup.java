@@ -891,6 +891,19 @@ final class flixwsetup {
           | wrapper:--purge | wrapper:--help | wrapper:)
             if [ -n "$s0" ]; then exec java -cp "$(dirname -- "$s0")" flixw "$@"; fi
             ;;
+          # --global can sit anywhere after --upgrade (--upgrade --global, --upgrade
+          # --pre-release --global, --upgrade 1.2.3 --global, ...), so unlike every case
+          # above this one is not a fixed $1:$2 shape -- it is the one spelling of
+          # --upgrade that does not resolve a project, and stage 0 is what actually
+          # parses the rest of the flags correctly or refuses them.
+          wrapper:--upgrade)
+            for a in "$@"; do
+              if [ "$a" = --global ]; then
+                if [ -n "$s0" ]; then exec java -cp "$(dirname -- "$s0")" flixw "$@"; fi
+                break
+              fi
+            done
+            ;;
         esac
         # completion is a pure function of (shell, verb table) with no project of its own
         # either -- generated once for setting up a shell, often before any project exists.

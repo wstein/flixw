@@ -2262,13 +2262,40 @@ t 0 "...and the project now carries that stage 0"                sh -c '
 # this project", but "is the machine-wide cache the no-project fallback reads from
 # current". Run with no project anywhere in scope -- $work, not a fixture -- since needing
 # one at all would be the bug this closes.
-g 0 "$wrapper_version -> 9.9.9" "upgrade --global needs no project at all" sh -c '
+# Through the *generated shell launcher itself*, not stage 0 directly -- a first version of
+# this case ran only the latter and stayed green while the actual, installed launcher
+# refused --global outright. The launcher's own routing is a fixed $1:$2 case match for
+# every other flag here, and --global can sit anywhere after --upgrade (--upgrade
+# --global, --upgrade --pre-release --global, --upgrade 1.2.3 --global, ...) -- a shape
+# nothing else in this file has, and the one the shell script has to scan "$@" for by hand
+# rather than pattern-match. Skipping the shell and calling stage 0 straight from Java, as
+# the first version of this test did, proves the Java logic works and nothing about
+# whether a real invocation ever reaches it.
+#
+# A genuinely newer release (9.9.10) so the upgrade actually proceeds: an earlier case in
+# this file already self-compiled 9.9.9 into this same shared cache, so testing against 9.9.9
+# would hit "nothing to do" and never exercise the global-upgrade execution path.
+globalrel=$work/globalrelease
+rm -rf "$globalrel" && mkdir -p "$globalrel"
+sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.10"/' \
+  "$root/src/stage0/flixw.java" > "$globalrel/flixw.java"
+sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.10"/' \
+  "$root/src/assets/flixw-setup.java" > "$globalrel/flixw-setup.java"
+cp "$root/src/assets/flixw-help.java" "$root/src/assets/flixw-jdk.java" "$globalrel/"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$globalrel" && sha256sum flixw.java flixw-setup.java flixw-help.java \
+     flixw-jdk.java > SHA256SUMS)
+else
+  (cd "$globalrel" && shasum -a 256 flixw.java flixw-setup.java flixw-help.java \
+     flixw-jdk.java > SHA256SUMS)
+fi
+g 0 "refreshed the global launcher" "upgrade --global moves the machine-wide cache with no project" sh -c '
   cd "$1" && FLIXW_RELEASE_SOURCE="$2/" FLIXW_ASSET_SOURCE="$2/" \
-    java "$3/src/stage0/flixw.java" wrapper --upgrade --global --pre-release 2>&1' \
-  sh "$work" "$(fileurl "$newrel")" "$root"
+    "$3" wrapper --upgrade --pre-release --global 2>&1' \
+  sh "$work" "$(fileurl "$globalrel")" "$cache_native/bin/flixw"
 t 0 "...and wrote no project files anywhere it ran"              sh -c '
   test ! -e "$1/.flixw" && test ! -e "$1/flixw" && test ! -e "$1/flix.toml"' sh "$work"
-g 0 'flixw 9.9.9' "...and the global launcher answers with that version, still with no project" \
+g 0 'flixw 9.9.10' "...and the global launcher answers with that version, still with no project" \
   sh -c 'cd "$1" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
 
 # --upgrade moves to the newest published flixw. What the suite can assert is the guard
