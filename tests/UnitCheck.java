@@ -1683,6 +1683,9 @@ public final class UnitCheck {
     public static void main(String[] args) throws IOException {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         Path fixtures = Paths.get(args.length > 1 ? args[1] : "tests/schema");
+        Path root = dir.toAbsolutePath().normalize().getParent().getParent();
+        if (System.getProperty("flixw.specs.dir") == null && Files.isDirectory(root.resolve("src/assets/picocli")))
+            System.setProperty("flixw.specs.dir", root.resolve("src/assets/picocli").toString());
         List<Row> rows = rows(dir);
         corpus(dir, rows);
         adversarial();

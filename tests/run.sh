@@ -1999,7 +1999,7 @@ javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/sr
   "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-examples.java" \
   "$root/src/assets/flixw-local.java" "$root/tests/UnitCheck.java"
 set +e
-java -cp "$work/unit:$picocli_jar" UnitCheck "$root/tests/corpus" "$root/tests/schema"
+java -Dflixw.specs.dir="$root/src/assets/picocli" -cp "$work/unit:$picocli_jar" UnitCheck "$root/tests/corpus" "$root/tests/schema"
 unit_rc=$?
 set -e
 t 0  "manifest corpus, pin rewrite and capture bounds"          test "$unit_rc" = 0

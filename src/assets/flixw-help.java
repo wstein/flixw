@@ -707,10 +707,22 @@ final class flixwhelp {
 
         // 2. Check local workspace asset file if running from source checkout
         try {
-            Path disk = Paths.get("src/assets/picocli", name);
-            if (Files.isRegularFile(disk)) {
-                String dsl = Files.readString(disk, StandardCharsets.UTF_8);
-                return Optional.of(CommandSpecDsl.parse(dsl));
+            String prop = System.getProperty("flixw.specs.dir");
+            if (prop != null && !prop.isBlank()) {
+                Path disk = Paths.get(prop, name);
+                if (Files.isRegularFile(disk)) {
+                    String dsl = Files.readString(disk, StandardCharsets.UTF_8);
+                    return Optional.of(CommandSpecDsl.parse(dsl));
+                }
+            }
+            Path cur = Paths.get("").toAbsolutePath();
+            for (int i = 0; i < 8 && cur != null; i++) {
+                Path disk = cur.resolve("src/assets/picocli").resolve(name);
+                if (Files.isRegularFile(disk)) {
+                    String dsl = Files.readString(disk, StandardCharsets.UTF_8);
+                    return Optional.of(CommandSpecDsl.parse(dsl));
+                }
+                cur = cur.getParent();
             }
         } catch (Exception ignored) { }
 
