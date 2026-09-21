@@ -473,7 +473,7 @@ t 88 "pin rejects two repositories"                             ./flixw pin a/b 
 t 88 "pin rejects two versions"                                 ./flixw pin 0.75.1 "$version"
 # --help used to fall into the "unrecognised --xxx" branch and answer FLIXW008, same as any
 # other typo -- the one flag every CLI is expected to honour was itself an error.
-g 0 'usage: ./flixw pin' "pin --help answers instead of FLIXW008"  ./flixw pin --help
+g 0 '[Uu]sage: ./flixw pin' "pin --help answers instead of FLIXW008"  ./flixw pin --help
 t 0  "pin -h is the same shortcut"                              ./flixw pin -h
 # The source is recorded so a bare re-pin cannot silently move the project elsewhere.
 t 0  "pin records the repository it fetched from"               sh -c '
@@ -657,10 +657,10 @@ t 87 "info rejects an unknown option"                           ./flixw info --f
 # Every wrapper verb's own arg parser used to treat --help exactly like --frobnicate above:
 # an unrecognised option, FLIXW008, no usage shown. --help is the one flag no CLI should be
 # able to mistake for a typo, and it was mistaken for one on five separate verbs at once.
-g 0 'usage: ./flixw info'    "info --help answers instead of FLIXW008"     ./flixw info --help
-g 0 'usage: ./flixw doctor'  "doctor --help answers instead of FLIXW008"   ./flixw doctor --help
-g 0 'usage: ./flixw validate' "validate --help answers instead of running" ./flixw validate --help
-g 0 'usage: ./flixw plugin'  "plugin --help answers instead of FLIXW009"   ./flixw plugin --help
+g 0 '[Uu]sage: ./flixw info'    "info --help answers instead of FLIXW008"     ./flixw info --help
+g 0 '[Uu]sage: ./flixw doctor'  "doctor --help answers instead of FLIXW008"   ./flixw doctor --help
+g 0 '[Uu]sage: ./flixw validate' "validate --help answers instead of running" ./flixw validate --help
+g 0 '[Uu]sage: ./flixw plugin'  "plugin --help answers instead of FLIXW009"   ./flixw plugin --help
 t 0  "task --help lists tasks, same as a bare task"             ./flixw task --help
 # validate silently accepted any trailing garbage before this -- ./flixw validate typo'd a
 # passing exit code, which is the one thing CI trusts this verb to get right.
