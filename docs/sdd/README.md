@@ -53,3 +53,29 @@ must therefore only ever point at a picocli release that bundles `picocli-spec`'
 same jar (the `io.github.wstein:picocli` fork does, starting with the release that ships this
 feature), and the version bump and this feature must land in the same commit so neither ships
 without the other.
+
+## Help authority: stage 0 as minimal fallback, flixw-help as full authority
+
+Stage 0 owns routing and process invocation, maintaining only single-line `*_USAGE` strings
+for offline degradation when picocli or the asset cannot be fetched. All human-facing, formatted
+help is delegated to `flixw-help.java`.
+
+`renderWrapperHelp()` in stage 0 attempts to invoke `flixw-help.java` first, falling back silently
+to the minimal usage string on failure.
+
+## Wrapper verb and asset command specs
+
+All wrapper-owned commands (`pin`, `info`, `doctor`, `validate`, `wrapper`, `completion`,
+`examples`, `local`) define their `CommandSpec` in `flixw-help.java`. Sub-assets such as
+`flixw-examples.java` and `flixw-local.java` carry zero picocli dependencies, keeping execution
+logic cleanly separated from CLI presentation.
+
+## Unified command model: tree() as single source of truth
+
+`tree(c, name)` in `flixw-help.java` builds the unified command hierarchy for both `./flixw help`
+and `./flixw completion <shell>`. It incorporates:
+- Curated or scraped compiler commands and root options
+- Wrapper commands with full subcommand models (`examplesSpec`, `localSpec`, `wrapperSpec`)
+- Installed plugins from `lock.toml` under both `plugin <name>` and declared bare verbs
+- Configured tasks from `tasks.toml`
+This guarantees that shell completion candidates and help screens never drift.
