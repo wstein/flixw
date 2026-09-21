@@ -766,38 +766,54 @@ public final class UnitCheck {
         var exLocSpec = flixwhelp.localSpec("./flixw examples local", false);
         eq("examplesLocalSpec: does not have add", "false", String.valueOf(exLocSpec.subcommands().containsKey("add")));
         eq("examplesLocalSpec: has run", "true", String.valueOf(exLocSpec.subcommands().containsKey("run")));
+
+        List<String> overlayInSpec = new ArrayList<>();
+        for (String sub : locSpec.subcommands().keySet()) {
+            if (!List.of("add", "list", "remove", "status").contains(sub)) overlayInSpec.add(sub);
+        }
+        eq("localSpec: overlay subcommands match flixwlocal.OVERLAY_VERBS",
+           flixwlocal.OVERLAY_VERBS.toString(), overlayInSpec.toString());
+    }
+
+    static int runHelpCapture(String[] args, StringBuilder outCapture) throws Exception {
+        java.io.PrintStream realOut = System.out, realErr = System.err;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream sink = new java.io.PrintStream(out, true, StandardCharsets.UTF_8);
+        System.setOut(sink);
+        java.io.ByteArrayOutputStream errSink = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(errSink, true, StandardCharsets.UTF_8));
+        try {
+            return flixwhelp.run(args);
+        } finally {
+            System.setOut(realOut);
+            System.setErr(realErr);
+            if (outCapture != null) outCapture.append(out.toString(StandardCharsets.UTF_8));
+        }
     }
 
     static void unifiedHelpRouting() throws Exception {
         Path ctx = Files.createTempDirectory("uc-help-").resolve("ctx.txt");
         Files.writeString(ctx, "flixwVersion=0.34.4\n");
-        java.io.PrintStream realOut = System.out, realErr = System.err;
-        java.io.ByteArrayOutputStream capture = new java.io.ByteArrayOutputStream();
-        java.io.PrintStream sink = new java.io.PrintStream(capture, true, StandardCharsets.UTF_8);
-        System.setOut(sink);
-        System.setErr(sink);
-        try {
-            eq("help: local renders cleanly", "0",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "local"})));
-            eq("help: local add renders cleanly", "0",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "local", "add"})));
-            eq("help: examples renders cleanly", "0",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples"})));
-            eq("help: examples run renders cleanly", "0",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples", "run"})));
-            eq("help: examples-local renders cleanly", "0",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples-local"})));
-            eq("help: examples-local run renders cleanly", "0",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples-local", "run"})));
-            eq("help: unknown local subcommand returns 89", "89",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "local", "nosuch"})));
-            eq("help: unknown examples subcommand returns 89", "89",
-               String.valueOf(flixwhelp.run(new String[]{ctx.toString(), "examples", "nosuch"})));
-        } finally {
-            System.setOut(realOut);
-            System.setErr(realErr);
-        }
-        String out = capture.toString(StandardCharsets.UTF_8);
+        StringBuilder capture = new StringBuilder();
+
+        eq("help: local renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "local"}, capture)));
+        eq("help: local add renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "local", "add"}, capture)));
+        eq("help: examples renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "examples"}, capture)));
+        eq("help: examples run renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "examples", "run"}, capture)));
+        eq("help: examples-local renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "examples-local"}, capture)));
+        eq("help: examples-local run renders cleanly", "0",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "examples-local", "run"}, capture)));
+        eq("help: unknown local subcommand returns 89", "89",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "local", "nosuch"}, null)));
+        eq("help: unknown examples subcommand returns 89", "89",
+           String.valueOf(runHelpCapture(new String[]{ctx.toString(), "examples", "nosuch"}, null)));
+
+        String out = capture.toString();
         eq("help: capture has local usage", "true",
            String.valueOf(out.contains("Usage: ./flixw local")));
         eq("help: capture has examples usage", "true",
