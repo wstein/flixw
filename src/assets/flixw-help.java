@@ -562,7 +562,7 @@ final class flixwhelp {
 
     static CommandSpec wrapperSpec(Ctx c) {
         CommandSpec s = base("./flixw wrapper",
-            "flixw " + c.get("flixwVersion") + " -- wrapper management.",
+            "flixw " + c.get("flixwVersion") + " -- the wrapper's own commands.",
             "",
             "Manage the flixw wrapper installation, version, and cache.");
         s.usageMessage().customSynopsis("./flixw wrapper <flags>");
