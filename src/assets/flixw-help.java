@@ -875,6 +875,12 @@ final class flixwhelp {
             .map(s -> s.name("./flixw"))
             .map(s -> s.subcommands().get(name))
             .map(CommandLine::getCommandSpec)
+            // --help/--version short-circuit before any verb-specific code runs, so every
+            // verb takes them in reality even though the DSL's mixinStandardHelpOptions is
+            // declared once, at the root, and (unlike the curated options above it) is not
+            // inherited by subcommands. No verb block declares either explicitly, so this
+            // never collides with one that does.
+            .map(spec -> spec.mixinStandardHelpOptions(true))
             .orElse(null);
     }
 
