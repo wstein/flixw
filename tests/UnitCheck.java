@@ -624,7 +624,11 @@ public final class UnitCheck {
 
         eq("ansi: NO_COLOR suppresses color", "OFF", flixwhelp.ansi("1").name());
         eq("ansi: empty NO_COLOR suppresses color", "OFF", flixwhelp.ansi("").name());
-        eq("ansi: absent NO_COLOR uses AUTO", "AUTO", flixwhelp.ansi(null).name());
+        // Not Ansi.AUTO: this process has no console attached (it is run from a build
+        // script, same as CI), so System.console() == null and color stays off -- the
+        // fix for picocli's Ansi.AUTO mistaking Git Bash on Windows for a color terminal.
+        eq("ansi: absent NO_COLOR defers to System.console(), off here", "OFF",
+           flixwhelp.ansi(null).name());
 
         var exSpec = flixwhelp.examplesSpec(null);
         eq("examplesSpec: has list", "true", String.valueOf(exSpec.subcommands().containsKey("list")));
