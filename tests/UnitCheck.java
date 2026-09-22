@@ -758,6 +758,12 @@ public final class UnitCheck {
         eq("help: build --Xhelp renders experimental heading", "true",
            String.valueOf(buildXOut.contains("The following options are experimental:") || buildXOut.contains("The following options and commands are experimental:")));
         eq("help: build --Xhelp renders experimental options", "true",
+           String.valueOf(buildXOut.contains("--Xverify")));
+        // Main.scala reads cmdOpts.xbenchmark* only in case Command.None, before any
+        // subcommand dispatch -- the fix(picocli-spec) commits scoping xbenchmarkFlags to
+        // the root flix command made this explicit; build's own devLoop-scoped experimental
+        // section must not carry a flag its own code never reads.
+        eq("help: build --Xhelp excludes root-only Xbenchmark flags", "false",
            String.valueOf(buildXOut.contains("--Xbenchmark-code-size")));
 
         eq("isHelpFlag: --help is recognized", "true", String.valueOf(flixw.isHelpFlag("--help")));
