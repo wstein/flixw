@@ -5191,17 +5191,18 @@ public final class flixw {
      * FLIX_BACKEND does not reach them either.
      */
     static void wrapperNamespace(List<String> argv) {
-        if (wantsHelp(argv.subList(Math.min(1, argv.size()), argv.size()))) {
+        String op = argv.size() > 1 ? argv.get(1) : "--help";
+        List<String> rest = argv.subList(Math.min(2, argv.size()), argv.size());
+        // isHelpFlag rather than a literal "--help" match, so "-h" and "--xhelp" answer the
+        // same way -- but still gated on op's own position: a help flag trailing some other
+        // operation (`wrapper --help check`) is invalid input to that flag, not a generic
+        // "help wanted" signal, and must keep failing arity the way every other flag here does.
+        if (isHelpFlag(op)) {
+            if (!rest.isEmpty()) throw w008(wrapperUsage("'" + op + "' takes no arguments"));
             renderWrapperHelp("wrapper", wrapperUsage(""), null, null, null, null, List.of(), null, List.of());
             return;
         }
-        String op = argv.size() > 1 ? argv.get(1) : "--help";
-        List<String> rest = argv.subList(Math.min(2, argv.size()), argv.size());
         switch (op) {
-            case "--help" -> {
-                if (!rest.isEmpty()) throw w008(wrapperUsage("'--help' takes no arguments"));
-                helpTopic(List.of("wrapper"), null, null, null, null, List.of(), null, List.of(), true);
-            }
             case "--version" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--version' takes no arguments"));
                 System.out.println("flixw " + WRAPPER_VERSION);
