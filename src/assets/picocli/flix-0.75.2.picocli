@@ -33,14 +33,26 @@ definitions {
   option --Xsubeffecting : String "[experimental] enables sub-effecting in select places"
   option --Xnewmono : boolean "[experimental] uses the constraint-based monomorphization pipeline instead of the demand-driven one."
 
-  // 11 experimental flags for this version (Xnewmono added).
-  bundle xflags {
+  // Main.scala reads cmdOpts.xbenchmark* exclusively inside `case Command.None =>` (before
+  // dispatching to any subcommand) -- these five are silently inert if attached to check/build/
+  // run/test or any other subcommand. So, unlike xflags below, they're bundled separately and
+  // attached only to the root `flix` command, never via devLoop.
+  bundle xbenchmarkFlags {
     group cooperative helpSection="experimental" "The following options are experimental:%n" {
       option --Xbenchmark-code-size
       option --Xbenchmark-incremental
       option --Xbenchmark-phases
       option --Xbenchmark-frontend
       option --Xbenchmark-throughput
+    }
+  }
+
+  // 11 experimental flags for this version (Xnewmono added; split 5/6 with xbenchmarkFlags
+  // above). Unlike xbenchmarkFlags, these six flow through `options` into flix.check() for every
+  // command that compiles, so devLoop's check/build/run/test scoping below is a curation choice,
+  // not a hard restriction the way xbenchmarkFlags's root-only placement is.
+  bundle xflags {
+    group cooperative helpSection="experimental" "The following options are experimental:%n" {
       option --Xlib
       option --Xno-deprecated
       option --Xprint-phases
@@ -76,6 +88,14 @@ command flix "The Flix Programming Language 0.75.2" {
   section experimental "The following options and commands are experimental:%n" emptyMessage="No experimental options for this command."
   option --json : boolean "enables json output."
   option --listen : int "starts the socket server and listens on the given port."
+
+  // Confirmed (Main.scala): case Command.None is the only branch that reads cmdOpts.files or any
+  // --Xbenchmark-* flag. With no files, it starts a REPL; with files, it compiles and runs them
+  // directly (no `run` subcommand needed). So this positional and xbenchmarkFlags belong only on
+  // the root command, not on any subcommand.
+  option --Xhelp
+  use xbenchmarkFlags
+  positional files
 
   command init "creates a new project in the current directory." {}
 
