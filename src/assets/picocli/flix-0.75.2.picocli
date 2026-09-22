@@ -108,6 +108,12 @@ command flix "The Flix Programming Language 0.75.2" {
     use devLoop
   }
 
+  // --entrypoint actually flows through `options` into Weeder2/EntryPoints for every command
+  // that calls flix.check() (check/build/build-pkg/doc/format/test/eff-check/eff-lock too, not
+  // just build-jar/build-fatjar/run). It's scoped to just these three because only they produce
+  // something meant to be *run* under a chosen main (a runnable jar's manifest, or `run` itself)
+  // -- a curation choice (like several others in this file), not a hard restriction from the
+  // source.
   command build-jar "builds a jar-file from the current project." {
     option --entrypoint
     use compileOptions
