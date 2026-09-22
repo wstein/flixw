@@ -135,6 +135,12 @@ command flix "The Flix Programming Language 0.76.2" {
     use compileOptions
   }
 
+  // --entrypoint actually flows through `options` into Weeder2/EntryPoints for every command
+  // that calls flix.check() (check/build/build-classes/build-pkg/doc/format/test too, not just
+  // build-jar/build-fatjar/run), and CodeGen tree-shakes by the same root.entryPoints for every
+  // build-* variant. It's scoped to just these three because only they produce something meant
+  // to be *run* under a chosen main (a runnable jar's manifest, or `run` itself) -- a curation
+  // choice like devLoop's Xhelp scoping above, not a hard restriction from the source.
   command build-jar "builds a jar-file from the current project." {
     option --entrypoint
     use compileOptions
