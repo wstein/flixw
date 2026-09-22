@@ -266,14 +266,21 @@ final class flixwhelp {
 
     /**
      * Respects NO_COLOR (https://no-color.org) when present in the environment; otherwise
-     * defers to picocli's tty-detection via Ansi.AUTO.
+     * {@code System.console() != null}, not {@code Ansi.AUTO}. picocli's own heuristic
+     * mistakes Git Bash on Windows for an ANSI terminal -- TERM=xterm is set there even
+     * under a redirected, non-interactive CI runner -- which is exactly the failure
+     * "help is terminal-escape free" exists to catch, and it is not hypothetical: escape
+     * codes reached that test's own output once Ansi.AUTO's guess turned out wrong for a
+     * real Windows runner. System.console() is the same redirected-output test stage 0
+     * already uses for the editor-jar default and does not share that false positive.
      */
     static Ansi ansi() {
         return ansi(System.getenv("NO_COLOR"));
     }
 
     static Ansi ansi(String noColor) {
-        return noColor != null ? Ansi.OFF : Ansi.AUTO;
+        if (noColor != null) return Ansi.OFF;
+        return System.console() != null ? Ansi.ON : Ansi.OFF;
     }
 
     /** One renderer for every topic, so the topics cannot drift apart in appearance. */
