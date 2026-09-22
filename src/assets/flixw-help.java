@@ -867,6 +867,12 @@ final class flixwhelp {
     static CommandSpec specVerb(Ctx c, String name) {
         if (!"true".equals(c.get("upstream"))) return null;
         return loadSpec(c.get("compilerVersion"))
+            // The DSL names its root "flix", matching the real compiler -- correct for
+            // src/assets/picocli/*.picocli's own header comment, wrong for a screen someone
+            // reaches by typing "./flixw". Renaming the root before descending to the
+            // subcommand makes its qualifiedName() read "./flixw <verb>"; the fresh parse
+            // this call already did means nothing else observes the rename.
+            .map(s -> s.name("./flixw"))
             .map(s -> s.subcommands().get(name))
             .map(CommandLine::getCommandSpec)
             .orElse(null);
