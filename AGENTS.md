@@ -804,11 +804,15 @@ after the JDK move:
 
 | candidate | leaves stage 0 | primitives it would have to duplicate | why |
 |---|---:|---:|---|
-| `listCache` (`info -v`) | 90 | 146 | `knownInstalls`, `probeVersion`, `installedJdk`, `probe` are all kept by `selectJava` |
 | `check`/`report` | 165 | the same 146, plus lock and digest state | a *view over* what the verified chain already computed |
 | gitattributes audit | 84 | — | `mergeGitattributes` is called by `install`; moving only the check splits one concern across two files |
 | `upgradeWrapper` | 60 | ~110 | leans on `digestFor`, `download`, `sha256`, `httpGet` |
 | lock-schema JSON renderer | 96 | none | the one clean seam left — but it makes `wrapper --schema` network-dependent and couples the lint gate to an asset fixture, for 96 lines |
+
+`listCache` (`info -v`) was in this table too, at the same measurement — it no longer
+belongs here. "The test that keeps being got wrong" below is the reason why, and
+`flixw-inspect.java` is the result: stage 0's own `listCache` is now the ~15-line stub
+that builds the context and calls it.
 
 The install cluster *was* extractable, and went: `SHIM`, `CMD`, `install`,
 `updateWrapper`, the templates and `mergeGitattributes` are
@@ -832,12 +836,12 @@ listing JDKs needs `knownInstalls`/`probeVersion`/`probe` — until you notice `
 already enumerates every candidate before choosing one, so stage 0 holds the list and can
 simply hand it over.
 
-So a read-only inspection asset (`flixw-inspect.java`) is viable on one condition: it
+So a read-only inspection asset (`flixw-inspect.java`) shipped on one condition: it
 **receives gathered state and never re-gathers**. Passing the resolved JDK candidates,
-lock and compiler status, cache root and plugin/asset summaries costs ~20 lines and moves
-~90. Letting it rescan would cost 128 lines of duplicated primitives *and* create a second
-source of JDK policy — the one shown in `info` would be the one that never runs during
-selection, free to disagree with the one that does.
+lock and compiler status, cache root and plugin/asset summaries cost ~20 lines and moved
+~90. Letting it rescan would have cost 128 lines of duplicated primitives *and* created a
+second source of JDK policy — the one shown in `info` would be the one that never runs
+during selection, free to disagree with the one that does.
 
 The same condition applies to any deep-audit asset: whichever of them owns cache walking,
 the other calls it, or the duplication returns through a side door.
@@ -852,7 +856,9 @@ keep when it removes work, not when it removes a rendering of work that still ha
 
 The 2400/2650 figures came from a keep-set that assumed rich maintenance would move *and*
 that the lock reader would narrow. Neither holds. What each lever is actually worth,
-measured against today's 3368:
+measured against the 3368 this survey was taken at — ordinary feature work since has
+carried stage 0 past that baseline to 3886, tracked by the code-line ceiling's own history
+above rather than restated here:
 
 | lever | lands at | status |
 |---|---:|---|
