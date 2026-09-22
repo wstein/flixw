@@ -5205,17 +5205,6 @@ public final class flixw {
         switch (op) {
             case "--version" -> {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--version' takes no arguments"));
-                // Shown once per invocation, on the one screen someone asks for identity
-                // rather than a build to run -- never on the hot path, and never with ANSI:
-                // "help is terminal-escape free" exists because Ansi.AUTO misreads Git Bash
-                // as a color terminal, and a banner is not worth reopening that.
-                System.out.println("""
-                     _____________________
-                    ___  ____/___  /___(_)____  _____      __
-                    __  /_    __  / __  / __  |/_/__ | /| / /
-                    _  __/    _  /  _  /  __>  <  __ |/ |/ /
-                    /_/       /_/   /_/   /_/|_|  ____/|__/
-                    """);
                 System.out.println("flixw " + WRAPPER_VERSION);
                 System.out.println("stage0 " + (sourceLaunchPath() == null ? "compiled" : "source")
                                  + "  java " + Runtime.version());
