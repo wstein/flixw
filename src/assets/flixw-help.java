@@ -113,8 +113,14 @@ final class flixwhelp {
         } else if (isHelpFlag(name) && !"--help".equals(name) && !"-h".equals(name)) {
             helpFlag = name;
             name = null;
-        } else if (!jvmOpts.isEmpty() && isHelpFlag(jvmOpts.get(0)) && !"--help".equals(jvmOpts.get(0)) && !"-h".equals(jvmOpts.get(0))) {
-            helpFlag = jvmOpts.get(0);
+        } else if (!jvmOpts.isEmpty() && isHelpFlag(jvmOpts.get(0))) {
+            // compilerVerbHelp sends the literal flag the user typed (--help/-h) as this
+            // trailing positional, on top of the topic and name it already set -- so it is
+            // not a real JVM option and must not reach probe()'s subprocess. A literal
+            // --help/-h is dropped outright: name is already set, so it is redundant. Only
+            // an --Xhelp-style flag becomes helpFlag, the same as the topic/name cases above.
+            if (!"--help".equals(jvmOpts.get(0)) && !"-h".equals(jvmOpts.get(0)))
+                helpFlag = jvmOpts.get(0);
             jvmOpts = jvmOpts.subList(1, jvmOpts.size());
         }
 
