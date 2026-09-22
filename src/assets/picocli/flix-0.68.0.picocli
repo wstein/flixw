@@ -61,7 +61,9 @@ definitions {
     }
   }
 
-  // Only check, doc, format, and test accept file arguments.
+  // Only check, doc, format, and test accept file arguments as a named subcommand; the root
+  // `flix` command (case Command.None) separately accepts files directly too (compiles and runs
+  // them with no `run` subcommand needed, when at least one is given).
   positional files : Path[] "input Flix source code files, Flix packages, and Java archives." arity=0..*
 
   bundle dependencyResolution {
