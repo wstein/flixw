@@ -40,7 +40,7 @@ sha256sum flixw-setup.java          # macOS: shasum -a 256 flixw-setup.java
 It must print exactly this, and if it does not, stop:
 
 ```
-26ffe0e984e439c3eeb3f9a374bad8088eb35775dbe7c5930947bae670590b58  flixw-setup.java
+4e559040502d771e6eb5e4cba4f89a4fa3f241fc50aee0cd62b6386d5e744b9e  flixw-setup.java
 ```
 
 **The digest comes from this page, not from the download.** That is the whole point of the
@@ -58,7 +58,7 @@ every machine, which is why both are given.
 Comparing by eye is fine for a one-off. A pipeline wants an exit status:
 
 ```console
-echo "26ffe0e984e439c3eeb3f9a374bad8088eb35775dbe7c5930947bae670590b58  flixw-setup.java" \
+echo "4e559040502d771e6eb5e4cba4f89a4fa3f241fc50aee0cd62b6386d5e744b9e  flixw-setup.java" \
   | sha256sum -c -            # macOS: shasum -a 256 -c -
 ```
 
@@ -166,11 +166,17 @@ digest, the repository it came from and any declared plugins all survive. Skip t
 </td><td>
 
 ```
+ _____________________
+___  ____/___  /___(_)____  _____      __
+__  /_    __  / __  / __  |/_/__ | /| / /
+_  __/    _  /  _  /  __>  <  __ |/ |/ /
+/_/       /_/   /_/   /_/|_|  ____/|__/
+
 next: ./flixw pin <version>
       then commit all six files
 ```
 
-The project has no lock yet. Continue with step 3.
+The banner only shows up here, once. The project has no lock yet; continue with step 3.
 
 </td></tr>
 </table>
