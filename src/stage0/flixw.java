@@ -5974,10 +5974,8 @@ public final class flixw {
             // which put two differently-shaped help screens on one page and left the reader
             // to work out which side would actually answer a given word. The renderer is
             // handed both verb sets and says so per command instead.
-            List<String> helpArgs = ("--help".equals(first) || "-h".equals(first))
-                ? forward.subList(Math.min(1, forward.size()), forward.size())
-                : List.of(first);
-            helpTopic(helpArgs, root, lock, jar, jvm, compilerVerbs, verbId, opts, true);
+            helpTopic(forward.subList(Math.min(1, forward.size()), forward.size()),
+                      root, lock, jar, jvm, compilerVerbs, verbId, opts, true);
             return;                                  // helpTopic exits; this is for the reader
         }
 
