@@ -1043,9 +1043,9 @@ final class flixwsetup {
     static void install(Path target, Path source) { install(target, source, false); }
 
     /**
-     * The same glyphs {@code wrapper --version} prints, kept as its own copy rather than a
-     * shared constant: this file and stage 0 are separate compilation units, fetched and
-     * verified independently, the way {@code SHIM}/{@code SHIM_SHA256} already are.
+     * TAAG's Speed font, flixw's own copy -- this file and stage 0 are separate compilation
+     * units, fetched and verified independently, the way {@code SHIM}/{@code SHIM_SHA256}
+     * already are.
      */
     static final String BANNER = """
          _____________________
@@ -1054,6 +1054,18 @@ final class flixwsetup {
         _  __/    _  /  _  /  __>  <  __ |/ |/ /
         /_/       /_/   /_/   /_/|_|  ____/|__/
         """;
+
+    /**
+     * Bold red for a real terminal that has not opted out; plain text otherwise. NO_COLOR
+     * (https://no-color.org) is an explicit opt-out; {@code System.console() == null} is the
+     * same redirected-output test stage 0 already uses for the editor-jar default, so a CI
+     * log or a captured install script never sees raw escape bytes -- this banner is a
+     * one-time welcome, not something worth a garbled first line in either.
+     */
+    static String banner() {
+        if (System.getenv("NO_COLOR") != null || System.console() == null) return BANNER;
+        return "[1;31m" + BANNER + "[0m";
+    }
 
     /** {@code pinning} suppresses the advice a pin is about to make wrong. */
     static void install(Path target, Path source, boolean pinning) {
@@ -1078,7 +1090,7 @@ final class flixwsetup {
             // banner rides the same distinction: it is a welcome, not a watermark, so it
             // shows up once, on the run that has no lock yet, and never on a re-install.
             boolean firstContact = !Files.isRegularFile(lockPath(target));
-            if (firstContact) System.out.println(BANNER);
+            if (firstContact) System.out.println(banner());
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
                              + "/flixw.java into " + target);
             System.out.println("installed global launcher " + global);
