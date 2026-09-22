@@ -283,6 +283,25 @@ final class flixwhelp {
         return System.console() != null ? Ansi.ON : Ansi.OFF;
     }
 
+    /**
+     * picocli's own option/positional table indents a wrapped continuation line two spaces
+     * past its column by default; every render entry point installs 0 here instead, so a
+     * long description wraps flush with its own column rather than stair-stepping right on
+     * every line it takes.
+     */
+    static void noWrapIndent(CommandLine cl) {
+        cl.getHelpSectionMap().put(UsageMessageSpec.SECTION_KEY_OPTION_LIST, help -> {
+            CommandLine.Help.Layout layout = help.createDefaultLayout();
+            layout.textTable().indentWrappedLines = 0;
+            return help.optionList(layout, help.createDefaultOptionSort(), help.createDefaultParamLabelRenderer());
+        });
+        cl.getHelpSectionMap().put(UsageMessageSpec.SECTION_KEY_PARAMETER_LIST, help -> {
+            CommandLine.Help.Layout layout = help.createDefaultLayout();
+            layout.textTable().indentWrappedLines = 0;
+            return help.parameterList(layout, help.createDefaultParamLabelRenderer());
+        });
+    }
+
     /** One renderer for every topic, so the topics cannot drift apart in appearance. */
     static void render(CommandSpec spec) {
         render(spec, null);
@@ -291,6 +310,7 @@ final class flixwhelp {
     static void render(CommandSpec spec, String helpFlag) {
         CommandLine cl = new CommandLine(spec)
             .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+        noWrapIndent(cl);
         if (helpFlag != null) {
             String section = spec.findHelpSectionForOption(helpFlag).orElse("experimental");
             String exp = new CommandLine.Help(spec, cl.getColorScheme()).renderHelpSection(section);
@@ -317,7 +337,9 @@ final class flixwhelp {
             .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
         CommandLine child = cmd.getSubcommands().get(subName);
         if (child != null) {
-            child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi())).usage(System.out);
+            child.setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+            noWrapIndent(child);
+            child.usage(System.out);
             return;
         }
         System.err.println("flixw: no " + label + " subcommand " + q(subName));
@@ -334,6 +356,7 @@ final class flixwhelp {
     static void renderGrouped(CommandSpec spec, Ctx c) {
         CommandLine cl = new CommandLine(spec)
             .setColorScheme(CommandLine.Help.defaultColorScheme(ansi()));
+        noWrapIndent(cl);
         cl.getHelpSectionMap().put(UsageMessageSpec.SECTION_KEY_COMMAND_LIST,
                                    help -> commandList(help, c));
         // Our groups carry their own headings, so picocli's single "Commands:"
