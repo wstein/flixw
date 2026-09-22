@@ -43,16 +43,30 @@ definitions {
   option --Xchaos-monkey : boolean "[experimental] introduces randomness."
   option --Xiterations : int "[experimental] sets the maximum number of constraint resolution iterations during typechecking"
 
-  // Bundles the 14 flags above, under the hidden/heading group, so each of check/build/run/test
-  // can pull in the whole thing with one "use xflags" instead of repeating both the group
-  // wrapper and every option name.
-  bundle xflags {
+  // Main.scala checks cmdOpts.listen, then unconditionally builds `options`, then dispatches on
+  // cmdOpts.command; `case Command.None => SimpleRunner.run(cwd, cmdOpts, options)` is the only
+  // path that ever reads any of these five cmdOpts.xbenchmark* fields (SimpleRunner.scala checks
+  // them at the very top, before even considering REPL-vs-file-run). They are silently inert if
+  // attached to check/build/run/test or any other subcommand. So, unlike xflags below, they're
+  // bundled separately and attached only to the root `flix` command, never via devLoop.
+  bundle xbenchmarkFlags {
     group cooperative helpSection="experimental" "The following options are experimental:%n" {
       option --Xbenchmark-code-size
       option --Xbenchmark-incremental
       option --Xbenchmark-phases
       option --Xbenchmark-frontend
       option --Xbenchmark-throughput
+    }
+  }
+
+  // Bundles the other 9 of the 14 flags above, under the hidden/heading group, so each of
+  // check/build/run/test can pull in the whole thing with one "use xflags" instead of repeating
+  // both the group wrapper and every option name. Unlike xbenchmarkFlags, these nine flow into
+  // `options` unconditionally (built once before the command dispatch) and so apply to whichever
+  // command actually runs, making devLoop's check/build/run/test scoping a curation choice, not
+  // a hard restriction the way xbenchmarkFlags's root-only placement is.
+  bundle xflags {
+    group cooperative helpSection="experimental" "The following options are experimental:%n" {
       option --Xlib
       option --Xno-deprecated
       option --Xprint-phases
@@ -97,6 +111,14 @@ command flix "The Flix Programming Language 0.60.0" {
   mixinStandardHelpOptions
   section experimental "The following options and commands are experimental:%n" emptyMessage="No experimental options for this command."
   option --listen : int "starts the socket server and listens on the given port."
+
+  // Confirmed (Main.scala/SimpleRunner.scala): case Command.None is the only branch that reads
+  // cmdOpts.files or any --Xbenchmark-* flag. With no files, it starts a REPL; with files, it
+  // compiles and runs them directly (no `run` subcommand needed). So this positional and
+  // xbenchmarkFlags belong only on the root command, not on any subcommand.
+  option --Xhelp
+  use xbenchmarkFlags
+  positional files
 
   command init "creates a new project in the current directory." {
     option --yes
