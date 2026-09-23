@@ -1056,15 +1056,19 @@ final class flixwsetup {
         """;
 
     /**
-     * Bold red for a real terminal that has not opted out; plain text otherwise. NO_COLOR
-     * (https://no-color.org) is an explicit opt-out; {@code System.console() == null} is the
-     * same redirected-output test stage 0 already uses for the editor-jar default, so a CI
-     * log or a captured install script never sees raw escape bytes -- this banner is a
-     * one-time welcome, not something worth a garbled first line in either.
+     * Flix Rose Glow: solid crimson glyph bodies against high-luminance rose/peach trails,
+     * for an illuminated-slipstream look. Same NO_COLOR/no-console guard as before -- a CI
+     * log or a captured install script never sees raw escape bytes -- and BANNER is still
+     * what those get, unedited.
      */
     static String banner() {
         if (System.getenv("NO_COLOR") != null || System.console() == null) return BANNER;
-        return "[1;31m" + BANNER + "[0m";
+        String s = "[1;38;2;255;160;160m", r = "[0m", b = "[1;38;2;204;69;69m";
+        return " " + s + "_____________________" + r + "\n"
+             + s + "___" + r + "  " + b + "____/" + r + s + "___" + r + "  " + b + "/" + r + s + "___" + r + b + "(_)" + r + s + "____" + r + "  " + b + "_____" + r + "      " + b + "__" + r + "\n"
+             + s + "__" + r + "  " + b + "/_" + r + "    " + s + "__" + r + "  " + b + "/" + r + " " + s + "__" + r + "  " + b + "/" + r + " " + s + "__" + r + "  " + b + "|/_/__" + r + " " + b + "| /| / /" + r + "\n"
+             + s + "_" + r + "  " + b + "__/" + r + "    " + s + "_" + r + "  " + b + "/" + r + "  " + s + "_" + r + "  " + b + "/" + r + "  " + s + "__" + r + b + ">  <" + r + "  " + s + "__" + r + " " + b + "|/ |/ /" + r + "\n"
+             + b + "/_/" + r + "       " + b + "/_/" + r + "   " + b + "/_/" + r + "   " + b + "/_/|_|" + r + "  " + s + "____" + r + b + "/|__/" + r + "\n";
     }
 
     /** {@code pinning} suppresses the advice a pin is about to make wrong. */
