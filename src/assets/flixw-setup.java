@@ -1095,8 +1095,8 @@ final class flixwsetup {
             // contact or not, so `firstContact` only decides which advice follows it.
             boolean firstContact = !Files.isRegularFile(lockPath(target));
             System.out.println(banner());
-            System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
-                             + "/flixw.java into " + target);
+            System.out.println("installed flixw " + WRAPPER_VERSION + ": ./flixw, ./flixw.cmd"
+                             + " and " + WRAPPER_DIR + "/flixw.java into " + target);
             System.out.println("installed global launcher " + global);
             if (!firstContact) {
                 System.out.println("the compiler pin is untouched; commit the wrapper files"

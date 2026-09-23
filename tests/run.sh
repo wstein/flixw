@@ -601,7 +601,7 @@ t 81 "install reaches ordinary dispatch, even with no lock"     sh -c '
   ./flixw install' sh "$work" "$root"
 t 1  "...and did not quietly reinstall the wrapper"             sh -c '
   d=$1/bare-install
-  cd "$d" && ./flixw install 2>&1 | grep -q "installed ./flixw"' sh "$work"
+  cd "$d" && ./flixw install 2>&1 | grep -q "installed flixw"' sh "$work"
 t 0  "rule 3  compiler verb"                                    ./flixw check
 t 0  "rule 4  wrapper verb"                                     ./flixw doctor
 # Routing used to be announced on every wrapper-handled command, which told the caller
