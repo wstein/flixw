@@ -1091,10 +1091,10 @@ final class flixwsetup {
             // contact has nothing pinned and the next step is pinning; an upgrade arrives
             // here through `wrapper --upgrade` with a lock already in place, and telling
             // that reader to pin reads as though the upgrade lost their compiler. The
-            // banner rides the same distinction: it is a welcome, not a watermark, so it
-            // shows up once, on the run that has no lock yet, and never on a re-install.
+            // banner itself does not follow that split -- it prints every run, first
+            // contact or not, so `firstContact` only decides which advice follows it.
             boolean firstContact = !Files.isRegularFile(lockPath(target));
-            if (firstContact) System.out.println(banner());
+            System.out.println(banner());
             System.out.println("installed ./flixw, ./flixw.cmd and " + WRAPPER_DIR
                              + "/flixw.java into " + target);
             System.out.println("installed global launcher " + global);
