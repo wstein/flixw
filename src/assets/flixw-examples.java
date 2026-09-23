@@ -34,7 +34,7 @@ import java.util.stream.Stream;
  * allowed to exist at all.
  *
  * <p>Shipped and verified with flixw itself -- fetched, digest-checked and cached the
- * exact way {@code flixw-help.java} is, warmed by {@code wrapper --upgrade} -- so there is
+ * exact way {@code flixw-cli.java} is, warmed by {@code wrapper --upgrade} -- so there is
  * no separate install step and no "unaudited third-party code" warning the way a plugin
  * invocation would carry. An {@code examples/<name>/} directory is a real, separate Flix
  * package with its own manifest and dependencies (typically on a *released* build of the
@@ -135,7 +135,7 @@ final class flixwexamples {
     /**
      * An option row in either compiler help layout: a short form, a long form, or both,
      * optionally followed by a {@code <value>} placeholder. The same shape
-     * {@code flixw-help.java}'s {@code OPTION_ENTRY} matches, trimmed to what this asset
+     * {@code flixw-cli.java}'s {@code OPTION_ENTRY} matches, trimmed to what this asset
      * needs -- whether a spelling takes a value -- since it has no reason to also collect
      * descriptions or handle wrapped continuation lines the way the help renderer does.
      */
@@ -165,7 +165,7 @@ final class flixwexamples {
         return out;
     }
 
-    /** Bounds matching {@code flixw-help.java}'s own {@code probe} -- the same subprocess,
+    /** Bounds matching {@code flixw-cli.java}'s own {@code probe} -- the same subprocess,
      *  the same reasons: real help is small and fast, and a JAR that is not the Flix
      *  compiler must not be able to wedge this on either count. */
     static final long PROBE_SECONDS = 30;
@@ -176,7 +176,7 @@ final class flixwexamples {
      * the pinned compiler actually has real per-command help to add anything from.
      *
      * <p>Stock Flix does not: every verb's {@code --help} echoes the identical top-level
-     * screen ({@code flixw-help.java}'s {@code flix()} already relies on this exact
+     * screen ({@code flixw-cli.java}'s {@code flix()} already relies on this exact
      * byte-equality to tell "no per-command help" from a real answer), so for it this
      * degrades to exactly today's flat {@link #valueTakingOptions}, unchanged. A fork with
      * real per-command help answers differently per verb, and only then is there anything a
@@ -205,7 +205,7 @@ final class flixwexamples {
 
     /**
      * The compiler's answer to {@code <verb> --help}, or null if it cannot be had --
-     * {@code flixw-help.java}'s own {@code probe}, duplicated rather than shared, since
+     * {@code flixw-cli.java}'s own {@code probe}, duplicated rather than shared, since
      * nothing here loads another asset's classes. Takes the same {@code jvmOpts} the real
      * launch does: a fork needing one just to start (e.g. {@code --enable-preview}) must
      * not probe with a bare {@code java -jar} and silently fall back to the flat set for a

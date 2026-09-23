@@ -1,6 +1,6 @@
 // flixw unit checks -- the parts of stage 0 the shell suite cannot reach from outside.
 //
-//   javac -d <out> src/stage0/flixw.java src/assets/flixw-help.java src/assets/flixw-jdk.java \
+//   javac -d <out> src/stage0/flixw.java src/assets/flixw-cli.java src/assets/flixw-jdk.java \
 //         src/assets/flixw-examples.java src/assets/flixw-local.java tests/UnitCheck.java
 //   java -cp <out> UnitCheck tests/corpus
 //
@@ -595,23 +595,23 @@ public final class UnitCheck {
      */
     static void curatedSpecs() {
         eq("specs: no curated spec for an untraced version", "true",
-           String.valueOf(flixwhelp.loadSpec("0.99.0").isEmpty()));
-        var spec060 = flixwhelp.loadSpec("0.60.0");
+           String.valueOf(flixwcli.loadSpec("0.99.0").isEmpty()));
+        var spec060 = flixwcli.loadSpec("0.60.0");
         eq("specs: 0.60.0 is curated", "true", String.valueOf(spec060.isPresent()));
         eq("specs: 0.60.0 has check", "true",
            String.valueOf(spec060.get().subcommands().containsKey("check")));
 
-        var spec067 = flixwhelp.loadSpec("0.67.0");
+        var spec067 = flixwcli.loadSpec("0.67.0");
         eq("specs: 0.67.0 is curated", "true", String.valueOf(spec067.isPresent()));
         eq("specs: 0.67.0 has clean", "true",
            String.valueOf(spec067.get().subcommands().containsKey("clean")));
 
-        var spec0761 = flixwhelp.loadSpec("0.76.1");
+        var spec0761 = flixwcli.loadSpec("0.76.1");
         eq("specs: 0.76.1 is curated via range resolution", "true", String.valueOf(spec0761.isPresent()));
         eq("specs: 0.76.1 has run", "true",
            String.valueOf(spec0761.get().subcommands().containsKey("run")));
 
-        var spec = flixwhelp.loadSpec("0.76.2");
+        var spec = flixwcli.loadSpec("0.76.2");
         eq("specs: 0.76.2 is curated", "true", String.valueOf(spec.isPresent()));
         var check = spec.get().subcommands().get("check");
         eq("specs: check is a subcommand of the curated spec", "true",
@@ -622,22 +622,22 @@ public final class UnitCheck {
         eq("specs: install's package argument is required", "true",
            String.valueOf(install.getCommandSpec().positionalParameters().get(0).required()));
 
-        eq("ansi: NO_COLOR suppresses color", "OFF", flixwhelp.ansi("1").name());
-        eq("ansi: empty NO_COLOR suppresses color", "OFF", flixwhelp.ansi("").name());
+        eq("ansi: NO_COLOR suppresses color", "OFF", flixwcli.ansi("1").name());
+        eq("ansi: empty NO_COLOR suppresses color", "OFF", flixwcli.ansi("").name());
         // Not Ansi.AUTO: this process has no console attached (it is run from a build
         // script, same as CI), so System.console() == null and color stays off -- the
         // fix for picocli's Ansi.AUTO mistaking Git Bash on Windows for a color terminal.
         eq("ansi: absent NO_COLOR defers to System.console(), off here", "OFF",
-           flixwhelp.ansi(null).name());
+           flixwcli.ansi(null).name());
 
-        var exSpec = flixwhelp.examplesSpec(null);
+        var exSpec = flixwcli.examplesSpec(null);
         eq("examplesSpec: has list", "true", String.valueOf(exSpec.subcommands().containsKey("list")));
         eq("examplesSpec: has run", "true", String.valueOf(exSpec.subcommands().containsKey("run")));
         eq("examplesSpec: run has <name> positional", "<name>",
            exSpec.subcommands().get("run").getCommandSpec().positionalParameters().get(0).paramLabel());
         eq("examplesSpec: has local", "true", String.valueOf(exSpec.subcommands().containsKey("local")));
 
-        var locSpec = flixwhelp.localSpec(null);
+        var locSpec = flixwcli.localSpec(null);
         eq("localSpec: has add", "true", String.valueOf(locSpec.subcommands().containsKey("add")));
         eq("localSpec: has list", "true", String.valueOf(locSpec.subcommands().containsKey("list")));
         eq("localSpec: has remove", "true", String.valueOf(locSpec.subcommands().containsKey("remove")));
@@ -648,7 +648,7 @@ public final class UnitCheck {
         eq("localSpec: remove has <coordinate> positional", "<coordinate>",
            locSpec.subcommands().get("remove").getCommandSpec().positionalParameters().get(0).paramLabel());
 
-        var exLocSpec = flixwhelp.localSpec("./flixw examples local", false);
+        var exLocSpec = flixwcli.localSpec("./flixw examples local", false);
         eq("examplesLocalSpec: does not have add", "false", String.valueOf(exLocSpec.subcommands().containsKey("add")));
         eq("examplesLocalSpec: has run", "true", String.valueOf(exLocSpec.subcommands().containsKey("run")));
 
@@ -668,7 +668,7 @@ public final class UnitCheck {
         java.io.ByteArrayOutputStream errSink = new java.io.ByteArrayOutputStream();
         System.setErr(new java.io.PrintStream(errSink, true, StandardCharsets.UTF_8));
         try {
-            return flixwhelp.run(args);
+            return flixwcli.run(args);
         } finally {
             System.setOut(realOut);
             System.setErr(realErr);
@@ -724,8 +724,8 @@ public final class UnitCheck {
                                  + "\nplugins:\n"
                                  + "mytool\t1.0.0\t" + "a".repeat(64) + "\t\tRuns mytool\tmyverb\n"
                                  + "secondtool\t2.0.0\t" + "b".repeat(64) + "\t\tRuns secondtool\t\n");
-        flixwhelp.Ctx parsed = flixwhelp.Ctx.read(treeCtx);
-        picocli.CommandLine.Model.CommandSpec tree = flixwhelp.tree(parsed, "flixw");
+        flixwcli.Ctx parsed = flixwcli.Ctx.read(treeCtx);
+        picocli.CommandLine.Model.CommandSpec tree = flixwcli.tree(parsed, "flixw");
         eq("tree: examples has subcommands in tree", "true",
            String.valueOf(tree.subcommands().get("examples").getSubcommands().containsKey("run")));
         eq("tree: local has subcommands in tree", "true",
@@ -781,7 +781,7 @@ public final class UnitCheck {
         eq("exactCompilerHelp: [build]", "false", String.valueOf(flixw.exactCompilerHelp(java.util.List.of("build"))));
 
         // Subcommands tagged with helpSection in picocli spec (eff-check, eff-lock)
-        var spec0762 = flixwhelp.loadSpec("0.76.2").orElseThrow();
+        var spec0762 = flixwcli.loadSpec("0.76.2").orElseThrow();
         eq("subcommand: eff-check has helpSection experimental", "experimental",
            spec0762.subcommands().get("eff-check").getCommandSpec().helpSection());
         eq("subcommand: eff-lock has helpSection experimental", "experimental",
@@ -1031,13 +1031,13 @@ public final class UnitCheck {
      */
     static void releaseAssets() {
         String sums = "aa".repeat(32) + "  flixw.java\n"
-                    + "bb".repeat(32) + "  flixw-help.java\n"
+                    + "bb".repeat(32) + "  flixw-cli.java\n"
                     + "cc".repeat(32) + "  flixw-jdk.java\n"
                     + "dd".repeat(32) + "  flixw-0.24.1.tar.gz\n"
                     + "ee".repeat(32) + "  flixw-0.24.1.zip\n"
                     + "ff".repeat(32) + "  flix.java\n";
         java.util.List<String> got = flixw.publishedAssets(sums);
-        eq("assets: companions are found", "[flixw-help.java, flixw-jdk.java]", got.toString());
+        eq("assets: companions are found", "[flixw-cli.java, flixw-jdk.java]", got.toString());
         // flixw.java is the wrapper, not a companion to it, and the upgrade installs it by
         // a different route entirely -- warming it would download it a second time.
         eq("assets: flixw.java is not a companion", "false", String.valueOf(got.contains("flixw.java")));
@@ -1718,7 +1718,7 @@ public final class UnitCheck {
 
     /**
      * Every {@code WRAPPER_VERBS} entry must render a real description in {@code
-     * flixwhelp.wrapperDesc}, or it shows up blank in {@code ./flixw help} and {@code
+     * flixwcli.wrapperDesc}, or it shows up blank in {@code ./flixw help} and {@code
      * ./flixw help wrapper} -- exactly what happened to {@code local}: added to
      * WRAPPER_VERBS in one commit, and only given a description here, by hand, days
      * later. This closes the gap so the next new verb fails a test instead of shipping
@@ -1726,7 +1726,7 @@ public final class UnitCheck {
      */
     static void wrapperVerbDescriptions() {
         for (String v : flixw.WRAPPER_VERBS) {
-            String d = flixwhelp.wrapperDesc(v);
+            String d = flixwcli.wrapperDesc(v);
             if (d != null && !d.isEmpty()) ok();
             else bad("wrapperDesc: " + q(v) + " has no description",
                      "wrapperDesc returned " + (d == null ? "null" : "an empty string"));

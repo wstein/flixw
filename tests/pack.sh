@@ -7,7 +7,7 @@
 #   flixw-setup.java          the installer, fetched on first use and cached
 #   flixw-jdk.java            the optional JDK provisioner, fetched on first use and cached
 #   flixw-inspect.java        the cache inventory behind `info --verbose`
-#   flixw-help.java           the help renderer and TAB-completion generator
+#   flixw-cli.java            the help renderer and TAB-completion generator
 #   flixw-examples.java       runs examples/<name>/ for `./flixw examples`
 #   flixw-local.java          overrides a declared GitHub dependency for `./flixw local`
 #   picocli-<version>.jar     the one third-party component, republished so it rides one SHA256SUMS
@@ -61,12 +61,12 @@ fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/stage0/flixw.java" \
    "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-setup.java" \
-   "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+   "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-cli.java" \
    "$root/src/assets/flixw-examples.java" "$root/src/assets/flixw-local.java" "$fixture/"
 # Unstripped here on purpose: this fixture exists only so the staging install can run
 # offline, and the stage 0 it writes is replaced by $shipped a few lines below.
 (cd "$fixture" && sum flixw.java flixw-jdk.java flixw-setup.java \
-   flixw-inspect.java flixw-help.java flixw-examples.java flixw-local.java \
+   flixw-inspect.java flixw-cli.java flixw-examples.java flixw-local.java \
    > SHA256SUMS)
 FLIXW_ASSET_SOURCE="file://$fixture/" FLIX_CACHE_HOME="$work/cache" \
   java "$root/src/assets/flixw-setup.java" setup "$stage" "$root/src/stage0/flixw.java" >/dev/null
@@ -128,7 +128,7 @@ cp "$shipped" "$out/flixw.java"
 # Not packed into the archives: neither is ever installed into a project. Both are fetched
 # on first use and cached machine-wide -- ensureAsset in src/stage0/flixw.java expects them as
 # bare release assets beside flixw.java, not inside a tarball. flixw-jdk.java is reached by
-# `wrapper --install-jdk`, flixw-help.java by `help` and `completion <shell>`.
+# `wrapper --install-jdk`, flixw-cli.java by `help` and `completion <shell>`.
 # Stripped too, for the same reason stage 0 is: the commentary is written for whoever
 # audits flixw, and that reader is in the repository or on the site -- both named in the
 # header the stripper leaves behind. Compiled after stripping, because a release shipping
@@ -151,10 +151,10 @@ got=$(sum "$out/picocli-$pv.jar" | cut -d' ' -f1)
 [ "$got" = "$PICOCLI_SHA256" ] || {
   echo "pack: picocli $pv digest mismatch: pinned $PICOCLI_SHA256, served $got" >&2; exit 1; }
 
-for a in jdk inspect setup help examples local; do
+for a in jdk inspect setup cli examples local; do
   java "$root/tests/strip.java" "$root/src/assets/flixw-$a.java" "$version" "flixw-$a.java" \
     > "$out/flixw-$a.java"
-  # flixw-help.java is the one asset with a compile-time dependency, and it is the jar this
+  # flixw-cli.java is the one asset with a compile-time dependency, and it is the jar this
   # same release publishes -- so compiling against it here also proves the two agree.
   javac -cp "$out/picocli-$pv.jar" -d "$work/asset-classes" "$out/flixw-$a.java" || {
     echo "pack: the stripped flixw-$a.java does not compile" >&2; exit 1; }
@@ -168,7 +168,7 @@ cp "$root/THIRD_PARTY_NOTICES.md" "$out/THIRD_PARTY_NOTICES.md"
 
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
               flixw-jdk.java flixw-setup.java flixw-inspect.java \
-              flixw-help.java flixw-examples.java flixw-local.java \
+              flixw-cli.java flixw-examples.java flixw-local.java \
               "picocli-$pv.jar" THIRD_PARTY_NOTICES.md \
               > SHA256SUMS)
 echo "packed flixw $version into $out"

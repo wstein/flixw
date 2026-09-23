@@ -25,9 +25,10 @@ import picocli.CommandLine.Model.UsageMessageSpec;
 import picocli.spec.CommandSpecDsl;
 
 /**
- * Renders {@code ./flixw help}: a wrapper-owned companion asset, not a plugin.
+ * Renders {@code ./flixw help} and generates {@code ./flixw completion <shell>}, from one
+ * shared command-tree model: a wrapper-owned companion asset, not a plugin.
  *
- * <p>{@code java -cp picocli.jar flixw-help.java <context-file> <topic> [<name>]}
+ * <p>{@code java -cp picocli.jar flixw-cli.java <context-file> <topic> [<name>]}
  *
  * <p>It re-gathers nothing. Stage 0 hands it a context file holding what it already computed
  * on the way here -- the compiler's captured help text, the verb sets it dispatches on, the
@@ -47,8 +48,8 @@ import picocli.spec.CommandSpecDsl;
  * through untouched, so a layout flixw misreads still shows a reader what the compiler
  * actually said instead of a confident summary of something else.
  */
-final class flixwhelp {
-    private flixwhelp() {}
+final class flixwcli {
+    private flixwcli() {}
 
     /** A per-command probe is one subprocess against a JAR stage 0 has already verified. */
     static final long PROBE_SECONDS = 30;
@@ -97,7 +98,7 @@ final class flixwhelp {
 
     private static void body(String[] args) throws Exception {
         if (args.length < 1) {
-            System.err.println("usage: java -cp picocli.jar flixw-help.java"
+            System.err.println("usage: java -cp picocli.jar flixw-cli.java"
                              + " <context-file> [<topic> [<name>]]");
             throw new Exit(87);
         }
@@ -852,7 +853,7 @@ final class flixwhelp {
         String name = specFileForVersion(version);
         if (name == null) return Optional.empty();
         // 1. Check classpath resource (bundled in picocli.jar under /specs/)
-        try (InputStream in = flixwhelp.class.getResourceAsStream("/specs/" + name)) {
+        try (InputStream in = flixwcli.class.getResourceAsStream("/specs/" + name)) {
             if (in != null) {
                 String dsl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
                 return Optional.of(CommandSpecDsl.parse(dsl));

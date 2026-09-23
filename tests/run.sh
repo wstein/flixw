@@ -76,15 +76,15 @@ fileurl() {
 relfixture=$work/release
 mkdir -p "$relfixture"
 cp "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
-   "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+   "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-cli.java" \
    "$root/src/assets/flixw-examples.java" "$root/src/assets/flixw-local.java" \
    "$relfixture/"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$relfixture" && sha256sum flixw.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
-     flixw-help.java flixw-examples.java flixw-local.java > SHA256SUMS)
+     flixw-cli.java flixw-examples.java flixw-local.java > SHA256SUMS)
 else
   (cd "$relfixture" && shasum -a 256 flixw.java flixw-jdk.java flixw-setup.java flixw-inspect.java \
-     flixw-help.java flixw-examples.java flixw-local.java > SHA256SUMS)
+     flixw-cli.java flixw-examples.java flixw-local.java > SHA256SUMS)
 fi
 # The renderer's picocli rides the fixture exactly as it rides a real release, so the
 # suite exercises the same ensureAsset path a user takes rather than a special case.
@@ -281,7 +281,7 @@ printf 'Main-Class: Sleeper\n' > "$work/sleeper/mf"
 # top-level "--help" by declaring an extra value-taking flag ("--frobnicate <value>") the
 # generic screen never mentions. examples' verbValueTaking only has a reason to probe a
 # verb's own help at all because a fork can do this -- stock Flix's per-command "help" is
-# always byte-identical to the top level, which is what flixw-help.java's own probe()
+# always byte-identical to the top level, which is what flixw-cli.java's own probe()
 # already relies on to tell "no real per-command help" apart from an answer worth using.
 mkdir -p "$work/forkverb"
 cat > "$work/forkverb/Forkverb.java" <<'EOF'
@@ -1306,7 +1306,7 @@ fi
 t 0  "a cold cache fetches and verifies the generator"          sh -c '
   rm -rf "$1/wrapper"
   ./flixw completion bash >/dev/null 2>&1 || exit 1
-  find "$1/wrapper/assets" -name "flixw-help.java.sha256" | grep -q .' sh "$cache"
+  find "$1/wrapper/assets" -name "flixw-cli.java.sha256" | grep -q .' sh "$cache"
 
 # A compiled asset must load on every JVM flixw supports, not just the one that compiled
 # it. The cache is keyed by source, so an asset built by a newer javac used to land where
@@ -1326,17 +1326,17 @@ t 0  "a warm cache needs no source at all"                      sh -c '
 g 85 'digest mismatch' "a tampered generator is refused before it is cached"  sh -c '
   rm -rf "$1/wrapper"
   bad=$2/badfixture; rm -rf "$bad"; mkdir -p "$bad"
-  cp "$3/flixw-help.java" "$bad/"
+  cp "$3/flixw-cli.java" "$bad/"
   cp "$3"/picocli-*.jar "$bad/" 2>/dev/null || true
-  if command -v sha256sum >/dev/null 2>&1; then (cd "$bad" && sha256sum flixw-help.java picocli-*.jar > SHA256SUMS)
-  else (cd "$bad" && shasum -a 256 flixw-help.java picocli-*.jar > SHA256SUMS); fi
-  printf "\n// tampered\n" >> "$bad/flixw-help.java"
+  if command -v sha256sum >/dev/null 2>&1; then (cd "$bad" && sha256sum flixw-cli.java picocli-*.jar > SHA256SUMS)
+  else (cd "$bad" && shasum -a 256 flixw-cli.java picocli-*.jar > SHA256SUMS); fi
+  printf "\n// tampered\n" >> "$bad/flixw-cli.java"
   if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
   else u="file://$bad"; fi
   FLIXW_ASSET_SOURCE="$u/" ./flixw completion bash' \
   sh "$cache" "$work" "$complfixture"
 t 0  "...and nothing was cached"                                sh -c '
-  ! find "$1/wrapper/assets" -name flixw-help.java 2>/dev/null | grep -q .' sh "$cache"
+  ! find "$1/wrapper/assets" -name flixw-cli.java 2>/dev/null | grep -q .' sh "$cache"
 g 84 'cannot reach' "no network on a cold cache fails with a clear diagnostic"  sh -c '
   rm -rf "$1/wrapper"
   FLIXW_ASSET_SOURCE=https://dist.invalid ./flixw completion bash' sh "$cache"
@@ -1359,10 +1359,10 @@ g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific pro
 g 85 'digest mismatch' "a tampered provisioner is refused before it is cached"  sh -c '
   rm -rf "$1/wrapper"
   bad=$2/badjdkfixture; rm -rf "$bad"; mkdir -p "$bad"
-  cp "$3/flixw-help.java" "$3/flixw-jdk.java" "$bad/"
+  cp "$3/flixw-cli.java" "$3/flixw-jdk.java" "$bad/"
   if command -v sha256sum >/dev/null 2>&1
-  then (cd "$bad" && sha256sum flixw-help.java flixw-jdk.java > SHA256SUMS)
-  else (cd "$bad" && shasum -a 256 flixw-help.java flixw-jdk.java > SHA256SUMS); fi
+  then (cd "$bad" && sha256sum flixw-cli.java flixw-jdk.java > SHA256SUMS)
+  else (cd "$bad" && shasum -a 256 flixw-cli.java flixw-jdk.java > SHA256SUMS); fi
   printf "\n// tampered\n" >> "$bad/flixw-jdk.java"
   if command -v cygpath >/dev/null 2>&1; then u="file:///$(cygpath -m "$bad")"
   else u="file://$bad"; fi
@@ -1395,7 +1395,7 @@ t 87 "the provisioner rejects a non-numeric feature release"    java "$root/src/
 # printed there.
 stub=$work/jdkstub
 rm -rf "$stub" && mkdir -p "$stub"
-cp "$root/src/assets/flixw-help.java" "$stub/"
+cp "$root/src/assets/flixw-cli.java" "$stub/"
 cat > "$stub/flixw-jdk.java" <<'STUB'
 final class flixwjdk {
     public static void main(String[] a) throws Exception { System.exit(run(a)); }
@@ -1409,8 +1409,8 @@ final class flixwjdk {
 }
 STUB
 if command -v sha256sum >/dev/null 2>&1
-then (cd "$stub" && sha256sum flixw-help.java flixw-jdk.java > SHA256SUMS)
-else (cd "$stub" && shasum -a 256 flixw-help.java flixw-jdk.java > SHA256SUMS); fi
+then (cd "$stub" && sha256sum flixw-cli.java flixw-jdk.java > SHA256SUMS)
+else (cd "$stub" && shasum -a 256 flixw-cli.java flixw-jdk.java > SHA256SUMS); fi
 g 0 'is installed' "the provisioner is fetched, verified, launched and believed"  sh -c '
   rm -rf "$1/wrapper"
   FLIXW_ASSET_SOURCE="$2/" ./flixw wrapper --install-jdk' sh "$cache" "$(fileurl "$stub")"
@@ -2014,9 +2014,9 @@ t 0  "stdout carries only compiler output"                      sh -c '
 # capture directly. Its output is shown rather than swallowed: the corpus size and the
 # per-group counts are the interesting part, and one shell case cannot express them.
 echo "unit checks"
-# flixw-help.java links against picocli, so the unit checks compile against the same jar the
+# flixw-cli.java links against picocli, so the unit checks compile against the same jar the
 # release publishes -- staged into tests/.work above, beside the release fixture.
-javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/src/assets/flixw-help.java" \
+javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/src/assets/flixw-cli.java" \
   "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-examples.java" \
   "$root/src/assets/flixw-local.java" "$root/tests/UnitCheck.java"
 set +e
@@ -2185,12 +2185,12 @@ sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
   "$root/src/stage0/flixw.java" > "$newrel/flixw.java"
 sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.9"/' \
   "$root/src/assets/flixw-setup.java" > "$newrel/flixw-setup.java"
-cp "$root/src/assets/flixw-help.java" "$root/src/assets/flixw-jdk.java" "$newrel/"
+cp "$root/src/assets/flixw-cli.java" "$root/src/assets/flixw-jdk.java" "$newrel/"
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$newrel" && sha256sum flixw.java flixw-setup.java flixw-help.java \
+  (cd "$newrel" && sha256sum flixw.java flixw-setup.java flixw-cli.java \
      flixw-jdk.java > SHA256SUMS)
 else
-  (cd "$newrel" && shasum -a 256 flixw.java flixw-setup.java flixw-help.java \
+  (cd "$newrel" && shasum -a 256 flixw.java flixw-setup.java flixw-cli.java \
      flixw-jdk.java > SHA256SUMS)
 fi
 upgproj=$work/upgraded-real
@@ -2302,12 +2302,12 @@ sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.10"/' \
   "$root/src/stage0/flixw.java" > "$globalrel/flixw.java"
 sed 's/WRAPPER_VERSION = "[^"]*"/WRAPPER_VERSION = "9.9.10"/' \
   "$root/src/assets/flixw-setup.java" > "$globalrel/flixw-setup.java"
-cp "$root/src/assets/flixw-help.java" "$root/src/assets/flixw-jdk.java" "$globalrel/"
+cp "$root/src/assets/flixw-cli.java" "$root/src/assets/flixw-jdk.java" "$globalrel/"
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$globalrel" && sha256sum flixw.java flixw-setup.java flixw-help.java \
+  (cd "$globalrel" && sha256sum flixw.java flixw-setup.java flixw-cli.java \
      flixw-jdk.java > SHA256SUMS)
 else
-  (cd "$globalrel" && shasum -a 256 flixw.java flixw-setup.java flixw-help.java \
+  (cd "$globalrel" && shasum -a 256 flixw.java flixw-setup.java flixw-cli.java \
      flixw-jdk.java > SHA256SUMS)
 fi
 g 0 "refreshed the global launcher" "upgrade --global moves the machine-wide cache with no project" sh -c '

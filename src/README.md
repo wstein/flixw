@@ -11,7 +11,7 @@ loaded, who verifies it, and what breaks if it is wrong.
 | `flixw-setup.java` | companion asset, **and the bootstrap** | run directly to adopt flixw; `doctor --fix` |
 | `flixw-jdk.java` | companion asset | only `wrapper --install-jdk` |
 | `flixw-inspect.java` | companion asset | only `info --verbose` and `wrapper --purge` |
-| `flixw-help.java` | companion asset | `help` and `completion` — the one file linking against picocli |
+| `flixw-cli.java` | companion asset | `help` and `completion` — the one file linking against picocli |
 
 ## stage 0
 

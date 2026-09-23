@@ -2,7 +2,7 @@
 
 `flix-<version>.picocli` files in this directory are [picocli-spec](https://github.com/wstein/picocli/tree/develop/picocli-spec)
 DSL descriptions of the real `flix` CLI's commands, options and positionals for each
-compiler version range. `flixw-help.java` loads the one matching the project's pinned
+compiler version range. `flixw-cli.java` loads the one matching the project's pinned
 compiler version (on-demand from `/specs/flix-<version>.picocli` in `picocli.jar` or by reading
 this directory) to render rich per-command help and generate full-fidelity shell completions;
 when no spec matches the pinned version, it falls back to the existing regex extraction over
@@ -24,7 +24,7 @@ the compiler's own `--help` text, so an uncurated or custom build never breaks.
 
 ## On-Demand Loading Architecture
 
-`flixw-help.java` does not hardcode any spec text blocks in Java source code. Instead, `loadSpec(version)` resolves specs dynamically:
-1. **Classpath resource**: Checks `/specs/flix-<version>.picocli` in `picocli.jar` (loaded via `flixwhelp.class.getResourceAsStream(...)`), providing instant, offline, zero-disk-overhead access.
+`flixw-cli.java` does not hardcode any spec text blocks in Java source code. Instead, `loadSpec(version)` resolves specs dynamically:
+1. **Classpath resource**: Checks `/specs/flix-<version>.picocli` in `picocli.jar` (loaded via `flixwcli.class.getResourceAsStream(...)`), providing instant, offline, zero-disk-overhead access.
 2. **Local assets directory fallback**: Checks `src/assets/picocli/flix-<version>.picocli` relative to project/workspace root for development and testing.
 3. **Graceful regex fallback**: If no spec file exists for the version, returns empty and falls back to regex-parsed `--help` output.

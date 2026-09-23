@@ -20,7 +20,7 @@ something a project commits, that is a regression rather than an addition.
 | **Coordinate** | `io.github.wstein:picocli:4.9.4` |
 | **Artifact** | `https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.9.4/picocli-4.9.4.jar` |
 | **SHA-256** | `fec28d0dd7a92f7fbf75953a9a9e6d99a5bf5bf4b10c5c1a73dc9d0a97608610` |
-| **Used by** | `flixw-help.java` only |
+| **Used by** | `flixw-cli.java` only |
 | **Reached on** | `./flixw help [...]` only |
 
 This is wstein's fork of remkop/picocli, used to prototype additions before they are

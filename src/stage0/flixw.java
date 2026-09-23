@@ -2577,7 +2577,7 @@ public final class flixw {
         }
     }
 
-    /** {@code flixw-help.java} declares {@code flixwhelp}; that is the whole convention. */
+    /** {@code flixw-cli.java} declares {@code flixwcli}; that is the whole convention. */
     static String assetMainClass(Path asset) {
         return asset.getFileName().toString().replace("-", "").replace(".java", "");
     }
@@ -5297,7 +5297,7 @@ public final class flixw {
      * it is not answered from there, so listing it would advertise a route that does not run.
      *
      * <p>Note: because completion runs before compiler acquisition, {@code jar} and {@code jvm}
-     * are passed as null to {@link #helpContext}; {@code flixw-help.java}'s {@code tree()} model
+     * are passed as null to {@link #helpContext}; {@code flixw-cli.java}'s {@code tree()} model
      * must never probe or launch a subprocess during tree construction.
      */
     static boolean completionEarly(List<String> args) {
@@ -5371,8 +5371,8 @@ public final class flixw {
     /** The cache inventory behind {@code info --verbose}; see {@link #listCache}. */
     static final String INSPECT_ASSET = "flixw-inspect.java";
 
-    /** The help renderer; see {@link #helpTopic}. */
-    static final String HELP_ASSET = "flixw-help.java";
+    /** The help renderer and completion generator; see {@link #helpTopic}. */
+    static final String CLI_ASSET = "flixw-cli.java";
 
     /** Runs a project's {@code examples/<name>/}; see the {@code "examples"} case in
      *  {@link #wrapperVerb}. */
@@ -5500,9 +5500,9 @@ public final class flixw {
     static int renderHelp(List<String> rest, Path root, Lock lock, Path jar, Jvm jvm,
                           List<String> compilerVerbs, String identity, List<String> jvmOpts)
             throws IOException {
-        Path ctx = Files.createTempFile("flixw-help-", ".txt");
+        Path ctx = Files.createTempFile("flixw-cli-", ".txt");
         try {
-            Path asset = ensureAsset(HELP_ASSET), picocli = ensureAsset(PICOCLI_ASSET);
+            Path asset = ensureAsset(CLI_ASSET), picocli = ensureAsset(PICOCLI_ASSET);
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity,
                                                 env("FLIX_JAR") != null),
                               StandardCharsets.UTF_8);

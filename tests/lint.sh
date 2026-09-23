@@ -33,7 +33,7 @@ say() { printf '%s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 
 # --- 0b. picocli -------------------------------------------------------------
-# src/assets/flixw-help.java is the one file here that compiles against something outside this
+# src/assets/flixw-cli.java is the one file here that compiles against something outside this
 # repository, so the jar has to be present to check it at all. Fetched into the gitignored
 # work dir rather than committed -- nothing binary is committed here, and tests/run.sh
 # already downloads a 32MB compiler on a cold cache, so one 400KB jar is the existing
@@ -47,7 +47,7 @@ pv=$(sed -n 's/.*PICOCLI_VERSION = "\([^"]*\)".*/\1/p' "$root/src/stage0/flixw.j
 pd=$(sed -n 's/^PICOCLI_SHA256=\([0-9a-f]\{64\}\)$/\1/p' "$root/tests/pack.sh")
 # Cached across runs in the gitignored work dir, so only the first lint on a machine needs
 # the network. A *failed* fetch is fatal here rather than skipped: continuing would compile
-# src/assets/flixw-help.java against a classpath entry that does not exist, which javac reports as
+# src/assets/flixw-cli.java against a classpath entry that does not exist, which javac reports as
 # a warning about a missing path and then a pile of unrelated symbol errors -- a diagnostic
 # that sends the reader looking at the wrong file entirely.
 picocli="$root/tests/.work/picocli-$pv.jar"
@@ -55,7 +55,7 @@ if [ ! -f "$picocli" ]; then
   curl -fsSL -o "$picocli" \
     "$(picocli_url "$pv")" || {
     rm -f "$picocli"
-    bad "cannot fetch picocli $pv; src/assets/flixw-help.java cannot be checked without it"
+    bad "cannot fetch picocli $pv; src/assets/flixw-cli.java cannot be checked without it"
     say "      it caches in $root/tests/.work, so this is a one-time download per machine"
     exit 1
   }
@@ -88,7 +88,7 @@ else
 fi
 
 # --- 1. Java ---------------------------------------------------------------
-# auxiliaryclass is off for this one compile, not project-wide: src/assets/flixw-help.java
+# auxiliaryclass is off for this one compile, not project-wide: src/assets/flixw-cli.java
 # is deliberately a same-package companion file rather than a class merged into flixw.java
 # (its file name is the release asset name ensureCompletionAsset fetches, which cannot be
 # a valid Java identifier), and tests/UnitCheck.java deliberately calls its package-private
@@ -97,7 +97,7 @@ fi
 if javac -Xlint:all,-auxiliaryclass -Werror -cp "$picocli" -d "$work/classes" \
         "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
         "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" \
-        "$root/src/assets/flixw-help.java" "$root/src/assets/flixw-examples.java" \
+        "$root/src/assets/flixw-cli.java" "$root/src/assets/flixw-examples.java" \
         "$root/src/assets/flixw-local.java" \
         "$root/tests/UnitCheck.java" 2>"$work/javac.log"; then
   say "ok    javac -Xlint:all -Werror (stage 0, completion generator and unit checks)"
@@ -129,14 +129,14 @@ fi
 fixture=$work/release
 mkdir -p "$fixture"
 cp "$root/src/stage0/flixw.java" "$root/src/assets/flixw-jdk.java" \
-   "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+   "$root/src/assets/flixw-setup.java" "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-cli.java" \
    "$root/src/assets/flixw-examples.java" \
    "$fixture/"
 [ -f "$picocli" ] && cp "$picocli" "$fixture/picocli-$pv.jar"
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
 # shellcheck disable=SC2086  # $sum is a command name plus flags, deliberately split
 (cd "$fixture" && $sum flixw.java flixw-jdk.java flixw-setup.java \
-   flixw-inspect.java flixw-help.java flixw-examples.java "picocli-$pv.jar" > SHA256SUMS)
+   flixw-inspect.java flixw-cli.java flixw-examples.java "picocli-$pv.jar" > SHA256SUMS)
 export FLIXW_ASSET_SOURCE="file://$fixture/"
 export FLIX_CACHE_HOME="$work/cache"
 
@@ -500,7 +500,7 @@ fi
 if javadoc -private -quiet -Xdoclint:all,-missing -Xwerror \
         -d "$work/javadoc" -cp "$picocli" "$root/src/stage0/flixw.java" \
         "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-setup.java" \
-        "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-help.java" \
+        "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-cli.java" \
         "$root/src/assets/flixw-examples.java" "$root/src/assets/flixw-local.java" \
         >"$work/javadoc.log" 2>&1; then
   say "ok    javadoc -private builds with no malformed doc comment"

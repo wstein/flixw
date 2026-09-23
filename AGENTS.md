@@ -122,7 +122,7 @@ own prior write from a stranger's file, `flixw-local.java`'s
 manifest reading (`[package]` fields, bare-string and inline-table `[dependencies]`
 entries) and `.flixw/local/packages.toml` round-trip, the `tag_name` extraction
 `--upgrade --pre-release` reads out of a GitHub releases API response, and that every
-`WRAPPER_VERBS` entry renders a real description in `flixw-help.java`'s `wrapperDesc`
+`WRAPPER_VERBS` entry renders a real description in `flixw-cli.java`'s `wrapperDesc`
 rather than the blank line `local` shipped with — 513 assertions in total.
 Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
@@ -431,7 +431,7 @@ requires a resolvable project root, and both of these have to answer without one
 
 | Asset | reached by | why not a plugin |
 |---|---|---|
-| `src/assets/flixw-help.java` | `help [<topic>]`, `completion <shell>` | the static completer answers before `findRoot`, same as `--schema`/`--version` |
+| `src/assets/flixw-cli.java` | `help [<topic>]`, `completion <shell>` | the static completer answers before `findRoot`, same as `--schema`/`--version` |
 | `src/assets/flixw-jdk.java` | `wrapper --install-jdk` | runs on a machine that may have no usable Java at all |
 | `src/assets/flixw-setup.java` | run directly as the bootstrap; `doctor --fix` | it *is* the entry point — the project has no stage 0 yet |
 | `src/assets/flixw-examples.java` | `examples [list \| <verb>]`, `<verb>` any local build verb | see below — a different reason from the three above |
@@ -447,7 +447,7 @@ invocation would carry the "3rd-party code, not audited by flixw" warning for so
 that is, in fact, flixw's own code; and a lock entry pins a version without installing it
 (`doctor` only *warns* when a locked plugin is missing), so a fresh clone or CI runner
 would fail the project's own advertised demo command before anything could be done about
-it. Shipping it the way `flixw-help.java` ships answers both: no warning, and
+it. Shipping it the way `flixw-cli.java` ships answers both: no warning, and
 `wrapper --upgrade` (which every adopting project already runs) warms it the same as any
 other asset, with no separate install step. Unlike `help`/`completion`/`--install-jdk`,
 `examples` *does* need a resolvable project root and a working compiler — it is dispatched
@@ -607,7 +607,7 @@ else committed, and `plugin remove ..` without that check dead-reckons to
 `./flixw completion bash|zsh|fish|pwsh` prints a completer built from a picocli
 `CommandSpec`: the pinned compiler's commands with their own descriptions, the wrapper verbs
 they have not displaced, and the compiler's options with value-taking ones marked. `help`
-renders that same tree — `tree()` in `src/assets/flixw-help.java` builds it once — so a completion
+renders that same tree — `tree()` in `src/assets/flixw-cli.java` builds it once — so a completion
 cannot disagree with the help screen on the same terminal.
 
 bash, zsh and fish come from picocli's own `AutoComplete`; PowerShell is the one flixw
@@ -767,7 +767,7 @@ pin, strict lock and manifest floor, Java selection and relaunch, atomic acquisi
 unconditional digest verification, launch, a minimal status, and the plugin broker. Rich
 maintenance moves out to verified companion assets, not to `./flixw plugin` — that
 dispatch requires a resolvable project root, so it cannot answer for a project whose lock
-is the broken thing. `src/assets/flixw-help.java` is the shape to copy.
+is the broken thing. `src/assets/flixw-cli.java` is the shape to copy.
 
 `tests/lint.sh` holds that with three numbers, all ceilings **at today's value** rather
 than at the target, so the gate is green on the way down instead of red until the last

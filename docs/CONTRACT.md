@@ -625,7 +625,7 @@ view plus the pinned compiler's captured descriptions. `./flixw help flix` shows
 own captured help unedited. `help` is a bare verb and retires under rule 3 like any other;
 `--help` is a flag, can never be a compiler verb, and is intercepted outright. An exact
 normal-dispatch `./flixw <compiler-verb> --help` or `-h` is also rendered
-through `flixw-help`, so stock Flix's flat screen becomes a focused command screen. It is
+through `flixw-cli`, so stock Flix's flat screen becomes a focused command screen. It is
 strictly a two-token presentation rule: `./flixw -- <verb> --help`,
 `FLIX_BACKEND=compiler ./flixw <verb> --help`, and any additional argument reach the
 compiler alone, with its output and exit status unchanged.
@@ -899,7 +899,7 @@ launch one. A project with no working lock gets `FLIXW009` from stage 0 itself, 
 repair (`./flixw pin <version>`), before the asset is ever fetched.
 
 **A companion asset, not a plugin — see AGENTS.md for the full reasoning.** In short: this
-is flixw's own code, shipped and warmed the way `flixw-help.java` is, so there is no
+is flixw's own code, shipped and warmed the way `flixw-cli.java` is, so there is no
 "3rd-party, unaudited" warning and no separate install step gating a project's own
 advertised demo command on a fresh clone or in CI.
 
@@ -1282,8 +1282,8 @@ between shim and stage 0, not an implementation detail:
 <cache>/jdks/default                 # one line: the java the last install produced
 <cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}
 <cache>/plugins/.context-*.json      # one per invocation, deleted by a shutdown hook
-<cache>/wrapper/assets/<version>/flixw-help.java        # the TAB-completion generator
-<cache>/wrapper/assets/<version>/flixw-help.java.sha256 # verified once, checked locally after
+<cache>/wrapper/assets/<version>/flixw-cli.java        # the TAB-completion generator
+<cache>/wrapper/assets/<version>/flixw-cli.java.sha256 # verified once, checked locally after
 <cache>/wrapper/assets/<version>/flixw-jdk.java               # the optional JDK provisioner
 <cache>/wrapper/assets/<version>/flixw-jdk.java.sha256        # same, one sidecar per asset
 ```
