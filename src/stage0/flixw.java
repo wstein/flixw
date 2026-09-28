@@ -1097,9 +1097,6 @@ public final class flixw {
 
     static boolean validPluginName(String name) { return name.matches(PLUGIN_NAME_PATTERN); }
 
-    /** One release asset: what to fetch, and what the publisher says it hashes to. */
-    record Asset(String name, String url) {}
-
     static String checkRepo(String repo, String where) {
         if (!repo.matches(REPO_PATTERN))
             throw w002(where + ": " + q(repo) + " is not an owner/repository");
@@ -1123,11 +1120,11 @@ public final class flixw {
      * conventions in the wild, {@code flix-<version>.jar} and `flix.jar`, with a HEAD each; the
      * download that follows is still exactly one acquisition attempt for one artifact.
      */
-    static Asset resolveRelease(String repo, String version) {
+    static String resolveRelease(String repo, String version) {
         if (repo.equals(UPSTREAM_REPO)) {
             String u = "https://github.com/" + UPSTREAM_REPO + "/releases/download/v"
                      + canonical(version) + "/flix.jar";
-            return new Asset("flix.jar", u);
+            return u;
         }
         String base = "https://github.com/" + repo + "/releases/download/"
                     + encodeTag("v" + version) + "/";
@@ -1137,7 +1134,7 @@ public final class flixw {
             tried.add(u);
             if (assetExists(u)) {
                 validateUrl(u, repo + " release v" + version);
-                return new Asset(name, u);
+                return u;
             }
         }
         throw w005("no compiler jar found in " + repo + " release " + q("v" + version)
@@ -1288,10 +1285,7 @@ public final class flixw {
         if (version == null && java == null && clearJava == null && editorJar == null)
             throw w002("pin: no version\n       " + PIN_USAGE);
         // --fetch says how to obtain a compiler, so it means nothing without one to obtain.
-        if (version == null && fetch)
-            throw w002("pin: --fetch needs a version -- it downloads that compiler even when"
-                     + " the cache has it\n       for example: ./flixw pin --fetch "
-                     + (existing == null ? "0.77.0" : existing.version()));
+        if (version == null && fetch) throw w002("pin: --fetch needs a version\n       " + PIN_USAGE);
         // Naming a repository without a version was accepted and then quietly dropped: a
         // --java-only pin rewrites one line and does not re-resolve the compiler, so the
         // repository had nowhere to go. Changing where the compiler comes from means
@@ -4539,7 +4533,6 @@ public final class flixw {
         String prefix = "flix-" + canonical(version) + "-";
         boolean upstream = repo.equals(UPSTREAM_REPO);
         List<Cached> found = new ArrayList<>();
-        if (!Files.isDirectory(dir)) return null;
         try (var s = Files.list(dir)) {
             for (Path jar : s.toList()) {
                 String n = jar.getFileName().toString();
@@ -4551,7 +4544,7 @@ public final class flixw {
                              : !r.version().equals(version)) continue;
                 // A record an older flixw wrote has no URL. Upstream's is built without the
                 // network; a fork's asset name is exactly what only the network can say.
-                String url = upstream ? resolveRelease(repo, version).url() : r.url();
+                String url = upstream ? resolveRelease(repo, version) : r.url();
                 if (url != null) found.add(new Cached(jar, digest, url));
             }
         } catch (IOException | RuntimeException e) { return null; }   // an optimisation: download
@@ -4627,7 +4620,7 @@ public final class flixw {
             return;
         }
         Cached reuse = what.fetch() ? null : cachedFor(repo, version, had);
-        String url = reuse != null ? reuse.url() : resolveRelease(repo, version).url();
+        String url = reuse != null ? reuse.url() : resolveRelease(repo, version);
         Path wrapperDir = root.resolve(WRAPPER_DIR);
         Path tmp;
         try {
