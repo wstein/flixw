@@ -21,6 +21,7 @@ the compiler's own `--help` text, so an uncurated or custom build never breaks.
 | `v0.75.3` | [`flix-0.75.3.picocli`](flix-0.75.3.picocli) | — | Adds `build-classes` subcommand; updates `clean` and `--Xprint-phases` descriptions |
 | `v0.76.0` – `v0.76.1` | [`flix-0.76.0.picocli`](flix-0.76.0.picocli) | — | Adds `stat` subcommand; adds experimental `--Xverify`; removes `--Xsummary` |
 | `v0.76.2` | [`flix-0.76.2.picocli`](flix-0.76.2.picocli) | [`flix-0.76.2.json`](flix-0.76.2.json) | Adds package management commands (`install`, `remove`, `upgrade`); adds `--library` to `doc` |
+| `v0.77.0` | [`flix-0.77.0.picocli`](flix-0.77.0.picocli) | — | `install`/`remove` take one or more packages, `upgrade` any number; optional package on `eff-check`/`eff-lock`; `clean` no longer resolves dependencies; adds global `--pause-on-exit` |
 
 ## On-Demand Loading Architecture
 

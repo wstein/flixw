@@ -622,6 +622,28 @@ public final class UnitCheck {
         eq("specs: install's package argument is required", "true",
            String.valueOf(install.getCommandSpec().positionalParameters().get(0).required()));
 
+        // 0.77.0 made the three package commands variadic, and gave upgrade and the two
+        // effect commands an optional package -- read from its Main.scala, not assumed to
+        // be 0.76.2's shape, which is what a missing spec would silently have rendered.
+        var spec077 = flixwcli.loadSpec("0.77.0");
+        eq("specs: 0.77.0 is curated", "true", String.valueOf(spec077.isPresent()));
+        var sub077 = spec077.get().subcommands();
+        eq("specs: 0.77.0 install takes one or more packages", "1..*",
+           sub077.get("install").getCommandSpec().positionalParameters().get(0).arity().toString());
+        eq("specs: 0.77.0 remove takes one or more packages", "1..*",
+           sub077.get("remove").getCommandSpec().positionalParameters().get(0).arity().toString());
+        eq("specs: 0.77.0 upgrade takes any number of packages", "0..*",
+           sub077.get("upgrade").getCommandSpec().positionalParameters().get(0).arity().toString());
+        eq("specs: 0.77.0 eff-check takes an optional package", "0..1",
+           sub077.get("eff-check").getCommandSpec().positionalParameters().get(0).arity().toString());
+        eq("specs: 0.77.0 eff-lock takes an optional package", "0..1",
+           sub077.get("eff-lock").getCommandSpec().positionalParameters().get(0).arity().toString());
+        eq("specs: 0.77.0 --pause-on-exit is a root option", "true",
+           String.valueOf(spec077.get().findOption("--pause-on-exit") != null));
+        // Bootstrap.clean(cwd) no longer resolves dependencies, so neither option reaches it.
+        eq("specs: 0.77.0 clean takes no dependency options", "true",
+           String.valueOf(sub077.get("clean").getCommandSpec().findOption("--github-token") == null));
+
         eq("ansi: NO_COLOR suppresses color", "OFF", flixwcli.ansi("1").name());
         eq("ansi: empty NO_COLOR suppresses color", "OFF", flixwcli.ansi("").name());
         // Not Ansi.AUTO: this process has no console attached (it is run from a build
