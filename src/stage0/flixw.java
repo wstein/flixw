@@ -2548,6 +2548,11 @@ public final class flixw {
      * @return the asset's exit code
      */
     static int runAsset(Path asset, Path classpath, List<String> args) {
+        return runAsset(asset, classpath, null, args);
+    }
+
+    /** {@code resources} joins the loader's class path only: data, so never compiled against. */
+    static int runAsset(Path asset, Path classpath, Path resources, List<String> args) {
         Path classes = compileAsset(asset, classpath);
         if (classes == null)
             throw w005("cannot compile " + asset.getFileName() + "\n"
@@ -2558,6 +2563,7 @@ public final class flixw {
         try {
             urls.add(classes.toUri().toURL());
             if (classpath != null) urls.add(classpath.toUri().toURL());
+            if (resources != null) urls.add(resources.toUri().toURL());
             try (URLClassLoader loader = new URLClassLoader("flixw-asset",
                     urls.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
                 java.lang.reflect.Method run = loader.loadClass(assetMainClass(asset))
@@ -4985,7 +4991,7 @@ public final class flixw {
             // ships, and that edit is the point -- adding a runtime dependency should be a
             // thing somebody typed.
             boolean companion = name.matches("flixw-[a-z0-9-]+\\.java")
-                             || name.equals(PICOCLI_ASSET);
+                             || name.equals(PICOCLI_ASSET) || name.equals(SPECS_ASSET);
             if (companion && !out.contains(name))
                 out.add(name);
         }
@@ -5404,6 +5410,13 @@ public final class flixw {
     static final String PICOCLI_ASSET = "picocli-" + PICOCLI_VERSION + ".jar";
 
     /**
+     * Curated Flix command specs for the renderer's class path: flixw's data, so a flixw
+     * release rather than picocli's. Optional -- without it the renderer reads the
+     * compiler's own {@code --help}, as for any version nobody curated.
+     */
+    static final String SPECS_ASSET = "flixw-specs.jar";
+
+    /**
      * The stored help for this compiler, re-verified against its own provenance record.
      *
      * <p>The digest in {@code .helpmeta} is not decoration: this is the one place it is
@@ -5502,7 +5515,10 @@ public final class flixw {
             throws IOException {
         Path ctx = Files.createTempFile("flixw-cli-", ".txt");
         try {
-            Path asset = ensureAsset(CLI_ASSET), picocli = ensureAsset(PICOCLI_ASSET);
+            Path asset = ensureAsset(CLI_ASSET), picocli = ensureAsset(PICOCLI_ASSET), specs = null;
+            // Absent degrades to the compiler's --help; a digest mismatch is tampering.
+            try { specs = ensureAsset(SPECS_ASSET); }
+            catch (Fail f) { if (f.code.equals("FLIXW006")) throw f; tr("specs: " + f.getMessage()); }
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity,
                                                 env("FLIX_JAR") != null),
                               StandardCharsets.UTF_8);
@@ -5510,7 +5526,7 @@ public final class flixw {
             a.addAll(rest.subList(0, Math.min(3, rest.size())));
             // Validated tokens: the asset must not parse FLIX_JVM_OPTS again.
             a.addAll(jvmOpts);
-            return runAsset(asset, picocli, a);
+            return runAsset(asset, picocli, specs, a);
         } finally {
             try { Files.deleteIfExists(ctx); } catch (IOException ignored) { }
         }

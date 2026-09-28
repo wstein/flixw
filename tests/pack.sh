@@ -11,6 +11,7 @@
 #   flixw-examples.java       runs examples/<name>/ for `./flixw examples`
 #   flixw-local.java          overrides a declared GitHub dependency for `./flixw local`
 #   picocli-<version>.jar     the one third-party component, republished so it rides one SHA256SUMS
+#   flixw-specs.jar           the curated Flix command specs the help renderer reads (tests/specs.sh)
 #   THIRD_PARTY_NOTICES.md    licence and provenance for picocli
 #   SHA256SUMS                digests of all of the above
 #
@@ -160,6 +161,11 @@ for a in jdk inspect setup cli examples local; do
     echo "pack: the stripped flixw-$a.java does not compile" >&2; exit 1; }
 done
 
+# The curated Flix command specs the renderer reads -- flixw's data, published and verified
+# like the assets above rather than bundled into picocli, whose job this is not. Machine
+# cache only, like picocli, so not packed into the archives either.
+sh "$root/tests/specs.sh" "$out/flixw-specs.jar"
+
 # Published, because the file itself claims the release publishes it -- and because a
 # licence and provenance claim that only exists in the source tree is not much of a claim to
 # someone holding the jar. Not packed into the archives: picocli reaches a machine cache,
@@ -169,7 +175,7 @@ cp "$root/THIRD_PARTY_NOTICES.md" "$out/THIRD_PARTY_NOTICES.md"
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
               flixw-jdk.java flixw-setup.java flixw-inspect.java \
               flixw-cli.java flixw-examples.java flixw-local.java \
-              "picocli-$pv.jar" THIRD_PARTY_NOTICES.md \
+              "picocli-$pv.jar" flixw-specs.jar THIRD_PARTY_NOTICES.md \
               > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

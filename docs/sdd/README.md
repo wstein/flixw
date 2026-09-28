@@ -27,16 +27,32 @@ both gain accurate positionals and per-command flags without heuristic text scra
 
 1. Author a `flix-<version>.picocli` DSL file (and optional `.json` companion).
 2. Place it in `src/assets/picocli/` and record its entry in `src/assets/picocli/README.md`.
-3. In `picocli`'s build, the spec is packaged under `/specs/` in `picocli.jar`.
-4. Add a `tests/UnitCheck.java` assertion in `curatedSpecs()` to verify that `loadSpec("<version>")`
+3. Name it in `SPECS` in `src/assets/flixw-cli.java`, and extend `specFileForVersion` if it
+   covers a range. `tests/UnitCheck.java` fails if `SPECS` and the directory disagree.
+4. Nothing to package: `tests/pack.sh` builds every file in the directory into the release's
+   `flixw-specs.jar`. A new Flix release needs a flixw release, never a picocli one.
+5. Add a `tests/UnitCheck.java` assertion in `curatedSpecs()` to verify that `loadSpec("<version>")`
    resolves and parses properly.
 
 ## On-demand spec loading
 
-Specs are loaded dynamically on demand: `loadSpec(version)` first checks for the classpath resource
-`/specs/flix-<version>.picocli` inside `picocli.jar` (via `flixwcli.class.getResourceAsStream(...)`),
-falling back to `src/assets/picocli/flix-<version>.picocli` on disk when running in development checkouts.
-Zero spec text is hardcoded into `flixw-cli.java`.
+Specs ship as `flixw-specs.jar`, a release asset built by `tests/specs.sh` (reproducibly: no
+manifest, fixed timestamps, sorted entries) and named in `SHA256SUMS` like every other asset.
+Stage 0 fetches and verifies it with `ensureAsset`, warms it on `wrapper --upgrade`, and puts it
+on the renderer's class path beside picocli, where `loadSpec(version)` reads
+`/specs/flix-<version>.picocli`. It is data, so it is never compiled against.
+
+It is the one optional asset. A release or mirror without it renders help from the compiler's
+own `--help`, as an uncurated version does; bytes that fail their digest are refused
+(`FLIXW006`) rather than dropped. `-Dflixw.specs.dir` is the only other source, for
+`tests/UnitCheck.java`.
+
+Describing Flix's command line is flixw's job, not picocli's, which is why the specs are not
+bundled into `picocli.jar`: that would make every Flix release wait on a library release.
+An earlier `loadSpec` did look there, and also walked up from the working directory to find
+`src/assets/picocli/`. No release ever published `/specs/`, and the suite's scratch projects
+sit inside this checkout, so the walk found the source tree every time: curated help worked
+in every test and in no installed project.
 
 ## Dependency: picocli-spec
 

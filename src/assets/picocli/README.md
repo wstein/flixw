@@ -3,8 +3,8 @@
 `flix-<version>.picocli` files in this directory are [picocli-spec](https://github.com/wstein/picocli/tree/develop/picocli-spec)
 DSL descriptions of the real `flix` CLI's commands, options and positionals for each
 compiler version range. `flixw-cli.java` loads the one matching the project's pinned
-compiler version (on-demand from `/specs/flix-<version>.picocli` in `picocli.jar` or by reading
-this directory) to render rich per-command help and generate full-fidelity shell completions;
+compiler version (from `/specs/flix-<version>.picocli` in the release's `flixw-specs.jar`,
+built from this directory) to render rich per-command help and generate full-fidelity shell completions;
 when no spec matches the pinned version, it falls back to the existing regex extraction over
 the compiler's own `--help` text, so an uncurated or custom build never breaks.
 
@@ -26,6 +26,8 @@ the compiler's own `--help` text, so an uncurated or custom build never breaks.
 ## On-Demand Loading Architecture
 
 `flixw-cli.java` does not hardcode any spec text blocks in Java source code. Instead, `loadSpec(version)` resolves specs dynamically:
-1. **Classpath resource**: Checks `/specs/flix-<version>.picocli` in `picocli.jar` (loaded via `flixwcli.class.getResourceAsStream(...)`), providing instant, offline, zero-disk-overhead access.
-2. **Local assets directory fallback**: Checks `src/assets/picocli/flix-<version>.picocli` relative to project/workspace root for development and testing.
-3. **Graceful regex fallback**: If no spec file exists for the version, returns empty and falls back to regex-parsed `--help` output.
+1. **Release asset**: `tests/pack.sh` builds every file here into `flixw-specs.jar` (via `tests/specs.sh`), published and digest-verified like every other asset. Stage 0 puts it on the renderer's class path, where `loadSpec` reads `/specs/flix-<version>.picocli`. Not bundled into `picocli.jar`: Flix's command line is flixw's data, and a new Flix release should need a flixw release, not a library one.
+2. **Unit checks**: `-Dflixw.specs.dir` points `tests/UnitCheck.java` at this directory.
+3. **Graceful regex fallback**: No spec for the version, or no `flixw-specs.jar` in the release, falls back to regex-parsed `--help` output.
+
+Adding a file here means naming it in `SPECS` in `flixw-cli.java` too; `tests/UnitCheck.java` fails if the two disagree.

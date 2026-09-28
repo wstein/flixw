@@ -611,6 +611,16 @@ public final class UnitCheck {
         eq("specs: 0.76.1 has run", "true",
            String.valueOf(spec0761.get().subcommands().containsKey("run")));
 
+        // SPECS is what specFileForVersion resolves against, and flixw-specs.jar is built from
+        // the directory: a spec in one and not the other ships unreachable, or is reached and
+        // missing -- silently either way, since both degrade to the compiler's own --help.
+        var onDisk = new java.util.TreeSet<String>();
+        try (var ds = Files.newDirectoryStream(Path.of(System.getProperty("flixw.specs.dir")), "flix-*.picocli")) {
+            for (Path f : ds) onDisk.add(f.getFileName().toString());
+        } catch (java.io.IOException e) { throw new java.io.UncheckedIOException(e); }
+        eq("specs: SPECS names exactly the curated files", onDisk.toString(),
+           new java.util.TreeSet<>(flixwcli.SPECS).toString());
+
         var spec = flixwcli.loadSpec("0.76.2");
         eq("specs: 0.76.2 is curated", "true", String.valueOf(spec.isPresent()));
         var check = spec.get().subcommands().get("check");

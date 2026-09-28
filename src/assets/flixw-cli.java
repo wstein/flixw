@@ -845,48 +845,27 @@ final class flixwcli {
     /**
      * The curated spec for one compiler version, or empty when none has been authored.
      *
-     * <p>Loads on-demand: first from classpath resource {@code /specs/flix-<version>.picocli}
-     * (bundled inside {@code picocli.jar}), falling back to {@code src/assets/picocli/flix-<version>.picocli}
-     * if present on disk.
+     * <p>Read from {@code /specs/} on the class path, which stage 0 fills with this release's
+     * own {@code flixw-specs.jar} -- fetched and digest-verified like every other asset -- or,
+     * for this repository's unit checks, from the directory {@code -Dflixw.specs.dir} names.
+     *
+     * <p>There used to be a third source: {@code src/assets/picocli/} found by walking up from
+     * the working directory. It is gone because it was the only one that ever worked. No
+     * release published a {@code /specs/} resource, and the suite's scratch projects live
+     * inside this checkout, so the walk found the source tree every time and hid that an
+     * installed project had never rendered a curated screen at all.
      */
     static Optional<CommandSpec> loadSpec(String version) {
-        if (version == null || version.isEmpty()) return Optional.empty();
         String name = specFileForVersion(version);
         if (name == null) return Optional.empty();
-        // 1. Check classpath resource (bundled in picocli.jar under /specs/)
         try (InputStream in = flixwcli.class.getResourceAsStream("/specs/" + name)) {
-            if (in != null) {
-                String dsl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                return Optional.of(CommandSpecDsl.parse(dsl));
-            }
+            if (in != null)
+                return Optional.of(CommandSpecDsl.parse(new String(in.readAllBytes(), StandardCharsets.UTF_8)));
+            String dir = System.getProperty("flixw.specs.dir");
+            Path disk = dir == null || dir.isBlank() ? null : Paths.get(dir, name);
+            if (disk != null && Files.isRegularFile(disk))
+                return Optional.of(CommandSpecDsl.parse(Files.readString(disk, StandardCharsets.UTF_8)));
         } catch (Exception ignored) { }
-
-        // 2. Check local workspace asset file if running from source checkout
-        try {
-            String prop = System.getProperty("flixw.specs.dir");
-            if (prop != null && !prop.isBlank()) {
-                Path disk = Paths.get(prop, name);
-                if (Files.isRegularFile(disk)) {
-                    String dsl = Files.readString(disk, StandardCharsets.UTF_8);
-                    return Optional.of(CommandSpecDsl.parse(dsl));
-                }
-            }
-            Path cur = Paths.get("").toAbsolutePath();
-            for (int i = 0; i < 8 && cur != null; i++) {
-                Path disk = cur.resolve("src/assets/picocli").resolve(name);
-                if (Files.isRegularFile(disk)) {
-                    String dsl = Files.readString(disk, StandardCharsets.UTF_8);
-                    return Optional.of(CommandSpecDsl.parse(dsl));
-                }
-                Path sibling = cur.resolve("flixw/src/assets/picocli").resolve(name);
-                if (Files.isRegularFile(sibling)) {
-                    String dsl = Files.readString(sibling, StandardCharsets.UTF_8);
-                    return Optional.of(CommandSpecDsl.parse(dsl));
-                }
-                cur = cur.getParent();
-            }
-        } catch (Exception ignored) { }
-
         return Optional.empty();
     }
 

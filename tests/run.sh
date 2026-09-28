@@ -103,6 +103,14 @@ if [ -f "$picocli_jar" ]; then
     (cd "$relfixture" && shasum -a 256 "picocli-$picocli_v.jar" >> SHA256SUMS)
   fi
 fi
+# The curated specs ride it too, built by the same script the release uses. Without them
+# every curated-help case below would be asserting the compiler's raw --help instead.
+sh "$root/tests/specs.sh" "$relfixture/flixw-specs.jar"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$relfixture" && sha256sum flixw-specs.jar >> SHA256SUMS)
+else
+  (cd "$relfixture" && shasum -a 256 flixw-specs.jar >> SHA256SUMS)
+fi
 relfixture_url=$(fileurl "$relfixture")
 export FLIXW_ASSET_SOURCE="$relfixture_url/"
 
@@ -1346,6 +1354,28 @@ rm -rf "$empty" && mkdir -p "$empty"
 g 84 'no published flixw' "SHA256SUMS silent on the asset names the specific problem" sh -c '
   rm -rf "$1/wrapper"
   FLIXW_ASSET_SOURCE="$2/" ./flixw completion bash' sh "$cache" "$(fileurl "$empty")"
+# flixw-specs.jar is the one asset whose absence is not an error: a mirror or an older
+# release without it still renders help, from the compiler's own --help, which is exactly
+# what an uncurated version gets. `help flix init` tells the two apart -- its curated
+# screen drops --entrypoint, which init's own code never reads.
+nospecs=$work/nospecsfixture
+rm -rf "$nospecs" && mkdir -p "$nospecs"
+cp "$relfixture/flixw-cli.java" "$relfixture"/picocli-*.jar "$nospecs/" 2>/dev/null || true
+if command -v sha256sum >/dev/null 2>&1; then (cd "$nospecs" && sha256sum flixw-cli.java picocli-*.jar > SHA256SUMS)
+else (cd "$nospecs" && shasum -a 256 flixw-cli.java picocli-*.jar > SHA256SUMS); fi
+t 0  "a release without flixw-specs.jar still renders help, uncurated" sh -c '
+  rm -rf "$1/wrapper"
+  out=$(FLIXW_ASSET_SOURCE="$2/" ./flixw help flix init) &&
+  printf "%s" "$out" | grep -q -- "--entrypoint"' sh "$cache" "$(fileurl "$nospecs")"
+cp "$relfixture/flixw-specs.jar" "$nospecs/"
+printf 'tampered' >> "$nospecs/flixw-specs.jar"
+if command -v sha256sum >/dev/null 2>&1; then (cd "$nospecs" && sha256sum "$relfixture/flixw-specs.jar" | sed "s|$relfixture/||" >> SHA256SUMS)
+else (cd "$nospecs" && shasum -a 256 "$relfixture/flixw-specs.jar" | sed "s|$relfixture/||" >> SHA256SUMS); fi
+# Through completion, which never degrades: interactive help falls back to offline text on
+# any asset failure, a tampered one included, so only here does the refusal show as status.
+g 85 'digest mismatch' "...but tampered specs are refused, not silently dropped" sh -c '
+  rm -rf "$1/wrapper"
+  FLIXW_ASSET_SOURCE="$2/" ./flixw completion bash' sh "$cache" "$(fileurl "$nospecs")"
 # Restore a warm, valid cache: later sections in this suite share $cache, and leaving it
 # in whatever failure state the last negative case above left it in would be a trap for
 # the next person adding a case here, not a property this suite promises to anyone else.

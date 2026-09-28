@@ -563,11 +563,15 @@ one work offline afterwards. Which assets those are is read out of the release's
 `SHA256SUMS` rather than from a list inside the wrapper: an upgrade runs in the *old* stage
 0, which cannot know what the new release added, so a compiled-in list would quietly stop
 warming the day a new asset shipped. Anything matching `flixw-<name>.java` is a companion,
-as is the one third-party jar a release names — currently `picocli-<version>.jar`, which
-the companion assets use to render public CLI help and completion. `flixw.java` is not one, being the wrapper itself, and
-neither is anything else a release happens to publish: the jar is accepted by name rather
-than by extension, so a future artifact published for a reader is not downloaded by every
-upgrade because it happened to end in `.jar`.
+as are the two jars a release names — `picocli-<version>.jar`, which the companion assets
+use to render public CLI help and completion, and `flixw-specs.jar`, the curated Flix
+command specs that help and completion are rendered from. `flixw.java` is not one, being
+the wrapper itself, and neither is anything else a release happens to publish: the jars
+are accepted by name rather than by extension, so a future artifact published for a
+reader is not downloaded by every upgrade because it happened to end in `.jar`. A stage 0
+older than `flixw-specs.jar` does not know its name, so upgrading *from* one leaves it to be
+fetched by the first `help` or `completion` that wants it; offline, that renders from the
+compiler's own `--help` until then.
 
 Warming is best-effort and never fatal. An upgrade that installed a new stage 0 and then
 could not pre-fetch a generator has still upgraded, and the asset is fetched on demand the

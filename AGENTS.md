@@ -531,8 +531,9 @@ found.
 
 **`wrapper --upgrade` warms them all**, so nothing needs the network on first use
 afterwards. The set comes from the release's own `SHA256SUMS` — every `flixw-<name>.java`
-in it — rather than from `COMPLETION_ASSET`/`JDK_ASSET` here, because the upgrade runs in
-the *old* stage 0 and a compiled-in list would stop warming the day a fourth asset shipped,
+in it, plus the two jars named in `publishedAssets` (picocli and `flixw-specs.jar`) —
+rather than from `COMPLETION_ASSET`/`JDK_ASSET` here, because the upgrade runs in the
+*old* stage 0 and a compiled-in list would stop warming the day a fourth asset shipped,
 silently. Best-effort and never fatal: the upgrade has already done its real work by then.
 
 The JDK move also **stopped stage 0 provisioning automatically**. `noJavaFound` used to
