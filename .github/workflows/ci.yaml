@@ -144,6 +144,23 @@ jobs:
           key: flix-Linux-21-${{ env.FLIXW_TEST_VERSION }}
       - run: sh tests/run.sh
 
+  # Git Bash is present on every windows runner, and this project's reference repository
+  # has used the POSIX shim there for months. Its own job, not the first step of the smoke
+  # below: a suite failure used to skip every cmd.exe and PowerShell check after it, which
+  # threw away the one native-Windows signal exactly when something was already wrong.
+  windows-suite:
+    name: windows suite (Git Bash)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: full suite under Git Bash
+        shell: bash
+        run: sh tests/run.sh
+
   windows:
     name: windows smoke
     runs-on: windows-latest
@@ -153,12 +170,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-
-      # Git Bash is present on every windows runner, and this project's reference
-      # repository has used the POSIX shim there for months. Run the full suite.
-      - name: full suite under Git Bash
-        shell: bash
-        run: sh tests/run.sh
 
       # The cmd.exe shim is the path with no POSIX shell at all. It has no automated
       # coverage anywhere else, so exercise it end to end as a user would.
