@@ -190,9 +190,48 @@ jobs:
     # pre-release only when it says so in its own text, hence the check on the tag rather
     # than on the leading digit.
     if: ${{ !contains(inputs.tag || github.ref_name, '-') }}
+    permissions:
+      contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      # `verify` is Linux only, and CI's Windows jobs run on pushes to main, not on tags --
+      # so without this a tag could be promoted with no Windows run of that exact commit
+      # anywhere. Required, not assumed: the CI run for the tag's commit must have passed,
+      # and both Windows jobs in it (the Git Bash suite and the native cmd.exe smoke) with
+      # it. Waits for a run still in progress rather than failing on timing alone; a commit
+      # CI never ran on fails with the command that runs it.
+      - name: CI, Windows included, passed for this exact commit
+        run: |
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha) || {
+            echo "cannot resolve $TAG to a commit" >&2; exit 1; }
+          for i in $(seq 1 60); do
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yaml --commit "$sha" \
+                    --limit 20 --json databaseId,status,conclusion \
+                    --jq '[.[] | select(.status == "completed")] | first // empty')
+            [ -n "$run" ] && break
+            pending=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yaml --commit "$sha" \
+                        --limit 20 --json status --jq 'length')
+            if [ "$pending" = 0 ]; then
+              echo "no CI run exists for $sha ($TAG); push it to main, or run:" >&2
+              echo "  gh workflow run ci.yaml --ref $TAG   -- then re-run this job" >&2
+              exit 1
+            fi
+            echo "CI for $sha is still running; waiting ($i/60)"; sleep 60
+          done
+          [ -n "$run" ] || { echo "CI for $sha did not finish within an hour" >&2; exit 1; }
+          id=$(printf '%s' "$run" | jq -r .databaseId)
+          conclusion=$(printf '%s' "$run" | jq -r .conclusion)
+          [ "$conclusion" = success ] || {
+            echo "CI run $id for $sha concluded $conclusion; not promoting" >&2; exit 1; }
+          jobs=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json jobs \
+                   --jq '.jobs[] | "\(.name)=\(.conclusion)"')
+          for job in "windows suite (Git Bash)" "windows smoke"; do
+            printf '%s\n' "$jobs" | grep -qxF "$job=success" || {
+              echo "CI run $id has no successful '$job' job; not promoting" >&2; exit 1; }
+          done
+          echo "CI run $id passed for $sha, both Windows jobs included"
       - name: mark this release the one wrapper --upgrade and releases/latest offer
         run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest

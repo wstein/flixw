@@ -66,8 +66,11 @@ every release is invisible for half an hour, including the one fixing a bug in t
 previous release's upgrade path.** `publish` builds and uploads the release as a GitHub
 pre-release as soon as the tag is confirmed to match `WRAPPER_VERSION` and everything
 compiles; `verify` then runs the full suite from the old single job; `promote` flips the
-pre-release flag off and marks the release `latest` only if `verify` passed, and only for
-a version that is not itself a pre-release (one that says so in its own text, like
+pre-release flag off and marks the release `latest` only if `verify` passed *and* CI passed
+for the tag's exact commit with both Windows jobs green (`verify` is Linux only, and CI's
+Windows jobs run on `main`, not on tags; push the commit to `main` before tagging, or
+`gh workflow run ci.yaml --ref <tag>`), and only for a version that is not itself a
+pre-release (one that says so in its own text, like
 `0.31.0-rc.1` — those stay flagged forever, same as always). A failed `verify` leaves the
 release published, unpromoted, and named in the failed run — there is no job that fixes it
 automatically; someone reads the failure and pushes the fix, the same as any other CI

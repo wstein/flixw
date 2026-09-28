@@ -85,13 +85,14 @@ signal reaches the compiler directly.
 ## Windows is covered, with two gaps
 
 `flixw.cmd` is written, lint-checked, and covered by a CI job that installs into a scratch
-project and runs `pin`, `check`, `run` and `validate` through it under `cmd.exe`, plus the
-full suite under Git Bash and the shim once from PowerShell. That job now runs on every
-push and passes. `flix-invaders` also runs the POSIX shim under Git Bash on
+project and runs `pin`, `check`, `run` and `validate` through it under `cmd.exe`, and the
+shim once from PowerShell; a second job runs the full suite under Git Bash. They are
+separate so a suite failure cannot skip the native checks. Both run on every push and
+pass, and a release is promoted to `latest` only once both have passed for its commit. `flix-invaders` also runs the POSIX shim under Git Bash on
 `windows-latest`, launching the game in a real window.
 
 Two gaps remain behind that green tick. Twenty suite cases cannot run on Windows and are
-reported as skipped, not passed — the figure the Windows job prints as `skipped=`, so it is
+reported as skipped, not passed — the figure the Windows suite job prints as `skipped=`, so it is
 checkable rather than asserted. And the `cmd.exe` trampoline has no *field* coverage: the
 one real project using flixw drives it from Git Bash, so `flixw.cmd` is exercised only by
 flixw's own smoke job. Specific risks:
