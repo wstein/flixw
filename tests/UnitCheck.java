@@ -1120,6 +1120,14 @@ public final class UnitCheck {
      * slash a version can never contain. None of this needs the network.
      */
     static void pinTargets() {
+        // A failed download's advice has to fit the failure: a 404 is a release that is not
+        // there, a 5xx is a server having a bad minute -- telling that user to check which
+        // release flix.toml names sends them hunting for a mistake they did not make.
+        eq("download advice: 404 is a missing release",
+           "check that flix.toml names a published release.", flixw.downloadAdvice(404));
+        eq("download advice: 5xx is the server's, and transient",
+           "the server failed, not the request -- try again in a moment.", flixw.downloadAdvice(500));
+        eq("download advice: 503 likewise", flixw.downloadAdvice(500), flixw.downloadAdvice(503));
         flixw.Lock forked = new flixw.Lock("0.75.2+f.1", "https://x/y.jar", "a".repeat(64),
                                          "wstein/flix-fork", null, null, java.util.Map.of());
         flixw.Pin t = flixw.parsePin(java.util.List.of("wstein/flix-fork", "0.75.2+f.1"), null);

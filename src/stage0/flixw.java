@@ -1463,6 +1463,12 @@ public final class flixw {
         return jar;
     }
 
+    /** A 5xx is the host failing; sending that user to re-read their pin is a false lead. */
+    static String downloadAdvice(int status) {
+        return status >= 500 ? "the server failed, not the request -- try again in a moment."
+                             : "check that flix.toml names a published release.";
+    }
+
     static void download(String url, Path dest) {
         if (!url.startsWith("https://")) throw w005("refusing non-https url " + redact(url));
         HttpClient client = httpClient();
@@ -1475,9 +1481,10 @@ public final class flixw {
                 throw w005("refusing a redirect off https: " + redact(res.uri().toString()));
             if (res.statusCode() != 200)
                 throw w005("HTTP " + res.statusCode() + " for " + redact(url)
-                         + "\n       check that flix.toml names a published release.");
+                         + "\n       " + downloadAdvice(res.statusCode()));
         } catch (IOException e) {
-            throw w005("download failed: " + redact(url) + "\n       " + e.getMessage());
+            // why(): an unresolvable host has no message, and printed as a bare "null".
+            throw w005("download failed: " + redact(url) + "\n       " + why(e));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw w005("download interrupted");
