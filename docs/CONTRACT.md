@@ -136,6 +136,26 @@ The previous contents are held first, and restored if anything after the write f
 `pin` fills the compiler cache before it writes the lock, and treats every failure there as
 nothing — the cache is an optimisation and the next run refills it.
 
+**A version already in the cache is pinned without the network.** `flix.jar` has no
+published checksum, so the first download is what the digest comes from — but after it, the
+cache holds both halves of the answer: the jar's name carries its digest, and
+`<cache>/verbs/<digest>.pin` records the repository, the exact tag and the URL that fetched
+it. `pin` reuses such a jar after re-hashing it, so re-pinning a project, or pinning a
+second project to a version this machine already has, reaches no network and cannot be
+failed by a release host's bad minute. Upstream matches on the canonical version, since its
+URL is built from that alone; a fork matches on the exact tag. When several cached builds
+of one tag match, the one the lock already names wins, and with no such lock `pin`
+downloads rather than guess.
+
+```console
+./flixw pin --fetch 0.75.2    # download it even though the cache has it
+```
+
+`--fetch` is for an asset replaced under the same tag, and the repair for a cache entry
+whose bytes no longer hash to the digest in its name — `pin` refuses such an entry with
+`FLIXW006` and names this command, rather than pinning it or quietly downloading around
+it. `--fetch` replaces the entry.
+
 **`pin` never writes `flix.toml`.** The exact compiler is flixw's business and lives in
 flixw's file; the manifest's floor is the project's statement about what its sources need,
 and moving it is a decision only a human should make. The floor check reads the manifest
@@ -217,7 +237,7 @@ Two commands add it, and they are the same rewrite:
 The rewrite is offline — the compiler is not re-resolved, not re-downloaded and not
 re-hashed — and it changes the file's form rather than its meaning: same repository,
 version, URL, digest and java pin. That is why it exists at all, since `pin <version>`
-would fetch 33MB to write one comment. `--refresh` takes no other argument: a version, a
+re-resolves the compiler — and fetches 33MB when the cache lacks it — to write one comment. `--refresh` takes no other argument: a version, a
 repository or a `--java` on the same line is a different request, and choosing one of the
 two silently is how a repair loses the pin it was asked to preserve.
 
@@ -1282,6 +1302,7 @@ between shim and stage 0, not an implementation detail:
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
 <cache>/verbs/<identity>.compl        # only if the compiler ships its own completer
+<cache>/verbs/<sha256>.pin            # repository, exact tag and URL that fetched this jar
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
 <cache>/jdks/default                 # one line: the java the last install produced
 <cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}

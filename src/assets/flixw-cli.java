@@ -649,7 +649,7 @@ final class flixwcli {
             "",
             "Pins an unmodified stock flix.jar, fork, or local compiler build.");
         s.usageMessage().customSynopsis(
-            "./flixw pin [<owner>/<repo>] [<version>] [--java <version>] [--editor-jar=copy|off]",
+            "./flixw pin [<owner>/<repo>] [<version>] [--java <version>] [--editor-jar=copy|off] [--fetch]",
             "          or: ./flixw pin --local <path/to/flix.jar-or-checkout> | --stock",
             "          or: ./flixw pin <owner>/<repo>@<version>   (one token, a fork)",
             "          or: ./flixw pin --refresh   (rewrite the lock in this release's shape)");
@@ -674,6 +674,8 @@ final class flixwcli {
             .description("revert --local to stock pinned compiler").build());
         s.addOption(OptionSpec.builder("--refresh")
             .description("rewrite .flixw/lock.toml in this wrapper's shape").build());
+        s.addOption(OptionSpec.builder("--fetch")
+            .description("download the compiler even when the cache already has it").build());
         return s;
     }
 

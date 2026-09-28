@@ -489,6 +489,46 @@ t 0  "pin records the repository it fetched from"               sh -c '
 t 0  "a bare re-pin keeps the recorded repository"              sh -c '
   ./flixw pin '"$version"' >/dev/null 2>&1
   grep -q "^repo    = \"flix/flix\"" .flixw/lock.toml'
+# A version already in the cache re-pins offline: the jar's name carries its digest and
+# <cache>/verbs/<digest>.pin says which repository and tag fetched it. FLIX_DIST_URL at a
+# host that does not resolve fails anything that reaches the network.
+t 0  "a re-pin of a cached version reaches no network"          sh -c '
+  before=$(grep "^sha256" .flixw/lock.toml)
+  FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"' >/dev/null 2>&1 || exit 1
+  [ "$(grep "^sha256" .flixw/lock.toml)" = "$before" ]'
+# --fetch is the way past the cache -- for a release whose asset was replaced under the
+# same tag -- so it has to reach the network even when the cache could have answered.
+g 84 'dist.invalid' "pin --fetch downloads although the version is cached" \
+  env FLIX_DIST_URL=https://dist.invalid ./flixw pin --fetch "$version"
+# The digest in the name is re-checked before the jar is reused: a cache entry whose bytes
+# moved is refused out loud, never pinned and never silently downloaded around.
+g 85 'pin --fetch' "a cached jar that no longer matches its name is refused" sh -c '
+  d=$1/pin-tampered; rm -rf "$d"; mkdir -p "$d/cache/compilers" "$d/cache/verbs"
+  cd "$d" || exit 1
+  java "$2/src/assets/flixw-setup.java" setup . >/dev/null 2>&1
+  cp "$3/flix.toml" flix.toml
+  sha=$(printf "%064d" 0 | tr 0 a)
+  printf "not a compiler" > "$d/cache/compilers/flix-'"$version"'-$sha.jar"
+  printf "flix/flix\n'"$version"'\n" > "$d/cache/verbs/$sha.pin"
+  FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"' 2>&1
+  rc=$?; [ -f .flixw/lock.toml ] && exit 9; exit $rc' sh "$work" "$root" "$proj"
+# Two cached builds of one tag -- a release re-uploaded, both pinned with --fetch -- and a
+# lock naming neither: guessing between them is not reuse, so pin downloads. Reaching the
+# network (84) rather than refusing a fake jar (85) is what shows no guess was made.
+t 84 "two cached candidates and no lock to choose: pin downloads" sh -c '
+  d=$1/pin-ambiguous; rm -rf "$d"; mkdir -p "$d/cache/compilers" "$d/cache/verbs"
+  cd "$d" || exit 1
+  java "$2/src/assets/flixw-setup.java" setup . >/dev/null 2>&1
+  cp "$3/flix.toml" flix.toml
+  for c in a b; do
+    sha=$(printf "%064d" 0 | tr 0 $c)
+    printf "not a compiler" > "$d/cache/compilers/flix-'"$version"'-$sha.jar"
+    printf "flix/flix\n'"$version"'\n" > "$d/cache/verbs/$sha.pin"
+  done
+  FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"'' \
+  sh "$work" "$root" "$proj"
+t 81 "pin --fetch needs a version"                              ./flixw pin --fetch
+t 87 "pin --refresh takes no --fetch"                           ./flixw pin --refresh --fetch
 
 # --- dispatch --------------------------------------------------------------
 echo "dispatch"
@@ -1191,8 +1231,8 @@ t 0 "doctor --fix leaves a lock with an unknown key alone"      sh -c '
   ./flixw doctor --fix >/dev/null 2>&1
   grep -q "^mirror" .flixw/lock.toml; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
-# A lock written before this release has no #:schema line and no offline way to get one,
-# because pin re-downloads the compiler to write the file. Two commands are that way, and
+# A lock written before this release has no #:schema line, and pin <version> is the wrong
+# way to get one: it re-resolves the compiler, and downloads it unless cached. Two commands are the right way, and
 # they are the same rewrite: doctor --fix as one repair among several, pin --refresh on its
 # own. Both are asserted, because a shared implementation is not a shared code path.
 t 0 "doctor --fix adds a missing #:schema line"                 sh -c '
@@ -1212,7 +1252,7 @@ g 0 'rewrote' "pin --refresh adds a missing #:schema line"      sh -c '
   grep -v "^#:schema\|^wrapperVersion" "$1/lock.keep" > "$1/before"
   diff "$1/before" "$1/after"; rc=$?
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
-# Offline is the point: it is what pin <version> cannot be. FLIX_DIST_URL pointed at a
+# Offline is the point, whatever the cache holds. FLIX_DIST_URL pointed at a
 # host that does not resolve would fail any command that reaches the network.
 t 0 "pin --refresh reaches no network"                          sh -c '
   cp .flixw/lock.toml "$1/lock.keep"

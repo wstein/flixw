@@ -43,7 +43,8 @@ Exercising it end to end means installing into a scratch project:
 
 ```sh
 java src/assets/flixw-setup.java setup /tmp/proj src/stage0/flixw.java   # the four project files
-cd /tmp/proj && ./flixw pin 0.75.3         # writes .flixw/lock.toml, downloads the JAR
+cd /tmp/proj && ./flixw pin 0.75.3         # writes .flixw/lock.toml; downloads the JAR unless cached
+./flixw pin --fetch 0.75.3                 # download it even when the cache has it
 ./flixw pin wstein/flix-fork 0.75.2+fork.1 # a fork build; the repository is recorded in the lock
 ./flixw pin --refresh                      # rewrite the lock in this release's shape; offline
 ./flixw info                               # java, compiler, cache, mirror, proxy, routing state
@@ -292,7 +293,7 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 <cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
-<cache>/verbs/<digest>.pin                        # the repo and exact tag last pinned as
+<cache>/verbs/<digest>.pin                        # the repo, exact tag and URL last pinned as
 ```
 
 `<cache>` = `FLIX_CACHE_HOME`, else `$LOCALAPPDATA\flixw` / `~/Library/Caches/flixw` /
@@ -776,14 +777,16 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/stage0/flixw.java` | 3901 | 2900 |
+| code lines in `src/stage0/flixw.java` | 3939 | 2900 |
 | comment density | 33% | ≥25% floor |
-| bytes | 357550 | 225000 |
+| bytes | 362609 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
 number a reader checks against is then the one nothing is holding. The code-line ceiling
-last moved so `examples local <verb> --help` answers with the usage instead of the generic
+last moved so `pin` reuses a compiler already in the cache instead of downloading it again
+-- offline, and immune to a release host's bad minute -- with `pin --fetch` to force the
+download. Before that, it moved so `examples local <verb> --help` answers with the usage instead of the generic
 "flag in either position" refusal, and `examples local <verb> --` names the missing
 `<name>` specifically rather than implicating `<verb>` too. Before that, it moved to give
 a bare `./flixw local` the same default `list` behaviour a bare `./flixw examples` already
