@@ -293,7 +293,8 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
 <cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
-<cache>/verbs/<digest>.pin                        # the repo, exact tag and URL last pinned as
+<cache>/verbs/<digest>.pin                        # the repo and exact tag last pinned as
+<cache>/verbs/<digest>.fetched                    # URLs a download produced these bytes from
 ```
 
 `<cache>` = `FLIX_CACHE_HOME`, else `$LOCALAPPDATA\flixw` / `~/Library/Caches/flixw` /
@@ -777,16 +778,18 @@ commit:
 
 | Gate | today | target |
 |---|---:|---:|
-| code lines in `src/stage0/flixw.java` | 3939 | 2900 |
+| code lines in `src/stage0/flixw.java` | 3951 | 2900 |
 | comment density | 33% | ≥25% floor |
-| bytes | 362609 | 225000 |
+| bytes | 364229 | 225000 |
 
 These are what `tests/lint.sh` enforces, and the two must be changed in the same commit:
 a ratchet the repository publishes and CI does not is worse than no ratchet, because the
 number a reader checks against is then the one nothing is holding. The code-line ceiling
 last moved so `pin` reuses a compiler already in the cache instead of downloading it again
 -- offline, and immune to a release host's bad minute -- with `pin --fetch` to force the
-download. Before that, it moved so `examples local <verb> --help` answers with the usage instead of the generic
+download; and again, before that capability shipped, for the download-provenance record
+(`verbs/<digest>.fetched`) without which a committed lock could relabel a fork's cached
+bytes as upstream's. Before that, it moved so `examples local <verb> --help` answers with the usage instead of the generic
 "flag in either position" refusal, and `examples local <verb> --` names the missing
 `<name>` specifically rather than implicating `<verb>` too. Before that, it moved to give
 a bare `./flixw local` the same default `list` behaviour a bare `./flixw examples` already

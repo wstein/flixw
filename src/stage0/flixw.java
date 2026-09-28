@@ -1120,17 +1120,20 @@ public final class flixw {
      * conventions in the wild, {@code flix-<version>.jar} and `flix.jar`, with a HEAD each; the
      * download that follows is still exactly one acquisition attempt for one artifact.
      */
+    /** A fork's two asset conventions, {@code flix-<version>.jar} and {@code flix.jar}. */
+    static List<String> forkAssets(String repo, String version) {
+        String base = "https://github.com/" + repo + "/releases/download/" + encodeTag("v" + version) + "/";
+        return List.of(base + encodeTag("flix-" + version + ".jar"), base + encodeTag("flix.jar"));
+    }
+
     static String resolveRelease(String repo, String version) {
         if (repo.equals(UPSTREAM_REPO)) {
             String u = "https://github.com/" + UPSTREAM_REPO + "/releases/download/v"
                      + canonical(version) + "/flix.jar";
             return u;
         }
-        String base = "https://github.com/" + repo + "/releases/download/"
-                    + encodeTag("v" + version) + "/";
         List<String> tried = new ArrayList<>();
-        for (String name : List.of("flix-" + version + ".jar", "flix.jar")) {
-            String u = base + encodeTag(name);
+        for (String u : forkAssets(repo, version)) {
             tried.add(u);
             if (assetExists(u)) {
                 validateUrl(u, repo + " release v" + version);
@@ -1447,6 +1450,7 @@ public final class flixw {
                     if (!Files.isRegularFile(jar))               // no identical concurrent winner
                         throw w007("cannot install " + jar + ": " + e.getMessage());
                 }
+                recordFetch(lock.sha256(), lock.url());
             } finally { try { Files.deleteIfExists(tmp); } catch (IOException ignored) {} }
         }
         tr("compiler present");
@@ -1457,8 +1461,7 @@ public final class flixw {
         // `pin` already wrote this once; every ordinary run re-affirms it, so a cache an
         // older flixw already filled -- one that predates this record entirely -- backfills
         // on its very next use, and `info -v` has an answer for every entry, not only today's.
-        writePinRecord(lock.sha256(), lock.repo() == null ? UPSTREAM_REPO : lock.repo(), lock.version(),
-                       lock.url());
+        writePinRecord(lock.sha256(), lock.repo() == null ? UPSTREAM_REPO : lock.repo(), lock.version());
         markUsed("compiler/" + lock.sha256());
         return jar;
     }
@@ -2313,9 +2316,9 @@ public final class flixw {
      *  chooses to say about itself. A fork routinely builds without embedding its own build
      *  metadata -- {@code stable.names.2} never appears in {@code --help} -- so this is the
      *  only place that information survives once the project moves on to the next pin.
-     *  {@code url} is what a lock needs to reuse this jar without asking the network which
-     *  asset a fork's release carries; null in a record an older flixw wrote. */
-    record PinRecord(String repo, String version, String url) {}
+     *  Informational only -- every run rewrites it from whatever the lock claims, so it must
+     *  never decide what a jar may be reused as; {@link #fetchedFrom} does that. */
+    record PinRecord(String repo, String version) {}
 
     /** Beside the version record and keyed the same way, so a re-pin gets a fresh one. */
     static Path pinRecordFile(String identity) {
@@ -2331,10 +2334,39 @@ public final class flixw {
     static PinRecord cachedPinRecord(String identity) {
         try {
             List<String> lines = Files.readAllLines(pinRecordFile(identity), StandardCharsets.UTF_8);
-            if (lines.size() < 2) return null;
-            String url = lines.size() > 2 && lines.get(2).startsWith("https://") ? lines.get(2) : null;
-            return new PinRecord(lines.get(0), lines.get(1), url);
+            return lines.size() < 2 ? null : new PinRecord(lines.get(0), lines.get(1));
         } catch (IOException e) { return null; }
+    }
+
+    /**
+     * Every URL these exact bytes were actually downloaded from and verified against, one
+     * per line -- what {@code pin} may reuse a cached jar as, and nothing else.
+     *
+     * <p>Not the {@code .pin} record: every ordinary run rewrites that from whatever the lock
+     * claims, and a lock is committed text. A fork's build shares upstream's cache name when
+     * their canonical versions agree, so a lock naming those bytes but claiming
+     * {@code flix/flix} relabelled them on its next run, and the next offline pin of that
+     * version anywhere on the machine reused fork bytes as stock Flix. A line here is only
+     * ever added by a download that just produced these bytes from that URL, so a lock can
+     * claim what it likes and add nothing; two releases with identical bytes each keep
+     * their own line.
+     */
+    static List<String> fetchedFrom(String digest) {
+        try { return Files.readAllLines(cacheHome().resolve("verbs").resolve(digest + ".fetched"),
+                                        StandardCharsets.UTF_8); }
+        catch (IOException e) { return List.of(); }
+    }
+
+    /** Adds {@code url} to {@link #fetchedFrom}; best-effort, like every cache write. An
+     *  append rather than a rewrite: one short line under O_APPEND cannot interleave. */
+    static void recordFetch(String digest, String url) {
+        Path f = cacheHome().resolve("verbs").resolve(digest + ".fetched");
+        if (fetchedFrom(digest).contains(url)) return;
+        try {
+            Files.createDirectories(f.getParent());
+            Files.writeString(f, url + "\n", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE,
+                              java.nio.file.StandardOpenOption.APPEND);
+        } catch (IOException e) { tr("cannot record where " + digest + " was fetched from: " + why(e)); }
     }
 
     /** Written by {@code pin} itself, the moment it settles on a digest -- not deferred to
@@ -2344,12 +2376,12 @@ public final class flixw {
      *  acquire} re-affirms the same record on every later run regardless, so a cache
      *  populated by an older flixw that predates this file entirely still backfills on its
      *  very next use rather than staying silent forever. */
-    static void writePinRecord(String identity, String repo, String version, String url) {
+    static void writePinRecord(String identity, String repo, String version) {
         Path f = pinRecordFile(identity);
         try {
             Files.createDirectories(f.getParent());
             Path tmp = Files.createTempFile(f.getParent(), ".pin-", ".part");
-            Files.writeString(tmp, repo + "\n" + version + "\n" + url + "\n", StandardCharsets.UTF_8);
+            Files.writeString(tmp, repo + "\n" + version + "\n", StandardCharsets.UTF_8);
             Files.move(tmp, f, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             tr("cannot cache the pin record at " + f + ": " + e.getMessage());
@@ -4524,35 +4556,32 @@ public final class flixw {
      * <p>Re-pinning used to download unconditionally, because {@code flix.jar} has no
      * published checksum and the download was the only source of the digest. The cache
      * already holds both halves of that answer: the jar's name carries its digest, and
-     * {@code verbs/<digest>.pin} says which repository and tag fetched it. So a second
-     * project, or the same one re-pinned, needs no network -- and a GitHub hiccup can no
-     * longer fail a pin whose bytes are already on disk. {@code pin} still re-hashes the
-     * jar before trusting its name.
+     * {@link #fetchedFrom} lists the URLs a download actually produced those bytes from. So
+     * a second project, or the same one re-pinned, needs no network -- and a GitHub hiccup
+     * can no longer fail a pin whose bytes are already on disk. {@code pin} still re-hashes
+     * the jar before trusting its name.
      *
-     * <p>Upstream is matched on the canonical version, because its URL is built from that
-     * alone and two metadata spellings name one asset; a fork is matched on the exact tag,
-     * which is part of its URL. When several builds of one tag are cached -- an asset
+     * <p>A jar qualifies only if the URL this pin would fetch is among them: upstream's
+     * one constructed URL, or either of a fork's two asset names under the exact tag. When
+     * several builds of one tag are cached -- an asset
      * replaced under the same tag, both pinned with {@code --fetch} -- the one the lock
      * already names wins, and without that there is nothing to choose by: null, download.
      */
     static Cached cachedFor(String repo, String version, Lock had) {
         Path dir = cacheHome().resolve("compilers");
         String prefix = "flix-" + canonical(version) + "-";
-        boolean upstream = repo.equals(UPSTREAM_REPO);
+        List<String> want = repo.equals(UPSTREAM_REPO) ? List.of(resolveRelease(repo, version))
+                                                       : forkAssets(repo, version);
         List<Cached> found = new ArrayList<>();
         try (var s = Files.list(dir)) {
             for (Path jar : s.toList()) {
                 String n = jar.getFileName().toString();
                 if (!n.startsWith(prefix) || !n.endsWith(".jar")) continue;
                 String digest = n.substring(prefix.length(), n.length() - ".jar".length());
-                PinRecord r = digest.matches("[0-9a-f]{64}") ? cachedPinRecord(digest) : null;
-                if (r == null || !r.repo().equals(repo)) continue;
-                if (upstream ? !canonical(r.version()).equals(canonical(version))
-                             : !r.version().equals(version)) continue;
-                // A record an older flixw wrote has no URL. Upstream's is built without the
-                // network; a fork's asset name is exactly what only the network can say.
-                String url = upstream ? resolveRelease(repo, version) : r.url();
-                if (url != null) found.add(new Cached(jar, digest, url));
+                if (!digest.matches("[0-9a-f]{64}")) continue;
+                List<String> from = fetchedFrom(digest);
+                for (String url : want)
+                    if (from.contains(url)) { found.add(new Cached(jar, digest, url)); break; }
             }
         } catch (IOException | RuntimeException e) { return null; }   // an optimisation: download
         for (Cached c : found) if (had != null && c.digest().equals(had.sha256())) return c;
@@ -4697,7 +4726,8 @@ public final class flixw {
             // immediately pins again -- trying one fork build after another, say -- never
             // runs any other command against the one in between, so `acquire()` would never
             // see it and its tag would be lost the same way an untracked build's always is.
-            writePinRecord(digest, repo, version, url);
+            writePinRecord(digest, repo, version);
+            if (reuse == null) recordFetch(digest, url);
 
             // Only the lock is written. flix.toml belongs to the project and to Flix --
             // its `flix` key is Flix's own field, with Flix's rules -- so pin has no

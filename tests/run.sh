@@ -509,7 +509,8 @@ g 85 'pin --fetch' "a cached jar that no longer matches its name is refused" sh 
   cp "$3/flix.toml" flix.toml
   sha=$(printf "%064d" 0 | tr 0 a)
   printf "not a compiler" > "$d/cache/compilers/flix-'"$version"'-$sha.jar"
-  printf "flix/flix\n'"$version"'\n" > "$d/cache/verbs/$sha.pin"
+  printf "https://github.com/flix/flix/releases/download/v'"$version"'/flix.jar\n" \
+    > "$d/cache/verbs/$sha.fetched"
   FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"' 2>&1
   rc=$?; [ -f .flixw/lock.toml ] && exit 9; exit $rc' sh "$work" "$root" "$proj"
 # Two cached builds of one tag -- a release re-uploaded, both pinned with --fetch -- and a
@@ -523,10 +524,55 @@ t 84 "two cached candidates and no lock to choose: pin downloads" sh -c '
   for c in a b; do
     sha=$(printf "%064d" 0 | tr 0 $c)
     printf "not a compiler" > "$d/cache/compilers/flix-'"$version"'-$sha.jar"
-    printf "flix/flix\n'"$version"'\n" > "$d/cache/verbs/$sha.pin"
+    printf "https://github.com/flix/flix/releases/download/v'"$version"'/flix.jar\n" \
+      > "$d/cache/verbs/$sha.fetched"
   done
   FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"'' \
   sh "$work" "$root" "$proj"
+# Provenance is what was downloaded, never what a lock claims. The attack this closes: a
+# fork's build shares upstream's cache name (its canonical version is the same), a lock
+# committed anywhere names those bytes but claims repo flix/flix, and its next ordinary run
+# -- which re-hashes the bytes, and they match -- used to relabel them as upstream, so the
+# next offline pin of that version anywhere on the machine reused fork bytes as stock Flix.
+# The final pin has to reach the network (84): nothing ever fetched these bytes from the
+# upstream URL, whatever the lock or the .pin record now say.
+t 84 "a lock cannot launder a fork's cached bytes into an upstream re-pin" sh -c '
+  d=$1/pin-launder; rm -rf "$d"; mkdir -p "$d/cache/compilers" "$d/cache/verbs"
+  cd "$d" || exit 1
+  java "$2/src/assets/flixw-setup.java" setup . >/dev/null 2>&1
+  cp "$3/flix.toml" flix.toml
+  printf "fork bytes" > "$d/fork.jar"
+  sha=$( (sha256sum "$d/fork.jar" 2>/dev/null || shasum -a 256 "$d/fork.jar") | cut -d" " -f1)
+  cp "$d/fork.jar" "$d/cache/compilers/flix-'"$version"'-$sha.jar"
+  printf "someone/fork\n'"$version"'+x\n" > "$d/cache/verbs/$sha.pin"
+  printf "https://github.com/someone/fork/releases/download/v'"$version"'%%2Bx/flix.jar\n" \
+    > "$d/cache/verbs/$sha.fetched"
+  sed -e "s/^sha256 .*/sha256  = \"$sha\"/" -e "/^reported_version/d" \
+    "$3/.flixw/lock.toml" > .flixw/lock.toml
+  FLIX_CACHE_HOME="$d/cache" ./flixw -- --version >/dev/null 2>&1
+  rm -f .flixw/lock.toml
+  FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"'' \
+  sh "$work" "$root" "$proj"
+# The other half: two releases whose bytes are identical -- upstream and a fork that
+# republished them under its own tag -- each keep their own line, so both re-pin offline
+# and neither overwrites the other's provenance.
+t 0  "identical bytes from two releases re-pin offline as either" sh -c '
+  d=$1/pin-twins; rm -rf "$d"; mkdir -p "$d/cache/compilers" "$d/cache/verbs"
+  cd "$d" || exit 1
+  java "$2/src/assets/flixw-setup.java" setup . >/dev/null 2>&1
+  cp "$3/flix.toml" flix.toml
+  printf "shared bytes" > "$d/twin.jar"
+  sha=$( (sha256sum "$d/twin.jar" 2>/dev/null || shasum -a 256 "$d/twin.jar") | cut -d" " -f1)
+  cp "$d/twin.jar" "$d/cache/compilers/flix-'"$version"'-$sha.jar"
+  { printf "https://github.com/flix/flix/releases/download/v'"$version"'/flix.jar\n"
+    printf "https://github.com/someone/fork/releases/download/v'"$version"'%%2Bx/flix.jar\n"
+  } > "$d/cache/verbs/$sha.fetched"
+  export FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid
+  ./flixw pin someone/fork '"$version"'+x >/dev/null 2>&1 || exit 1
+  grep -q "^repo    = \"someone/fork\"" .flixw/lock.toml || exit 2
+  ./flixw pin flix/flix '"$version"' >/dev/null 2>&1 || exit 3
+  grep -q "^repo    = \"flix/flix\"" .flixw/lock.toml || exit 4
+  grep -q "^sha256  = \"$sha\"" .flixw/lock.toml' sh "$work" "$root" "$proj"
 t 81 "pin --fetch needs a version"                              ./flixw pin --fetch
 t 87 "pin --refresh takes no --fetch"                           ./flixw pin --refresh --fetch
 

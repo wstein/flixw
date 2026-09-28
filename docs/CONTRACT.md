@@ -139,13 +139,22 @@ nothing — the cache is an optimisation and the next run refills it.
 **A version already in the cache is pinned without the network.** `flix.jar` has no
 published checksum, so the first download is what the digest comes from — but after it, the
 cache holds both halves of the answer: the jar's name carries its digest, and
-`<cache>/verbs/<digest>.pin` records the repository, the exact tag and the URL that fetched
-it. `pin` reuses such a jar after re-hashing it, so re-pinning a project, or pinning a
-second project to a version this machine already has, reaches no network and cannot be
-failed by a release host's bad minute. Upstream matches on the canonical version, since its
-URL is built from that alone; a fork matches on the exact tag. When several cached builds
-of one tag match, the one the lock already names wins, and with no such lock `pin`
+`<cache>/verbs/<digest>.fetched` lists every URL a download actually produced those bytes
+from. `pin` reuses such a jar, after re-hashing it, only when the URL it would fetch is on
+that list — upstream's one constructed URL, or a fork's asset under the exact tag — so
+re-pinning a project, or pinning a second project to a version this machine already has,
+reaches no network and cannot be failed by a release host's bad minute. When several
+cached builds qualify, the one the lock already names wins, and with no such lock `pin`
 downloads rather than guess.
+
+**Provenance is what was downloaded, never what a lock claims.** Only a download adds a
+line to `.fetched`; an ordinary run that merely re-hashes cached bytes adds nothing, however
+its lock describes them. That matters because a fork's build shares upstream's cache name
+whenever their canonical versions agree: a committed lock naming those bytes while claiming
+`flix/flix` must not be able to turn them into what the next offline `pin 0.77.0` on the
+machine reuses as stock Flix. The `.pin` record beside it is rewritten from the lock on
+every run and is informational only — `info -v` shows it, nothing trusts it. A cache filled
+before `.fetched` existed has no provenance, so its first re-pin downloads once.
 
 ```console
 ./flixw pin --fetch 0.75.2    # download it even though the cache has it
@@ -1308,7 +1317,8 @@ between shim and stage 0, not an implementation detail:
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
 <cache>/verbs/<identity>.compl        # only if the compiler ships its own completer
-<cache>/verbs/<sha256>.pin            # repository, exact tag and URL that fetched this jar
+<cache>/verbs/<sha256>.pin            # repository and tag last pinned as (informational)
+<cache>/verbs/<sha256>.fetched        # every URL a download produced these bytes from
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer
 <cache>/jdks/default                 # one line: the java the last install produced
 <cache>/plugins/<name>/<version>-<sha256>/plugin.{jar,java,flix}

@@ -398,7 +398,7 @@ final class flixwinspect {
             long before = p.bytes;
             p.remove(c, jar, "compiler", "compiler/" + sha);
             if (p.bytes != before)
-                for (String suffix : List.of(".verbs", ".version", ".pin", ".compl", ".help", ".helpmeta"))
+                for (String suffix : List.of(".verbs", ".version", ".pin", ".fetched", ".compl", ".help", ".helpmeta"))
                     try { Files.deleteIfExists(cache(c, "verbs", sha + suffix)); } catch (IOException ignored) { }
         }
     }
