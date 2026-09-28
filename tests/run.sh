@@ -553,6 +553,20 @@ t 84 "a lock cannot launder a fork's cached bytes into an upstream re-pin" sh -c
   rm -f .flixw/lock.toml
   FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"'' \
   sh "$work" "$root" "$proj"
+# A cache filled before .fetched existed has only the .pin record -- the very file any run
+# rewrote from its lock -- so that record alone cannot authorize reuse, however exactly it
+# names the repository and tag. The pin reaches the network (84) rather than reusing.
+t 84 "a legacy .pin record alone does not authorize an offline re-pin" sh -c '
+  d=$1/pin-legacy; rm -rf "$d"; mkdir -p "$d/cache/compilers" "$d/cache/verbs"
+  cd "$d" || exit 1
+  java "$2/src/assets/flixw-setup.java" setup . >/dev/null 2>&1
+  cp "$3/flix.toml" flix.toml
+  printf "old bytes" > "$d/old.jar"
+  sha=$( (sha256sum "$d/old.jar" 2>/dev/null || shasum -a 256 "$d/old.jar") | cut -d" " -f1)
+  cp "$d/old.jar" "$d/cache/compilers/flix-'"$version"'-$sha.jar"
+  printf "flix/flix\n'"$version"'\n" > "$d/cache/verbs/$sha.pin"
+  FLIX_CACHE_HOME="$d/cache" FLIX_DIST_URL=https://dist.invalid ./flixw pin '"$version"'' \
+  sh "$work" "$root" "$proj"
 # The other half: two releases whose bytes are identical -- upstream and a fork that
 # republished them under its own tag -- each keep their own line, so both re-pin offline
 # and neither overwrites the other's provenance.
