@@ -1169,6 +1169,13 @@ t 0  "--editor-jar=copy re-enables it without a version"       sh -c '
   cd "$1" && ./flixw pin --editor-jar=copy >/dev/null 2>&1 && [ -e flix.jar ]' sh "$ej"
 g 0  "matches the pinned compiler" "doctor confirms the managed copy is current" sh -c '
   cd "$1" && ./flixw doctor' sh "$ej"
+# Matching bytes are not ownership. A copy placed by hand, with no record that this
+# project wrote it, is one a later pin refuses to touch -- so calling it "managed" promised
+# an update that would never come.
+g 0  "unmanaged copy) matches" "doctor does not call a hand-placed matching copy managed" sh -c '
+  cd "$1" && jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") &&
+  rm -f flix.jar .flixw/local/editor-jar.toml && cp "$jar" flix.jar &&
+  ./flixw doctor' sh "$ej"
 g 87 "editor-jar" "--editor-jar rejects a value that is not copy or off" sh -c '
   cd "$1" && ./flixw pin --editor-jar=maybe' sh "$ej"
 

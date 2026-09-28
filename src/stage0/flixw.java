@@ -4166,7 +4166,7 @@ public final class flixw {
                 else {
                     boolean managed = ownsEditorJar(editorJar, pref,
                                                       localCompiler == null ? null : localCompiler.path());
-                    String kind = Files.isSymbolicLink(editorJar) ? "link" : "managed copy";
+                    String kind = Files.isSymbolicLink(editorJar) ? "link" : managed ? "managed copy" : "unmanaged copy";
                     if (sha256(editorJar).equals(sha256(activeJar)))
                         System.out.println("ok    ./flix.jar (" + kind + ") matches the "
                             + (localCompiler == null ? "pinned" : "active local") + " compiler");
