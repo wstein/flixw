@@ -1,8 +1,12 @@
-# The CLI surface of flix/flix@master:main/src/ca/uwaterloo/flix/Main.scala, as flixw last saw it.
+# The CLI surface of flix/flix@master, as flixw last saw it:
+#   main/src/ca/uwaterloo/flix/Main.scala
+#   main/src/ca/uwaterloo/flix/util/Options.scala
 # Regenerate with: sh tests/upstream-cli.sh --update
 # Prose is excluded on purpose -- see the header of that script.
 arg File <file>...
 arg Int port
+arg String <package>...
+arg String package
 cmd - Xmemory
 cmd - Xperf
 cmd - Xzhegalkin
@@ -18,20 +22,32 @@ cmd - eff-check
 cmd - eff-lock
 cmd - format
 cmd - init
+cmd - install
 cmd - lsp
 cmd - lsp-vscode
 cmd - outdated
 cmd - release
+cmd - remove
 cmd - repl
 cmd - run
 cmd - stat
 cmd - test
+cmd - upgrade
+enum Build Development
+enum Build Production
+enum LibLevel All
+enum LibLevel Min
+enum LibLevel Nix
+enum Subeffecting InsDefs
+enum Subeffecting Lambdas
+enum Subeffecting ModDefs
 opt Int listen
 opt Int n
 opt Int threads
 opt LibLevel Xlib
 opt String entrypoint
 opt String github-token
+opt Subeffecting Xsubeffecting
 opt Unit Xbenchmark-code-size
 opt Unit Xbenchmark-frontend
 opt Unit Xbenchmark-incremental
@@ -43,8 +59,10 @@ opt Unit Xprint-phases
 opt Unit Xverify
 opt Unit frontend
 opt Unit json
+opt Unit library
 opt Unit no-install
 opt Unit par
+opt Unit pause-on-exit
 opt Unit top
 opt Unit version
 opt Unit yes
