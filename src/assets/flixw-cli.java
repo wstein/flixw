@@ -660,7 +660,7 @@ final class flixwcli {
         s.addPositional(PositionalParamSpec.builder()
             .paramLabel("[<version>]")
             .arity("0..1")
-            .description("compiler version, e.g. 0.76.1 or owner/repo@version").build());
+            .description("compiler version, e.g. 0.77.0 or owner/repo@version").build());
         s.addOption(OptionSpec.builder("--java")
             .paramLabel("<version>")
             .description("minimum Java version required for this project").build());

@@ -20,7 +20,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 # shellcheck source=tests/deps.sh
 . "$root/tests/deps.sh"
 work=$root/tests/.work/run
-version=${FLIXW_TEST_VERSION:-0.76.1}
+version=${FLIXW_TEST_VERSION:-0.77.0}
 # This checkout's own wrapper version, read rather than written down. The upgrade
 # cases below assert what a project is on before and after, and spelling it as a
 # literal meant every release bump broke the suite in the commit that cut it --
@@ -2931,9 +2931,12 @@ t 0  "build-jar writes the example's own artifact/" sh -c '
 t 0  "build-fatjar writes the example's own artifact/" sh -c '
   cd "$1" && ./flixw examples build-fatjar cli-tool &&
   [ -f examples/cli-tool/artifact/cli-tool.jar ]' sh "$ep"
+# Exactly one .fpkg, not a name: Flix up to 0.76.1 names it after the directory
+# (cli-tool.fpkg), 0.76.2 onward writes package.fpkg -- and flixw-local.java reads it the
+# same way, so this asserts what flixw actually depends on.
 t 0  "build-pkg writes the example's own .fpkg" sh -c '
   cd "$1" && ./flixw examples build-pkg cli-tool &&
-  [ -f examples/cli-tool/artifact/cli-tool.fpkg ]' sh "$ep"
+  [ "$(ls examples/cli-tool/artifact/*.fpkg 2>/dev/null | wc -l | tr -d " ")" = 1 ]' sh "$ep"
 t 0  "clean removes the example's own build/, not the root project's" sh -c '
   cd "$1" && ./flixw examples build cli-tool &&
   ./flixw examples clean cli-tool &&
