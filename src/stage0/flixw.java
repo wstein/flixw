@@ -4642,11 +4642,10 @@ public final class flixw {
                     ? "flixw: unpinned java; the newest tested JDK will be used"
                     : "flixw: pinned java " + javaPin);
             if (what.editorJar() != null) {
-                // Already-cached: acquire() here is a local digest re-check, not a fetch --
-                // the same compiler this project already ran is presumably already present.
+                // A selected local compiler is what the terminal runs: the editor gets it.
                 try {
-                    Path jar = acquire(had);
-                    maintainEditorJar(root, jar, what.editorJar());
+                    LocalCompiler local = readLocalCompiler(root);
+                    maintainEditorJar(root, local != null ? local.path() : acquire(had), what.editorJar());
                 } catch (Fail e) {
                     System.err.println("flixw: note: could not reach the pinned compiler to"
                                      + " update ./flix.jar: " + e.getMessage());

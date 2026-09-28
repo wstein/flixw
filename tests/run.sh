@@ -1599,6 +1599,17 @@ t 0 "--stock clears a local compiler selection and restores the locked editor ja
   test ! -e .flixw/local/compiler.toml || exit 1
   jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") || exit 1
   cmp -s "$jar" flix.jar' sh
+# The terminal runs the local compiler, so the editor must get those bytes too -- an
+# explicit --editor-jar=copy used to copy the *locked* jar regardless, leaving VS Code on
+# different bytes from ./flixw run. The local jar differs by one entry so cmp can tell.
+t 0 "--editor-jar=copy follows an active local compiler"       sh -c '
+  jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") || exit 1
+  cp "$jar" "$1/local-distinct.jar" && printf x > "$1/marker.txt" || exit 1
+  (cd "$1" && jar uf local-distinct.jar marker.txt) || exit 1
+  ./flixw pin --local "$1/local-distinct.jar" >/dev/null 2>&1 || exit 1
+  rm -f flix.jar
+  ./flixw pin --editor-jar=copy >/dev/null 2>&1; cmp -s "$1/local-distinct.jar" flix.jar; rc=$?
+  ./flixw pin --stock >/dev/null 2>&1; exit $rc' sh "$work"
 
 # --- the version the compiler reports -------------------------------------
 # The digest settles which bytes run; nothing settled that those bytes are the release the
