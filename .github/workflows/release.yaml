@@ -121,10 +121,12 @@ jobs:
           # that is what lets `verify` gate promotion below rather than gating publish
           # itself. A re-dispatch on an already-promoted tag deliberately puts it back into
           # this state too: re-running the workflow is a request to re-earn "latest", not a
-          # way to reupload assets under a trust level nothing here re-checked.
+          # way to reupload assets under a trust level nothing here re-checked. So it is
+          # demoted *before* the upload: the other order served the replacement assets
+          # under `latest` for as long as the upload took, and for good if the edit failed.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
             gh release edit "$TAG" --notes-file "$notes" --prerelease --latest=false
+            gh release upload "$TAG" dist/* --clobber
           else
             gh release create "$TAG" dist/* --title "flixw $version" --notes-file "$notes" \
               --prerelease
