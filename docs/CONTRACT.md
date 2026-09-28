@@ -713,11 +713,13 @@ options they show, for stock Flix's own scopt-based CLI specifically. Every opti
 grammatically global in that parser — there is no `.children(...)` scoping an option to
 `run` rather than `check`, and the compiler's own `--help` draws no distinction between them
 either — so this is not extracted from anything Flix documents. It is sourced directly from
-flix/flix's `Main.scala` and `Bootstrap.scala` (re-traced against 0.75.3, 0.76.0 and
-0.76.1): which options feed the compile-options bag every command except `init` and `clean`
-constructs. In 0.76.1 `build-pkg` began checking a configured compiler before packaging,
-so it gained that option set; which commands resolve dependencies via `Bootstrap.bootstrap`
-(every command except `init`), which answer a confirmation prompt only `release` asks
+flix/flix's `Main.scala` and `Bootstrap.scala` (re-traced against 0.75.3, 0.76.0, 0.76.1
+and 0.77.0): which options feed the compile-options bag every command except `init` and
+`clean` constructs. In 0.76.1 `build-pkg` began checking a configured compiler before
+packaging, so it gained that option set; which commands resolve dependencies via
+`Bootstrap.bootstrap` (every command except `init` — and, from 0.77.0, `clean`, which now
+deletes its directories without resolving anything, so `--github-token` and `--no-install`
+left its screen), which answer a confirmation prompt only `release` asks
 (`--yes`), and which are
 read only with no command at all (`--listen`, every `--Xbenchmark-*` flag) and so never
 belong on any named verb's screen.
