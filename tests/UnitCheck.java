@@ -643,6 +643,12 @@ public final class UnitCheck {
         // Bootstrap.clean(cwd) no longer resolves dependencies, so neither option reaches it.
         eq("specs: 0.77.0 clean takes no dependency options", "true",
            String.valueOf(sub077.get("clean").getCommandSpec().findOption("--github-token") == null));
+        // BUILTIN_VERBS is what completion offers when no compiler's help could be read, so it
+        // must name every command of the newest curated release -- the spec is the one place
+        // that already had to be updated by hand when upstream moved.
+        var missing = new java.util.TreeSet<>(sub077.keySet());
+        missing.removeAll(flixw.BUILTIN_VERBS);
+        eq("specs: BUILTIN_VERBS names every 0.77.0 command", "[]", missing.toString());
 
         eq("ansi: NO_COLOR suppresses color", "OFF", flixwcli.ansi("1").name());
         eq("ansi: empty NO_COLOR suppresses color", "OFF", flixwcli.ansi("").name());
