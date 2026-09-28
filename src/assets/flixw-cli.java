@@ -723,9 +723,10 @@ final class flixwcli {
         CommandSpec s = base("./flixw examples",
             "Runs an examples/<name>/ package with this project's pinned compiler.");
         sub(s, "list", "lists discoverable examples.");
+        // The same list flixw-examples.java's VERBS relays; UnitCheck holds the two together.
         for (String verb : List.of("run", "check", "build", "build-classes", "build-jar", "build-fatjar",
-                                   "build-pkg", "clean", "doc", "format", "outdated", "eff-check", "eff-lock",
-                                   "test")) {
+                                   "build-pkg", "clean", "doc", "format", "outdated", "stat", "install",
+                                   "remove", "upgrade", "eff-check", "eff-lock", "test")) {
             CommandSpec child = sub(s, verb, "runs Flix " + verb + " in an example package.");
             child.addPositional(PositionalParamSpec.builder().paramLabel("<name>")
                 .description("the example directory name").build());

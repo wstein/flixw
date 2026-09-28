@@ -2945,6 +2945,10 @@ t 0  "format reaches the example, not the root project"   sh -c '
   cd "$1" && ./flixw examples format cli-tool' sh "$ep"
 g 0  'up to date' "outdated checks the example's own dependencies" sh -c '
   cd "$1" && ./flixw examples outdated cli-tool' sh "$ep"
+# Missing from the relay since 0.76.0, and invisible because nothing compared its list with
+# the compiler's -- the one verb of the batch that needs no network to prove it arrives.
+t 0  "stat reaches the example"                                  sh -c '
+  cd "$1" && ./flixw examples stat cli-tool' sh "$ep"
 t 0  "eff-lock writes the example's own effects.lock" sh -c '
   cd "$1" && ./flixw examples eff-lock cli-tool &&
   [ -f examples/cli-tool/effects.lock ]' sh "$ep"

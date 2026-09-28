@@ -49,6 +49,12 @@ final class flixwexamples {
      *  name failing this just does not appear in `examples list`; degrade, don't brick. */
     static final Pattern NAME = Pattern.compile("[a-z][a-z0-9-]*");
 
+    /** The compiler verbs {@code examples} relays; see {@link #body} for what is left out. */
+    static final List<String> VERBS = List.of(
+        "run", "check", "build", "build-classes", "build-jar", "build-fatjar", "build-pkg",
+        "clean", "doc", "format", "outdated", "stat", "install", "remove", "upgrade",
+        "eff-check", "eff-lock", "test");
+
     public static void main(String[] args) throws Exception {
         System.exit(run(args));
     }
@@ -109,22 +115,24 @@ final class flixwexamples {
             // run-the-example-as-a-test-of-the-root-package sense -- there is no such sense
             // here, since examples is its own namespace rather than a flag on `run`.
             //
-            // Every local, side-effect-free build verb is listed explicitly rather than
-            // accepted as any word dispatch() has not seen -- an unbounded pass-through
-            // would forward a typo to the compiler as readily as a real verb, one layer
-            // later than the "unknown command" this asset can already give directly.
-            // init is excluded on purpose: it creates a *new* project, and every verb here
+            // Every verb is listed explicitly (VERBS) rather than accepted as any word
+            // dispatch() has not seen -- an unbounded pass-through would forward a typo to
+            // the compiler as readily as a real verb, one layer later than the "unknown
+            // command" this asset can already give directly. The package commands belong:
+            // install/remove/upgrade rewrite the example's own flix.toml and packages.lock,
+            // local files exactly as format rewrites its sources, and reach no further than
+            // outdated already does. init is excluded on purpose: it creates a *new* project, and every verb here
             // is reached through discover()/known.contains(name), which already requires
             // the example to exist. release is excluded too: it pushes to GitHub using
             // the example's own manifest, an external, stateful action no other verb here
             // takes, and not something a generic relay should trigger by name alone. repl,
             // lsp and lsp-vscode are long-running/interactive rather than a batch command
             // with an exit code, which is the shape every other verb here shares.
-            case "run", "check", "build", "build-classes", "build-jar", "build-fatjar",
-                 "build-pkg", "clean", "doc", "format", "outdated", "eff-check", "eff-lock",
-                 "test" ->
-                dispatch(root, javaExe, compilerJar, jvmOpts, helpText, upstream, verb, rest);
             default -> {
+                if (VERBS.contains(verb)) {
+                    dispatch(root, javaExe, compilerJar, jvmOpts, helpText, upstream, verb, rest);
+                    return;
+                }
                 System.err.println("flixw examples: unknown command " + q(verb));
                 System.err.println("       run: ./flixw help examples");
                 throw new Exit(89);

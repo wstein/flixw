@@ -816,14 +816,18 @@ companion-asset convention `help` already uses for "no help topic" and "no plugi
 `FLIXWnnn` code: an asset's own diagnostics are not stage 0's numbered registry.
 
 **Dispatch is verb-agnostic.** `run`, `check`, `build`, `build-classes`, `build-jar`,
-`build-fatjar`, `build-pkg`, `clean`, `doc`, `format`, `outdated`, `eff-check`, `eff-lock`
-and `test` all reach the same code path — change the compiler's working directory, forward
+`build-fatjar`, `build-pkg`, `clean`, `doc`, `format`, `outdated`, `stat`, `install`,
+`remove`, `upgrade`, `eff-check`, `eff-lock` and `test` all reach the same code path — change the compiler's working directory, forward
 what follows `<name>` — so `build` needs no opinion from this wrapper about where its
 artifact goes (`examples/<name>/build/`, Flix's own convention, exactly as it would be for
 the root project) and `test` means what it says for a package with its own `@Test`
 definitions, not Cargo's sense of running an
 example as a test of the root package: there is no such sense here, since `examples` is its
-own command rather than a flag riding `run`.
+own command rather than a flag riding `run`. The package commands (`install`, `remove`,
+`upgrade`, Flix 0.76.2 and later) rewrite the example's own `flix.toml` and
+`packages.lock` — local files, exactly as `format` rewrites the example's sources — and
+reach no further than `outdated` already does; `./flixw examples install cli-tool
+flix/museum-clerk` adds a dependency to that example alone.
 
 Three kinds of compiler verb are deliberately not in that list. `init` creates a *new*
 project, and every verb here is reached through `discover()`/`known.contains(name)`, which

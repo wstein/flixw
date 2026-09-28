@@ -674,6 +674,15 @@ public final class UnitCheck {
         eq("examplesSpec: run has <name> positional", "<name>",
            exSpec.subcommands().get("run").getCommandSpec().positionalParameters().get(0).paramLabel());
         eq("examplesSpec: has local", "true", String.valueOf(exSpec.subcommands().containsKey("local")));
+        // The verbs flixw-examples.java relays and the ones help lists are two copies in two
+        // files; this is what keeps them one list. stat (0.76.0) and the package commands
+        // (0.76.2) were missing from both for as long as neither was checked against the other.
+        var helpVerbs = new java.util.TreeSet<>(exSpec.subcommands().keySet());
+        helpVerbs.removeAll(List.of("list", "local"));
+        eq("examples: help lists exactly the verbs the asset relays",
+           new java.util.TreeSet<>(flixwexamples.VERBS).toString(), helpVerbs.toString());
+        eq("examples: relays stat and the package commands", "true",
+           String.valueOf(flixwexamples.VERBS.containsAll(List.of("stat", "install", "remove", "upgrade"))));
 
         var locSpec = flixwcli.localSpec(null);
         eq("localSpec: has add", "true", String.valueOf(locSpec.subcommands().containsKey("add")));
