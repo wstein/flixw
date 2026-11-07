@@ -946,6 +946,13 @@ public final class UnitCheck {
         Files.writeString(flixw.localCompilerFile(broken), "not toml\n");
         eq("local compiler: an unreadable selection is an override, not an error", "true",
            String.valueOf(flixw.overridden(broken)));
+        // A different error code (FLIXW002, from the TOML value scanner) takes the same path.
+        Path unquoted = Files.createTempDirectory("flixw-local-compiler-unquoted-");
+        Files.createDirectories(flixw.localCompilerFile(unquoted).getParent());
+        Files.writeString(flixw.localCompilerFile(unquoted),
+                          "path = /abs/x.jar\nselected_sha256 = \"" + "0".repeat(64) + "\"\n");
+        eq("local compiler: an unquoted path value is an override, not an error", "true",
+           String.valueOf(flixw.overridden(unquoted)));
         flixw.LocalCompiler selected = flixw.readLocalCompiler(root);
         if (selected != null && selected.path().equals(jar.toRealPath())
             && selected.selectedSha256().equals(digest)) ok();
