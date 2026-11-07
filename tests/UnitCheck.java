@@ -653,6 +653,17 @@ public final class UnitCheck {
         // Bootstrap.clean(cwd) no longer resolves dependencies, so neither option reaches it.
         eq("specs: 0.77.0 clean takes no dependency options", "true",
            String.valueOf(sub077.get("clean").getCommandSpec().findOption("--github-token") == null));
+        // 0.78.0 changed no command; 0.79.0 reworded the effect commands' package argument.
+        // Both stay optional, and 0.78.0 shares 0.77.0's spec rather than a copy of it.
+        var spec078 = flixwcli.loadSpec("0.78.0");
+        eq("specs: 0.78.0 is served", "true", String.valueOf(spec078.isPresent()));
+        var spec079 = flixwcli.loadSpec("0.79.0");
+        eq("specs: 0.79.0 is curated", "true", String.valueOf(spec079.isPresent()));
+        var sub079 = spec079.get().subcommands();
+        eq("specs: 0.79.0 keeps the 0.77.0 command set", sub077.keySet().toString(),
+           sub079.keySet().toString());
+        eq("specs: 0.79.0 eff-check package stays optional", "0..1",
+           sub079.get("eff-check").getCommandSpec().positionalParameters().get(0).arity().toString());
         // BUILTIN_VERBS is what completion offers when no compiler's help could be read, so it
         // must name every command of the newest curated release -- the spec is the one place
         // that already had to be updated by hand when upstream moved.

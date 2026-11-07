@@ -660,7 +660,7 @@ final class flixwcli {
         s.addPositional(PositionalParamSpec.builder()
             .paramLabel("[<version>]")
             .arity("0..1")
-            .description("compiler version, e.g. 0.77.0 or owner/repo@version").build());
+            .description("compiler version, e.g. 0.79.0 or owner/repo@version").build());
         s.addOption(OptionSpec.builder("--java")
             .paramLabel("<version>")
             .description("minimum Java version required for this project").build());
@@ -828,13 +828,14 @@ final class flixwcli {
         "flix-0.60.0.picocli", "flix-0.67.0.picocli", "flix-0.67.1.picocli",
         "flix-0.68.0.picocli", "flix-0.73.0.picocli", "flix-0.75.2.picocli",
         "flix-0.75.3.picocli", "flix-0.76.0.picocli", "flix-0.76.2.picocli",
-        "flix-0.77.0.picocli");
+        "flix-0.77.0.picocli", "flix-0.79.0.picocli");
 
     static String specFileForVersion(String version) {
         if (version == null || version.isEmpty()) return null;
         String exact = "flix-" + version + ".picocli";
         if (SPECS.contains(exact)) return exact;
         if (version.equals("0.76.1")) return "flix-0.76.0.picocli";
+        if (version.equals("0.78.0")) return "flix-0.77.0.picocli";
         if (version.startsWith("0.73.") || version.startsWith("0.74.") || version.equals("0.75.0") || version.equals("0.75.1"))
             return "flix-0.73.0.picocli";
         if (version.startsWith("0.68.") || version.startsWith("0.69.") || version.startsWith("0.70.") || version.startsWith("0.71.") || version.startsWith("0.72."))
