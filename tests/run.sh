@@ -2153,6 +2153,29 @@ else
   s "the generated fish completion loads and completes" "no fish on this machine"
 fi
 
+# The wrapper verbs' own arguments complete too. They were hung into the tree as empty
+# nodes, so nothing was offered after `pin` or `doctor` although their help documents flags.
+g 0 "'--refresh'" "pwsh offers pin --refresh"                    ./flixw completion pwsh
+g 0 "'--fix'"     "pwsh offers doctor --fix"                     ./flixw completion pwsh
+t 0  "zsh and bash share one generated script"                  sh -c '
+  test "$(./flixw completion bash)" = "$(./flixw completion zsh)"'
+if command -v fish >/dev/null 2>&1; then
+  t 0  "fish completes pin --refresh"                           sh -c '
+    ./flixw completion fish > "$1/w.fish"
+    fish --no-config -c "source $1/w.fish; complete -C \"flixw pin --re\"" | grep -q "^--refresh"' sh "$work"
+  t 0  "fish completes doctor --fix"                            sh -c '
+    fish --no-config -c "source $1/w.fish; complete -C \"flixw doctor --f\"" | grep -q "^--fix"' sh "$work"
+else
+  s "fish completes pin --refresh and doctor --fix" "no fish on this machine"
+fi
+t 0  "bash completes pin --refresh and doctor --fix"            sh -c '
+  ./flixw completion bash > "$1/w.bash"
+  drive() { bash --norc -c '"'"'source "$1"; shift
+    COMP_WORDS=(flixw "$@"); COMP_CWORD=$#; COMP_LINE="flixw $*"; COMP_POINT=${#COMP_LINE}
+    _complete_flixw; printf "%s\n" "${COMPREPLY[@]}"'"'"' x "$@"; }
+  drive "$1/w.bash" pin --re | grep -qx -- --refresh &&
+  drive "$1/w.bash" doctor --f | grep -qx -- --fix' sh "$work"
+
 # The renderer is a companion asset, so it can be unreachable. What must not happen is that
 # `help` then says less than it did before the renderer existed: the compiler's half comes
 # from the cache, offline, with no compiler launch at all.

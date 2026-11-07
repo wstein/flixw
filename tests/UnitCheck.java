@@ -792,7 +792,10 @@ public final class UnitCheck {
                                  + "wrapperVerbs=examples local pin info doctor validate help plugin task\n"
                                  + "\nplugins:\n"
                                  + "mytool\t1.0.0\t" + "a".repeat(64) + "\t\tRuns mytool\tmyverb\n"
-                                 + "secondtool\t2.0.0\t" + "b".repeat(64) + "\t\tRuns secondtool\t\n");
+                                 + "secondtool\t2.0.0\t" + "b".repeat(64) + "\t\tRuns secondtool\t\n"
+                                 + "\ntasks:\n"
+                                 + "fmt-all\tflix fmt\n"
+                                 + "zzz-deploy\t./deploy.sh\n");
         flixwcli.Ctx parsed = flixwcli.Ctx.read(treeCtx);
         picocli.CommandLine.Model.CommandSpec tree = flixwcli.tree(parsed, "flixw");
         eq("tree: examples has subcommands in tree", "true",
@@ -808,6 +811,23 @@ public final class UnitCheck {
            String.valueOf(tree.optionsMap().containsKey("--json")));
         eq("tree: --Xhelp option is on root", "true",
            String.valueOf(tree.optionsMap().containsKey("--Xhelp")));
+
+        // The wrapper verbs carry the arguments their own help screens document: the tree is
+        // the model the completions are generated from, so a verb hung in empty completes to
+        // nothing after the word.
+        for (String[] w : new String[][] { { "pin", "--refresh" }, { "pin", "--fetch" },
+                                           { "pin", "--local" }, { "pin", "--java" },
+                                           { "doctor", "--fix" }, { "info", "--verbose" },
+                                           { "wrapper", "--upgrade" } })
+            eq("tree: " + w[0] + " carries " + w[1], "true",
+               String.valueOf(tree.subcommands().get(w[0]).getCommandSpec()
+                                  .optionsMap().containsKey(w[1])));
+        eq("tree: pin keeps its positionals", "2",
+           String.valueOf(tree.subcommands().get("pin").getCommandSpec()
+                              .positionalParameters().size()));
+        eq("tree: task names are attached to the task namespace", "true",
+           String.valueOf(tree.subcommands().get("task").getSubcommands().keySet()
+                              .containsAll(List.of("fmt-all", "zzz-deploy"))));
 
         // Compiler verb help: renders picocli spec and never delegates to flix compiler
         StringBuilder buildCapture = new StringBuilder();
