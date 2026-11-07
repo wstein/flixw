@@ -2176,6 +2176,32 @@ t 0  "bash completes pin --refresh and doctor --fix"            sh -c '
   drive "$1/w.bash" pin --re | grep -qx -- --refresh &&
   drive "$1/w.bash" doctor --f | grep -qx -- --fix' sh "$work"
 
+# Value-taking options are modelled as such: `--java` and `--local` need a value in stage 0, and
+# `--editor-jar` is accepted only as the one token `--editor-jar=copy|off`.
+t 0  "bash treats pin --java as taking a value"                 sh -c '
+  ./flixw completion bash > "$1/v.bash"
+  drive() { bash --norc -c '"'"'source "$1"; shift
+    COMP_WORDS=(flixw "$@"); COMP_CWORD=$(($#)); COMP_LINE="flixw $*"; COMP_POINT=${#COMP_LINE}
+    _complete_flixw; printf "%s\n" "${COMPREPLY[@]}"'"'"' x "$@"; }
+  drive "$1/v.bash" pin --java --f | grep -qx -- --fetch && exit 1
+  drive "$1/v.bash" pin --edi | grep -qx -- --editor-jar=copy &&
+  drive "$1/v.bash" pin --edi | grep -qx -- --editor-jar=off &&
+  { drive "$1/v.bash" pin --edi | grep -qx -- --editor-jar && exit 1; }
+  exit 0' sh "$work"
+if command -v fish >/dev/null 2>&1; then
+  t 0  "fish offers --editor-jar only as the one-token form"    sh -c '
+    ./flixw completion fish > "$1/v.fish"
+    out=$(fish --no-config -c "source $1/v.fish; complete -C \"flixw pin --edi\"")
+    printf "%s\n" "$out" | grep -q "^--editor-jar=copy" || exit 1
+    printf "%s\n" "$out" | grep -q "^--editor-jar=off" || exit 1
+    printf "%s\n" "$out" | grep -q "^--editor-jar[[:space:]]" && exit 1
+    fish --no-config -c "source $1/v.fish; complete -c flixw" | grep -e "-l java" |
+      grep -q -e "--require-parameter" || exit 1
+    exit 0' sh "$work"
+else
+  s "fish offers --editor-jar only as the one-token form" "no fish on this machine"
+fi
+
 # Task names are the project's own and tasks.toml is edited far more often than the compiler is
 # pinned, so a script that baked them in would go stale unannounced. The help screen reads the
 # file as it is; the completions carry the `task` namespace and leave the names to `./flixw task`.
