@@ -2067,6 +2067,13 @@ g 0 'automatically answer yes to all prompts' \
 g 0 'a fork.s own, unrelated meaning' \
   "help flix init does not curate a FLIX_JAR override, even in scopt layout" sh -c '
   FLIX_JAR="$1/scoptfork/scoptfork.jar" ./flixw help flix init' sh "$work"
+# The same gate for a persistent local compiler selection: it is an override exactly like
+# FLIX_JAR, so a lock naming upstream must not make the fork eligible for curation.
+g 0 'a fork.s own, unrelated meaning' \
+  "help flix init does not curate a local compiler, even with an upstream lock" sh -c '
+  ./flixw pin --local "$1/scoptfork/scoptfork.jar" >/dev/null 2>&1 || exit 1
+  ./flixw help flix init; rc=$?
+  ./flixw pin --stock >/dev/null 2>&1; exit $rc' sh "$work"
 t 89 "help flix rejects a command the compiler does not list"   ./flixw help flix nosuchverb
 t 89 "an unknown help topic is a usage error"                   ./flixw help nosuchtopic
 g 0 'topics: flix wrapper plugin task completion' \
