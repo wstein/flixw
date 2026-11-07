@@ -1998,22 +1998,22 @@ for flag in --help -h; do
   done
 done
 # The routes that already bypass the renderer must go on doing so while it is broken.
-# Both routes must not consult the renderer at all: under FLIXW_TRACE a consulted and failed
-# renderer says "cannot render compiler help", so that line on stderr is the failure.
+# Both routes must not consult the renderer at all. Under FLIXW_TRACE a consulted renderer
+# that throws prints "cannot render compiler help", so that stderr line is the failure.
 t 7 "failing renderer: forced -- route does not ask it" sh -c '
   rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
   out=$(FLIXW_TRACE=1 FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$2/" \
         ./flixw -- check --help 2>"$3"); rc=$?
   [ "$out" = "raw:check,--help" ] || exit 99
   ! grep -q "cannot render compiler help" "$3" || exit 98
-  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")" "$work/helpfallback.err"
+  exit $rc' sh "$work" "$(fileurl "$work/badcli-throws")" "$work/helpfallback.err"
 t 7 "failing renderer: FLIX_BACKEND=compiler does not ask it" sh -c '
   rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
   out=$(FLIXW_TRACE=1 FLIX_BACKEND=compiler FLIX_JAR="$1/rawhelp/rawhelp.jar" \
         FLIXW_ASSET_SOURCE="$2/" ./flixw check --help 2>"$3"); rc=$?
   [ "$out" = "raw:check,--help" ] || exit 99
   ! grep -q "cannot render compiler help" "$3" || exit 98
-  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")" "$work/helpfallback.err"
+  exit $rc' sh "$work" "$(fileurl "$work/badcli-throws")" "$work/helpfallback.err"
 # A renderer that works still wins (the `doc --help` cases above). Its probe of the
 # compiler's own `<verb> --help` is part of it, so a probe that exits nonzero (rawhelp: 7)
 # fails the render and reaches the compiler. The asset cache is emptied and refetched from
@@ -2024,8 +2024,11 @@ for flag in --help -h; do
     out=$(FLIXW_TRACE=1 FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$3/" \
           ./flixw check "$2" 2>"$4"); rc=$?
     [ "$out" = "raw:check,$2" ] || exit 99
-    ! grep -q "cannot render compiler help" "$4" || exit 98     # it ran, and returned nonzero
-    exit $rc' sh "$work" "$flag" "$relfixture_url" "$work/helpfallback.err"
+    # it ran, and returned nonzero
+    ! grep -q "cannot render compiler help" "$4" || exit 98
+    c=$(find "$FLIX_CACHE_HOME/wrapper/assets" -name flixw-cli.java | head -1)
+    [ -n "$c" ] && cmp -s "$c" "$5/src/assets/flixw-cli.java" || exit 97   # the real renderer
+    exit $rc' sh "$work" "$flag" "$relfixture_url" "$work/helpfallback.err" "$root"
 done
 # Leave a warm, valid asset cache for later sections; a failure shows as FAIL, not an abort.
 t 0 "asset cache is warm again after the help fallback cases" ./flixw completion bash
