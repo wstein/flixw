@@ -1800,6 +1800,40 @@ public final class UnitCheck {
     }
 
 
+    // ---- committed fixtures: the manifest keys Flix 0.78 and later accept ----
+
+    /**
+     * Flix 0.78 rejects name, description and authors in [package] (allowed: version,
+     * repository, flix); 0.76 and older require them. tests/run.sh and CI test against 0.78.0
+     * or later, so no committed fixture manifest may carry the three. The Windows smoke job
+     * copies tests/fixtures/smoke and runs the real compiler on it, which is where this
+     * went wrong once: the fixture kept the keys after the harness stopped writing them.
+     */
+    static void fixtureManifests(Path root) throws IOException {
+        Path fixtures = root.resolve("tests/fixtures");
+        List<Path> manifests = new ArrayList<>();
+        if (Files.isDirectory(fixtures)) {
+            try (var walk = Files.walk(fixtures)) {
+                walk.filter(p -> p.getFileName().toString().equals("flix.toml")).sorted().forEach(manifests::add);
+            }
+        }
+        if (manifests.isEmpty()) { bad("fixture manifests: none found under " + fixtures, "expected at least the smoke project"); return; }
+        var key = java.util.regex.Pattern.compile("^\\s*(name|description|authors)\\s*=");
+        for (Path m : manifests) {
+            boolean inPackage = false;
+            List<String> found = new ArrayList<>();
+            for (String line : Files.readAllLines(m, StandardCharsets.UTF_8)) {
+                String t = line.strip();
+                if (t.startsWith("[")) inPackage = t.equals("[package]");
+                else if (inPackage) {
+                    var mt = key.matcher(line);
+                    if (mt.find()) found.add(mt.group(1));
+                }
+            }
+            eq("fixture manifest " + root.relativize(m) + ": no [package] key Flix 0.78+ rejects", "[]", found.toString());
+        }
+    }
+
     static String firstLine(String s) {
         int i = s.indexOf('\n');
         return i < 0 ? s : s.substring(0, i);
@@ -1837,6 +1871,7 @@ public final class UnitCheck {
         upgradeTarget();
         prereleaseChannel();
         localOverrides();
+        fixtureManifests(root);
         System.out.println("  unit checks: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }
