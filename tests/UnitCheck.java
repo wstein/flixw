@@ -1813,16 +1813,10 @@ public final class UnitCheck {
      * writing them.
      */
     static List<String> packageKeyViolations(String manifest) {
+        List<String> allowed = List.of("version", "repository", "flix");
         List<String> found = new ArrayList<>();
-        boolean inPackage = false;
-        for (String line : manifest.split("\n", -1)) {
-            String t = line.strip();
-            if (t.startsWith("[")) inPackage = t.equals("[package]");
-            else if (inPackage) {
-                var mt = java.util.regex.Pattern.compile("^\\s*(name|description|authors)\\s*=").matcher(line);
-                if (mt.find()) found.add(mt.group(1));
-            }
-        }
+        for (var e : flixw.tomlScan(manifest, "fixture manifest").entries())
+            if (e.table().equals("package") && !allowed.contains(e.key())) found.add(e.key());
         return found;
     }
 
@@ -1857,7 +1851,7 @@ public final class UnitCheck {
         }
         if (manifests.isEmpty()) { bad("fixture manifests: none found under " + fixtures, "expected at least the smoke project"); return; }
         for (Path m : manifests)
-            eq("fixture manifest " + root.relativize(m) + ": no [package] key Flix 0.78+ rejects", "[]",
+            eq("fixture manifest " + root.relativize(m) + ": only version, repository, flix are allowed in [package] for Flix 0.78+", "[]",
                packageKeyViolations(Files.readString(m, StandardCharsets.UTF_8)).toString());
     }
 
