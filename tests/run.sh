@@ -348,6 +348,48 @@ javac -d "$work/scoptfork" "$work/scoptfork/Scoptfork.java"
 printf 'Main-Class: Scoptfork\n' > "$work/scoptfork/mf"
 (cd "$work/scoptfork" && jar cfm scoptfork.jar mf Scoptfork.class)
 
+# A compiler whose answer to a verb's own --help is recognisable and whose exit status is
+# not 0: the bare `--help` lists the verbs, `<verb> --help` prints "raw:<argv>" on stdout,
+# "raw-err" on stderr, and exits 7. Used to prove a failed help renderer continues to the
+# compiler with the original argv, rather than ending the run with status 0 and no output.
+mkdir -p "$work/rawhelp"
+cat > "$work/rawhelp/Rawhelp.java" <<'EOF'
+public final class Rawhelp {
+    public static void main(String[] a) {
+        if (a.length == 1 && a[0].equals("--help")) {
+            System.out.print("Usage: flix [init|check|run] [options] <file>...\n"
+                           + "Command: init\n  creates a new project.\n"
+                           + "Command: check\n  checks the current project for errors.\n"
+                           + "Command: run\n  runs main for the current project.\n");
+            return;
+        }
+        System.out.println("raw:" + String.join(",", a));
+        System.err.println("raw-err");
+        System.exit(7);
+    }
+}
+EOF
+javac -d "$work/rawhelp" "$work/rawhelp/Rawhelp.java"
+printf 'Main-Class: Rawhelp\n' > "$work/rawhelp/mf"
+(cd "$work/rawhelp" && jar cfm rawhelp.jar mf Rawhelp.class)
+
+# Two release fixtures whose renderer is a valid, digest-matching asset that fails: one
+# exits 3, one throws. Everything else is the real release, so only the renderer differs.
+for mode in exit3 throws; do
+  d=$work/badcli-$mode
+  rm -rf "$d" && mkdir -p "$d"
+  cp "$relfixture"/* "$d/"
+  case $mode in
+    exit3)  body='return 3;' ;;
+    throws) body='throw new IllegalStateException("renderer broke");' ;;
+  esac
+  printf 'final class flixwcli {\n  public static int run(String[] a) {\n    %s\n  }\n}\n' "$body" \
+    > "$d/flixw-cli.java"
+  grep -v ' flixw-cli.java$' "$relfixture/SHA256SUMS" > "$d/SHA256SUMS"
+  if command -v sha256sum >/dev/null 2>&1; then (cd "$d" && sha256sum flixw-cli.java >> SHA256SUMS)
+  else (cd "$d" && shasum -a 256 flixw-cli.java >> SHA256SUMS); fi
+done
+
 # Three plugin formats, one echo: each prints every FLIXW_* variable the ABI promises
 # and the raw FLIXW_CONTEXT file body (newlines escaped, so a grep sees one line), so a
 # test can assert the ABI actually delivers correct context without parsing JSON in a
@@ -1933,6 +1975,50 @@ g 0 'Usage: flix' "forced compiler verb help remains raw"       ./flixw -- doc -
 g 0 'Usage: flix' "FLIX_BACKEND=compiler keeps verb help raw" \
                  env FLIX_BACKEND=compiler ./flixw doc --help
 g 0 'Usage: flix' "noncanonical compiler help remains raw"     ./flixw doc --help extra
+# A renderer that cannot run must not end the run: exact `<verb> --help` / `-h` continues
+# to the compiler with the original argv, and the compiler's stdout, stderr and exit status
+# (7 here, never the 0 of a silent return) are the answer. Three failure shapes: the asset
+# is unreachable, it returns nonzero, it throws. Each case starts from a cold asset cache
+# so the failing source is the one consulted; the next case re-fetches what it needs.
+# help-fallback-start
+for flag in --help -h; do
+  t 7 "renderer unreachable: check $flag reaches the compiler" sh -c '
+    rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
+    out=$(FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="file:///nonexistent/" \
+          ./flixw check "$2" 2>"$3"); rc=$?
+    [ "$out" = "raw:check,$2" ] && grep -qx "raw-err" "$3" || exit 99
+    exit $rc' sh "$work" "$flag" "$work/helpfallback.err"
+  for mode in exit3 throws; do
+    t 7 "renderer $mode: check $flag reaches the compiler" sh -c '
+      rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
+      out=$(FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$4/" \
+            ./flixw check "$2" 2>"$3"); rc=$?
+      [ "$out" = "raw:check,$2" ] && grep -qx "raw-err" "$3" || exit 99
+      exit $rc' sh "$work" "$flag" "$work/helpfallback.err" "$(fileurl "$work/badcli-$mode")"
+  done
+done
+# The routes that already bypass the renderer must go on doing so while it is broken.
+t 7 "failing renderer: forced -- route is untouched"            sh -c '
+  rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
+  out=$(FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$2/" ./flixw -- check --help 2>/dev/null); rc=$?
+  [ "$out" = "raw:check,--help" ] || exit 99
+  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")"
+t 7 "failing renderer: FLIX_BACKEND=compiler is untouched"      sh -c '
+  rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
+  out=$(FLIX_BACKEND=compiler FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$2/" \
+        ./flixw check --help 2>/dev/null); rc=$?
+  [ "$out" = "raw:check,--help" ] || exit 99
+  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")"
+# A renderer that works still wins (the `doc --help` cases above); the probe of the compiler's own `<verb> --help` is part
+# of it, so a probe that exits nonzero (rawhelp: 7) fails the render and reaches the compiler.
+for flag in --help -h; do
+  t 7 "probe exits nonzero: check $flag reaches the compiler" sh -c '
+    out=$(FLIX_JAR="$1/rawhelp/rawhelp.jar" ./flixw check "$2" 2>/dev/null); rc=$?
+    [ "$out" = "raw:check,$2" ] || exit 99
+    exit $rc' sh "$work" "$flag"
+done
+# help-fallback-end
+./flixw completion bash >/dev/null 2>&1
 # Stock Flix answers `check --help` with the top-level screen, so flixw renders the
 # source-backed focused view. The implementation rationale is deliberately not user-facing.
 t 0 "help flix renders focused compiler help without a banner" sh -c '
