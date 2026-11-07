@@ -2188,6 +2188,12 @@ t 0  "bash treats pin --java as taking a value"                 sh -c '
   drive "$1/v.bash" pin --edi | grep -qx -- --editor-jar=off &&
   { drive "$1/v.bash" pin --edi | grep -qx -- --editor-jar && exit 1; }
   exit 0' sh "$work"
+t 0  "bash offers the shell names after completion"            sh -c '
+  ./flixw completion bash > "$1/v.bash"
+  bash --norc -c '"'"'source "$1"
+    COMP_WORDS=(flixw completion ""); COMP_CWORD=2; COMP_LINE="flixw completion "; COMP_POINT=${#COMP_LINE}
+    _complete_flixw; printf "%s\n" "${COMPREPLY[@]}"'"'"' x "$1/v.bash" > "$1/shells.txt"
+  for sh in bash zsh fish pwsh; do grep -qx "$sh" "$1/shells.txt" || exit 1; done' sh "$work"
 if command -v fish >/dev/null 2>&1; then
   t 0  "fish offers --editor-jar only as the one-token form"    sh -c '
     ./flixw completion fish > "$1/v.fish"
