@@ -2014,16 +2014,22 @@ t 7 "failing renderer: FLIX_BACKEND=compiler does not ask it" sh -c '
   [ "$out" = "raw:check,--help" ] || exit 99
   ! grep -q "cannot render compiler help" "$3" || exit 98
   exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")" "$work/helpfallback.err"
-# A renderer that works still wins (the `doc --help` cases above); the probe of the compiler's own `<verb> --help` is part
-# of it, so a probe that exits nonzero (rawhelp: 7) fails the render and reaches the compiler.
+# A renderer that works still wins (the `doc --help` cases above). Its probe of the
+# compiler's own `<verb> --help` is part of it, so a probe that exits nonzero (rawhelp: 7)
+# fails the render and reaches the compiler. The asset cache is emptied and refetched from
+# the good release fixture, so no earlier case's failing renderer can be the one consulted.
 for flag in --help -h; do
   t 7 "probe exits nonzero: check $flag reaches the compiler" sh -c '
-    out=$(FLIX_JAR="$1/rawhelp/rawhelp.jar" ./flixw check "$2" 2>/dev/null); rc=$?
+    rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
+    out=$(FLIXW_TRACE=1 FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$3/" \
+          ./flixw check "$2" 2>"$4"); rc=$?
     [ "$out" = "raw:check,$2" ] || exit 99
-    exit $rc' sh "$work" "$flag"
+    ! grep -q "cannot render compiler help" "$4" || exit 98     # it ran, and returned nonzero
+    exit $rc' sh "$work" "$flag" "$relfixture_url" "$work/helpfallback.err"
 done
+# Leave a warm, valid asset cache for later sections; a failure shows as FAIL, not an abort.
+t 0 "asset cache is warm again after the help fallback cases" ./flixw completion bash
 # help-fallback-end
-./flixw completion bash >/dev/null 2>&1
 # Stock Flix answers `check --help` with the top-level screen, so flixw renders the
 # source-backed focused view. The implementation rationale is deliberately not user-facing.
 t 0 "help flix renders focused compiler help without a banner" sh -c '
