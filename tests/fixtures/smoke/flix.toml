@@ -1,7 +1,6 @@
 # Minimal project used by the Windows smoke job. `flix pin` rewrites the version.
+# Flix 0.78 and later accept only version, repository and flix in [package]; 0.76 and
+# older still require name, description and authors. CI tests against 0.78 or later.
 [package]
-name        = "flixw-smoke"
-description = "smoke-test project for the cmd.exe shim"
 version     = "0.1.0"
 flix        = "0.75.2"
-authors     = ["nobody"]
