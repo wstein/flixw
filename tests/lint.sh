@@ -266,6 +266,23 @@ else
   for m in $missing; do say "      $m"; done
 fi
 
+# --- 3c2a. CI cancels superseded runs of one pull request, and only those ----
+# A PR push starts a full matrix; without a concurrency group the older head keeps its
+# runners busy beside the newer one. The group is keyed by workflow, event and PR number,
+# and falls back to the run id so push (main) and workflow_dispatch runs each get their own
+# group: nothing displaces them. Cancellation is on for pull_request events only.
+ci_yaml="$root/.github/workflows/ci.yaml"
+ci_group=$(sed -n '/^concurrency:/,/^[a-z]/{/^  group:/p;}' "$ci_yaml")
+ci_cancel=$(sed -n '/^concurrency:/,/^[a-z]/{/^  cancel-in-progress:/p;}' "$ci_yaml")
+if printf '%s\n' "$ci_group" | grep -Fq 'github.workflow' \
+   && printf '%s\n' "$ci_group" | grep -Fq 'github.event_name' \
+   && printf '%s\n' "$ci_group" | grep -Fq 'github.event.pull_request.number || github.run_id' \
+   && [ "$ci_cancel" = "  cancel-in-progress: \${{ github.event_name == 'pull_request' }}" ]; then
+  say "ok    ci.yaml cancels superseded pull_request runs only; push and dispatch runs stay independent"
+else
+  bad "ci.yaml needs a top-level concurrency group (workflow, event, PR number or run id) with cancel-in-progress limited to pull_request"
+fi
+
 # --- 3c3. the README downloads the release its digest describes --------------
 # The digest check below compares README against local source, which says nothing about
 # which release the reader is told to fetch. Those drifted: the page carried a digest for
