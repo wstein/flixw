@@ -3,7 +3,7 @@
 `flixw-cli.java` renders `./flixw help` and generates `./flixw completion <shell>` from one
 picocli `CommandSpec` (see `tree()`).
 
-The command model is **spec-derived**: a [picocli-spec](https://github.com/wstein/picocli/tree/develop/picocli-spec)
+The command model is **spec-derived**: a [cliwerk-spec](https://github.com/wstein/cliwerk/tree/main/cliwerk-spec)
 DSL file under [`src/assets/picocli/`](../../src/assets/picocli/) describes the exact
 command/option/positional set for each compiler version range, authored directly from flix's
 own source as a `CommandSpec`. This replaces the historical regex scraping of captured `--help`
@@ -54,14 +54,13 @@ An earlier `loadSpec` did look there, and also walked up from the working direct
 sit inside this checkout, so the walk found the source tree every time: curated help worked
 in every test and in no installed project.
 
-## Dependency: picocli-spec
+## Dependency: cliwerk-spec
 
-`flixw-cli.java` compiles against `picocli.spec.CommandSpecDsl` from the pinned `PICOCLI_VERSION`
+`flixw-cli.java` compiles against `cliwerk.spec.CommandSpecDsl` from the pinned `PICOCLI_VERSION`
 jar. Because a companion asset is always recompiled against whatever `PICOCLI_VERSION` currently
 resolves to, this is a hard, unconditional dependency, not a reflective one -- `PICOCLI_VERSION`
-must therefore only ever point at a picocli release that bundles `picocli-spec`'s classes into the
-same jar (the `io.github.wstein:picocli` fork does, starting with the release that ships this
-feature), and the version bump and this feature must land in the same commit so neither ships
+must therefore only ever point at a picocli release that bundles `cliwerk-spec`'s classes into the
+same jar (the `io.github.wstein:cliwerk` fork does, from 4.7.7.1 on), and the version bump and this feature must land in the same commit so neither ships
 without the other.
 
 ## CLI-rendering authority: stage 0 as minimal fallback, flixw-cli as full authority

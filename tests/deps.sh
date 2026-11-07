@@ -10,5 +10,5 @@ picocli_url() {
     echo "usage: picocli_url <version>" >&2
     return 2
   fi
-  printf '%s\n' "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/$1/picocli-$1.jar"
+  printf '%s\n' "https://wstein.github.io/cliwerk/maven/io/github/wstein/cliwerk/$1/cliwerk-$1.jar"
 }

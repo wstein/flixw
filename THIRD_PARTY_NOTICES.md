@@ -8,23 +8,23 @@ component, used by one companion asset, on one command.
 If this file ever lists something reached by stage 0, something the shims execute, or
 something a project commits, that is a regression rather than an addition.
 
-## picocli
+## cliwerk (picocli fork)
 
 |  |  |
 |---|---|
-| **Version** | 4.9.4 |
+| **Version** | 4.7.7.1 (based on picocli 4.7.7) |
 | **License** | Apache License 2.0 |
 | **Copyright** | Copyright 2017 Remko Popma |
 | **Homepage** | <https://picocli.info/> |
-| **Fork source** | <https://github.com/wstein/picocli/tree/v4.9.4> |
-| **Coordinate** | `io.github.wstein:picocli:4.9.4` |
-| **Artifact** | `https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.9.4/picocli-4.9.4.jar` |
-| **SHA-256** | `fec28d0dd7a92f7fbf75953a9a9e6d99a5bf5bf4b10c5c1a73dc9d0a97608610` |
+| **Fork source** | <https://github.com/wstein/cliwerk/tree/v4.7.7.1> |
+| **Coordinate** | `io.github.wstein:cliwerk:4.7.7.1` |
+| **Artifact** | `https://wstein.github.io/cliwerk/maven/io/github/wstein/cliwerk/4.7.7.1/cliwerk-4.7.7.1.jar` |
+| **SHA-256** | `bd4576ad7b0d7f3f078d264b37b9eb9e2848caefee991b7c6c7c115ab5cdd77b` |
 | **Used by** | `flixw-cli.java` only |
 | **Reached on** | `./flixw help [...]` only |
 
-This is wstein's fork of remkop/picocli, used to prototype additions before they are
-contributed upstream. Its native Fish completion generator is a fork addition, not an
+This is wstein's fork of remkop/picocli (formerly `wstein/picocli`, renamed to cliwerk; the
+Java package stays `picocli`, the spec DSL lives in `cliwerk.spec`). Its native Fish completion generator is a fork addition, not an
 upstream Picocli capability. The coordinate and artifact above identify this fork's build;
 the remaining licence and project-background information describes upstream Picocli.
 

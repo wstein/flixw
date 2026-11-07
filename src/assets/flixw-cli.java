@@ -22,7 +22,7 @@ import picocli.CommandLine.Model.HelpSectionSpec;
 import picocli.CommandLine.Model.OptionSpec;
 import picocli.CommandLine.Model.PositionalParamSpec;
 import picocli.CommandLine.Model.UsageMessageSpec;
-import picocli.spec.CommandSpecDsl;
+import cliwerk.spec.CommandSpecDsl;
 
 /**
  * Renders {@code ./flixw help} and generates {@code ./flixw completion <shell>}, from one

@@ -177,7 +177,7 @@ g() {
 # The three consumers fetch the same pinned artifact; only this helper owns its URL shape.
 t 0 "Picocli artifact URL has one canonical source" sh -c '
   . "$1/tests/deps.sh" &&
-  test "$(picocli_url 4.7.8)" = "https://wstein.github.io/picocli/maven/io/github/wstein/picocli/4.7.8/picocli-4.7.8.jar"' \
+  test "$(picocli_url 4.7.7.1)" = "https://wstein.github.io/cliwerk/maven/io/github/wstein/cliwerk/4.7.7.1/cliwerk-4.7.7.1.jar"' \
   sh "$root"
 
 # Make is a convenience layer, optional on Windows; its targets must stay literal delegates.
