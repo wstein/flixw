@@ -5638,7 +5638,7 @@ public final class flixw {
         }
     }
 
-    /** On renderer failure, launch the original compiler argv. */
+    /** False when rendering fails; caller launches the original argv. */
     static boolean compilerVerbHelp(String verb, String flag, Path root, Lock lock, Path jar, Jvm jvm,
                                     List<String> compilerVerbs, String identity,
                                     List<String> jvmOpts) {
@@ -6105,8 +6105,7 @@ public final class flixw {
         // Only exact help is presentation-only; all other argv remains the compiler's.
         if (toCompiler && !forcedCompiler && first != null && compilerVerbs.contains(first)
             && exactCompilerHelp(forward)) {
-            compilerVerbHelp(first, forward.get(1), root, lock, jar, jvm, compilerVerbs, verbId, opts);
-            return;
+            if (compilerVerbHelp(first, forward.get(1), root, lock, jar, jvm, compilerVerbs, verbId, opts)) return;
         }
 
         if (!toCompiler && pluginOwner != null && !WRAPPER_VERBS.contains(first)) {
