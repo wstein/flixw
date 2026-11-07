@@ -561,6 +561,17 @@ public final class UnitCheck {
         else bad("isUpstream", "explicit=" + flixw.isUpstream(explicit, false)
                              + " overridden=" + flixw.isUpstream(explicit, true)
                              + " fork=" + flixw.isUpstream(fork, false));
+        // What the renderer is told: only a stock lock with no override is upstream.
+        eq("help context: stock lock", "true", upstreamLine(explicit, false));
+        eq("help context: default repository", "true", upstreamLine(defaultRepo, false));
+        eq("help context: fork lock", "false", upstreamLine(fork, false));
+        eq("help context: stock lock with an override", "false", upstreamLine(explicit, true));
+    }
+
+    static String upstreamLine(flixw.Lock lock, boolean override) {
+        for (String l : flixw.helpContext(null, lock, null, null, null, null, override).split("\n"))
+            if (l.startsWith("upstream=")) return l.substring(9);
+        return "missing";
     }
 
     /**
@@ -925,7 +936,11 @@ public final class UnitCheck {
         Files.createDirectories(jar.getParent());
         Files.writeString(jar, "local compiler bytes");
         String digest = flixw.sha256(jar);
+        // The selection realMain acts on decides provenance: FLIX_JAR or this file, not FLIX_JAR alone.
+        boolean envJar = flixw.env("FLIX_JAR") != null;
+        eq("local compiler: no selection is no override", String.valueOf(envJar), String.valueOf(flixw.overridden(root)));
         flixw.writeLocalCompiler(root, jar.toRealPath(), digest);
+        eq("local compiler: a selection is an override", "true", String.valueOf(flixw.overridden(root)));
         flixw.LocalCompiler selected = flixw.readLocalCompiler(root);
         if (selected != null && selected.path().equals(jar.toRealPath())
             && selected.selectedSha256().equals(digest)) ok();
