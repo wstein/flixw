@@ -840,6 +840,15 @@ public final class UnitCheck {
             eq("tree: pin " + o + " is a bare flag", "0",
                String.valueOf(pinNode.optionsMap().containsKey(o)
                               ? pinNode.optionsMap().get(o).arity().max() : -1));
+        // The rendered screen must spell the values the way stage 0 reads them: two words. With
+        // picocli's default `=` separator it prints `--java=<version>`, which parsePin refuses.
+        StringBuilder pinHelp = new StringBuilder();
+        runHelpCapture(new String[]{treeCtx.toString(), "pin"}, pinHelp);
+        String pinText = pinHelp.toString();
+        eq("help pin: --java <version> is spelled with a space", "true",
+           String.valueOf(pinText.contains("--java <version>") && !pinText.contains("--java=<")));
+        eq("help pin: --local <path> is spelled with a space", "true",
+           String.valueOf(pinText.contains("--local <path>") && !pinText.contains("--local=<")));
         eq("tree: pin offers no bare --editor-jar", "false",
            String.valueOf(pinNode.optionsMap().containsKey("--editor-jar")));
         for (String v : List.of("info", "doctor", "validate"))
