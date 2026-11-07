@@ -738,7 +738,7 @@ from the *general* screen — `./flixw help flix` (no command), `./flixw complet
 `FLIXW_CONTEXT` all still see every option the compiler actually offers. Per-command
 curation requires all three independent facts: `format(help)` confirms scopt's rendered
 layout; stage 0's `isUpstream` confirms the lock's recorded repository is flix/flix and no
-`FLIX_JAR` override is active; and the pinned version is one of the explicitly re-traced
+`FLIX_JAR` override or local compiler selection is active; and the pinned version is one of the explicitly re-traced
 versions. Layout alone was rejected because a fork can reproduce scopt's exact rendering
 while giving `--entrypoint` or `--threads` a different meaning. A fork with real, differing
 per-command help (byte-compared with the top level) shows its own answer unedited. An
