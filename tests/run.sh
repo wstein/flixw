@@ -2176,6 +2176,19 @@ t 0  "bash completes pin --refresh and doctor --fix"            sh -c '
   drive "$1/w.bash" pin --re | grep -qx -- --refresh &&
   drive "$1/w.bash" doctor --f | grep -qx -- --fix' sh "$work"
 
+# Task names are the project's own and tasks.toml is edited far more often than the compiler is
+# pinned, so a script that baked them in would go stale unannounced. The help screen reads the
+# file as it is; the completions carry the `task` namespace and leave the names to `./flixw task`.
+t 0  "completion bakes no project task names, help lists them" sh -c '
+  trap "rm -f .flixw/tasks.toml" EXIT
+  printf "zzz-unique-task = \"echo hi\"\n" > .flixw/tasks.toml
+  ./flixw help 2>&1 | grep -q "task zzz-unique-task" || exit 1
+  for sh in bash zsh fish pwsh; do
+    ./flixw completion "$sh" 2>&1 | grep -q zzz-unique-task && exit 1
+    ./flixw completion "$sh" 2>&1 | grep -q "task" || exit 1
+  done
+  exit 0'
+
 # The renderer is a companion asset, so it can be unreachable. What must not happen is that
 # `help` then says less than it did before the renderer existed: the compiler's half comes
 # from the cache, offline, with no compiler launch at all.
