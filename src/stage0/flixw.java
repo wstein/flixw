@@ -1027,6 +1027,12 @@ public final class flixw {
     }
 
     /**
+     * Whether realMain runs an unverified compiler: FLIX_JAR, else the local selection.
+     * Help and completion take their provenance from this, not from FLIX_JAR alone.
+     */
+    static boolean overridden(Path root) { return env("FLIX_JAR") != null || root != null && readLocalCompiler(root) != null; }
+
+    /**
      * One usage line for `pin`, because four diagnostics quote it and the fourth was
      * already a release behind the first the last time one was written out by hand.
      */
@@ -2941,14 +2947,9 @@ public final class flixw {
                 // or unverified capture degrades to no known flags, exactly like verb capture
                 // itself falling back to BUILTIN_VERBS elsewhere.
                 String helpText = verbId == null ? "" : storedHelp(verbId);
-                // Whether the pinned compiler is upstream Flix, unoverridden -- a fact
-                // examples needs itself, for the same reason wrapperVerb's own "run" cannot
-                // apply autoRunBoundary to a fork's own positional operand without knowing
-                // it. Re-derived rather than threaded as a parameter: it is one cheap env
-                // lookup, and every other caller of wrapperVerb would otherwise carry a
-                // boolean only this one case reads.
-                boolean upstream = isUpstream(lock, env("FLIX_JAR") != null
-                                             || readLocalCompiler(root) != null);
+                // Whether the pinned compiler is unoverridden upstream Flix: examples needs
+                // it so autoRunBoundary is not applied to a fork's own positional operand.
+                boolean upstream = isUpstream(lock, overridden(root));
                 List<String> a = new ArrayList<>(List.of(root.toString(), jvm.exe().toString(),
                                                          jar.toString(), String.valueOf(opts.size())));
                 a.addAll(opts);
@@ -5626,7 +5627,7 @@ public final class flixw {
             try { specs = ensureAsset(SPECS_ASSET); }
             catch (Fail f) { if (f.code.equals("FLIXW006")) throw f; tr("specs: " + f.getMessage()); }
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity,
-                                                env("FLIX_JAR") != null),
+                                                overridden(root)),
                               StandardCharsets.UTF_8);
             List<String> a = new ArrayList<>(List.of(ctx.toString()));
             a.addAll(rest.subList(0, Math.min(3, rest.size())));
