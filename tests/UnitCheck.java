@@ -828,6 +828,25 @@ public final class UnitCheck {
         eq("tree: task names are attached to the task namespace", "true",
            String.valueOf(tree.subcommands().get("task").getSubcommands().keySet()
                               .containsAll(List.of("fmt-all", "zzz-deploy"))));
+        // Value-taking options must say so: stage 0 reads `--java <version>` and `--local <path>`
+        // as two words (parsePin), and a flag of arity 0 is what the shells then offer bare.
+        // `--editor-jar` is the one stage 0 takes only as a single `--editor-jar=copy|off` token,
+        // so only that spelling may be offered; `--editor-jar copy` is refused with FLIXW008.
+        picocli.CommandLine.Model.CommandSpec pinNode = tree.subcommands().get("pin").getCommandSpec();
+        for (String o : List.of("--java", "--local"))
+            eq("tree: pin " + o + " takes one value", "1",
+               String.valueOf(pinNode.optionsMap().get(o).arity().max()));
+        for (String o : List.of("--refresh", "--fetch", "--stock", "--editor-jar=copy", "--editor-jar=off"))
+            eq("tree: pin " + o + " is a bare flag", "0",
+               String.valueOf(pinNode.optionsMap().containsKey(o)
+                              ? pinNode.optionsMap().get(o).arity().max() : -1));
+        eq("tree: pin offers no bare --editor-jar", "false",
+           String.valueOf(pinNode.optionsMap().containsKey("--editor-jar")));
+        for (String v : List.of("info", "doctor", "validate"))
+            for (picocli.CommandLine.Model.OptionSpec o :
+                     tree.subcommands().get(v).getCommandSpec().options())
+                eq("tree: " + v + " " + o.longestName() + " is a bare flag (stage 0 parses no value)",
+                   "0", String.valueOf(o.arity().max()));
         // One model, two consumers: the tree's node is the verb's own help model, not a copy.
         eq("tree: pin offers exactly what pin --help documents", "true",
            String.valueOf(tree.subcommands().get("pin").getCommandSpec().optionsMap().keySet()
