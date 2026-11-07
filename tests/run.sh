@@ -2074,6 +2074,24 @@ g 0 'a fork.s own, unrelated meaning' \
   ./flixw pin --local "$1/scoptfork/scoptfork.jar" >/dev/null 2>&1 || exit 1
   ./flixw help flix init; rc=$?
   ./flixw pin --stock >/dev/null 2>&1; exit $rc' sh "$work"
+# An unreadable local selection must not take help and completion down with it: they run
+# without a chosen compiler, and only the dispatch that would launch one reports the file.
+# Each case writes the broken file and removes it again whatever the outcome.
+bad_sel='mkdir -p .flixw/local && printf "not toml\n" > .flixw/local/compiler.toml'
+t 0 "completion bash survives an unreadable local selection" sh -c "
+  $bad_sel; ./flixw completion bash >/dev/null; rc=\$?
+  rm -f .flixw/local/compiler.toml; exit \$rc"
+t 0 "pin --help still renders with an unreadable local selection" sh -c "
+  $bad_sel; n=\$(./flixw pin --help | wc -l)
+  rm -f .flixw/local/compiler.toml; test \$n -gt 10"
+t 0 "help without a lock is not a renderer-fetch failure with an unreadable selection" sh -c "
+  $bad_sel; mv .flixw/lock.toml .flixw/lock.bak
+  out=\$(./flixw help 2>&1); rc=\$?
+  mv .flixw/lock.bak .flixw/lock.toml; rm -f .flixw/local/compiler.toml
+  test \$rc = 0 && ! printf '%s' \"\$out\" | grep -q 'could not be fetched'"
+g 88 'FLIXW009' "a compiler verb still reports an unreadable local selection" sh -c "
+  $bad_sel; ./flixw check; rc=\$?
+  rm -f .flixw/local/compiler.toml; exit \$rc"
 t 89 "help flix rejects a command the compiler does not list"   ./flixw help flix nosuchverb
 t 89 "an unknown help topic is a usage error"                   ./flixw help nosuchtopic
 g 0 'topics: flix wrapper plugin task completion' \
@@ -3005,6 +3023,13 @@ g 0  '^AEtgYICyPB1X$' "run forwards a token after -- to the example" sh -c '
 # retype the one thing that position can mean, and must behave identically to typing it.
 g 0  '^AEtgYICyPB1X$' "run without -- before a bare word still reaches the example" sh -c '
   cd "$1" && ./flixw examples run cli-tool AEtgYICyPB1X' sh "$ep"
+# examples reads the same provenance: a local compiler is an override even with an upstream
+# lock, so a bare word after `run` is left alone (no inserted --) and the compiler rejects it.
+g 1  'file arguments' "examples run does not insert -- for a local compiler selection" sh -c '
+  cd "$1" && jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") &&
+  cp "$jar" "$1/local-ex.jar" && ./flixw pin --local "$1/local-ex.jar" >/dev/null 2>&1 || exit 99
+  ./flixw examples run cli-tool AEtgYICyPB1X; rc=$?
+  ./flixw pin --stock >/dev/null 2>&1; exit $rc' sh "$ep"
 t 0  "check runs against the example, not the root project"       sh -c '
   cd "$1" && ./flixw examples check cli-tool' sh "$ep"
 # check has no such rescue: a bare trailing word there is a legitimate extra file to
