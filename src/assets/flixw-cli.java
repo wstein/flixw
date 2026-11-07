@@ -708,14 +708,17 @@ final class flixwcli {
             .paramLabel("[<version>]")
             .arity("0..1")
             .description("compiler version, e.g. 0.79.0 or owner/repo@version").build());
+        // stage 0 reads `--java <version>` and `--local <path>` as two words and
+        // `--editor-jar=copy|off` as one token (parsePin); an arity of 0 here would let the
+        // shells offer them as bare flags, and `--editor-jar copy` is refused with FLIXW008.
+        s.parser().separator(" ");
         s.addOption(OptionSpec.builder("--java")
-            .paramLabel("<version>")
+            .paramLabel("<version>").arity("1")
             .description("minimum Java version required for this project").build());
-        s.addOption(OptionSpec.builder("--editor-jar")
-            .paramLabel("<policy>")
-            .description("editor integration: copy compiler jar or off (copy|off)").build());
+        s.addOption(OptionSpec.builder("--editor-jar=copy", "--editor-jar=off")
+            .description("editor integration: copy the compiler jar or off").build());
         s.addOption(OptionSpec.builder("--local")
-            .paramLabel("<path>")
+            .paramLabel("<path>").arity("1")
             .description("point at a local compiler jar or build checkout").build());
         s.addOption(OptionSpec.builder("--stock")
             .description("revert --local to stock pinned compiler").build());
