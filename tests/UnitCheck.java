@@ -847,13 +847,22 @@ public final class UnitCheck {
                      tree.subcommands().get(v).getCommandSpec().options())
                 eq("tree: " + v + " " + o.longestName() + " is a bare flag (stage 0 parses no value)",
                    "0", String.valueOf(o.arity().max()));
-        // One model, two consumers: the tree's node is the verb's own help model, not a copy.
-        eq("tree: pin offers exactly what pin --help documents", "true",
-           String.valueOf(tree.subcommands().get("pin").getCommandSpec().optionsMap().keySet()
-                              .equals(flixwcli.pinSpec(parsed).optionsMap().keySet())));
-        eq("tree: doctor offers exactly what doctor --help documents", "true",
-           String.valueOf(tree.subcommands().get("doctor").getCommandSpec().optionsMap().keySet()
-                              .equals(flixwcli.doctorSpec(parsed).optionsMap().keySet())));
+        // The concrete sets, not the factory compared with itself: dropping --stock from pinSpec
+        // would leave both sides equal and the completions one flag short.
+        eq("tree: pin offers exactly the documented options",
+           "[--editor-jar=copy, --editor-jar=off, --fetch, --java, --local, --refresh, --stock]",
+           String.valueOf(new java.util.TreeSet<>(pinNode.optionsMap().keySet())));
+        eq("tree: doctor offers exactly --fix", "[--fix]",
+           String.valueOf(new java.util.TreeSet<>(
+               tree.subcommands().get("doctor").getCommandSpec().optionsMap().keySet())));
+        eq("tree: info offers exactly -v/--verbose", "[--verbose, -v]",
+           String.valueOf(new java.util.TreeSet<>(
+               tree.subcommands().get("info").getCommandSpec().optionsMap().keySet())));
+        picocli.CommandLine.Model.PositionalParamSpec shellArg =
+            tree.subcommands().get("completion").getCommandSpec().positionalParameters().get(0);
+        eq("tree: completion requires one shell", "1", String.valueOf(shellArg.arity().min()));
+        eq("tree: completion offers these shells", "[bash, zsh, fish, pwsh]",
+           String.valueOf(shellArg.completionCandidates()));
         eq("tree: completion keeps its shell positional", "1",
            String.valueOf(tree.subcommands().get("completion").getCommandSpec()
                               .positionalParameters().size()));
