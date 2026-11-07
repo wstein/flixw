@@ -5369,14 +5369,10 @@ public final class flixw {
                 if (!rest.isEmpty()) throw w008(wrapperUsage("'--schema' takes no arguments"));
                 System.out.print(lockSchemaJson());
             }
-            // Project-free for the same reason as --schema: the script it prints is
-            // byte-identical for every project on a given release, because everything
-            // project-specific is read at completion time from the note stage 0 leaves in
-            // .flixw/local/.  A script that had to be regenerated after every `pin` would be
-            // wrong in the one way a completion script must not be -- silently, and only for
-            // the person who forgot.  Not offline, unlike --schema: the generator itself is a
-            // wrapper-owned companion asset, fetched once per machine per release and cached
-            // from there on -- the same shape --install-jdk already has, not --version's.
+            // Project-free like --schema. The script is generated from the pinned compiler's
+            // verbs and is regenerated after a re-pin (docs/CONTRACT.md, "Completion"). Not
+            // offline: the generator is a companion asset, fetched once per release and
+            // cached -- the same shape --install-jdk has.
             default -> throw w008(wrapperUsage("unknown operation " + q(op)));
         }
     }
@@ -5457,7 +5453,7 @@ public final class flixw {
     }
 
     /**
-     * The project-independent completer, on stdout.
+     * The completer, on stdout; generating it needs no project.
      *
      * <p>Reached from two places on purpose: early in {@link #realMain}, so it answers with
      * no project at all, and from the wrapper verb, so `./flixw completion fish` inside a
@@ -5563,9 +5559,8 @@ public final class flixw {
          .append(identity == null || storedHelp(identity) == null ? "" : helpFile(identity))
          .append('\n');
         b.append("compilerVerbs=").append(String.join(" ", compilerVerbs)).append('\n');
-        // The static completer's baked-in list, for the case where no note exists yet. Sent
-        // even when a project is resolved: the completer is byte-identical across projects
-        // by contract, so it must not vary with what this one happens to have pinned.
+        // The verb list a project with no resolved compiler falls back to, sent always so
+        // it does not vary with what this project has pinned.
         List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
         for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
         fallback.sort(null);
@@ -6053,9 +6048,6 @@ public final class flixw {
         String verbId = verbIdentity(jar, lock, override);
         List<String> compilerVerbs = verbs(jvm.exe(), jar, verbId);
         tr("verbs " + compilerVerbs.size());
-        // Notes for a completer, which cannot afford to start stage 0 itself.  Both are
-        // writes to already-resolved values, and both swallow every failure: a completion
-        // candidate is not worth a diagnostic, still less a failed build.
         if (lock != null)
             reportVersionGap("the pinned compiler", lock.version(), lock.reportedVersion());
         // ---- self-compile ------------------------------------------------
