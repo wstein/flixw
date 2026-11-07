@@ -1421,12 +1421,6 @@ t 87 "completion takes one shell only"               ./flixw completion bash zsh
 # but this one call is a cache hit already by the time it runs, from the shell already
 # exercised at the top of this section.
 
-# A stand-in project carrying only the note, so the completers can be driven against a
-# known verb set rather than against whatever this suite's own project has resolved.
-mkdir -p "$work/complproj/.flixw/local"
-printf 'build\ncheck\ndoctor\nrun\n' > "$work/complproj/.flixw/local/verbs"
-: > "$work/complproj/flixw"
-
 ./flixw completion bash > "$work/_flixw.bash"
 ./flixw completion zsh  > "$work/_flixw.zsh"
 t 0  "the bash completer parses"                               bash -n "$work/_flixw.bash"
@@ -1451,8 +1445,6 @@ fi
 # any more. What replaced these cases is at the end of this section: the scripts are loaded
 # by real bash and real fish and asked for candidates, which is the same question a keypress
 # asks and a stronger one than reading the text of a template.
-
-# Stage 0 leaves the note itself on any run that resolves a compiler.
 
 # The generator itself: fetched once per machine per release, verified against the
 # fixture's SHA256SUMS the same way --upgrade verifies flixw.java, and cached from there.
@@ -2155,8 +2147,10 @@ fi
 
 # The wrapper verbs' own arguments complete too. They were hung into the tree as empty
 # nodes, so nothing was offered after `pin` or `doctor` although their help documents flags.
-g 0 "'--refresh'" "pwsh offers pin --refresh"                    ./flixw completion pwsh
-g 0 "'--fix'"     "pwsh offers doctor --fix"                     ./flixw completion pwsh
+# The PowerShell completer is one flat word list, so these only show that the flags are among
+# its words; offering them after the right verb alone is the path filtering of issue #13.
+g 0 "'--refresh'" "pwsh word list contains pin's --refresh"       ./flixw completion pwsh
+g 0 "'--fix'"     "pwsh word list contains doctor's --fix"        ./flixw completion pwsh
 t 0  "zsh and bash share one generated script"                  sh -c '
   test "$(./flixw completion bash)" = "$(./flixw completion zsh)"'
 if command -v fish >/dev/null 2>&1; then
@@ -2211,7 +2205,9 @@ fi
 # Task names are the project's own and tasks.toml is edited far more often than the compiler is
 # pinned, so a script that baked them in would go stale unannounced. The help screen reads the
 # file as it is; the completions carry the `task` namespace and leave the names to `./flixw task`.
-t 0  "completion bakes no project task names, help lists them" sh -c '
+# Guard, not a regression case: help listed task names before this change; the completion half
+# holds the decision that a generated script carries the namespace and not the names.
+t 0  "guard: completions bake no task names, help still lists them" sh -c '
   trap "rm -f .flixw/tasks.toml" EXIT
   printf "zzz-unique-task = \"echo hi\"\n" > .flixw/tasks.toml
   ./flixw help 2>&1 | grep -q "task zzz-unique-task" || exit 1
