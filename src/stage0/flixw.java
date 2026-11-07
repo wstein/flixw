@@ -1027,10 +1027,10 @@ public final class flixw {
     }
 
     /**
-     * Whether realMain runs an unverified compiler: FLIX_JAR, else the local selection.
-     * Help and completion take their provenance from this, not from FLIX_JAR alone.
+     * Whether realMain runs an unverified compiler: FLIX_JAR or the local selection; an
+     * unreadable selection counts (no curation) and realMain reports it. Help uses this.
      */
-    static boolean overridden(Path root) { return env("FLIX_JAR") != null || root != null && readLocalCompiler(root) != null; }
+    static boolean overridden(Path root) { try { return env("FLIX_JAR") != null || root != null && readLocalCompiler(root) != null; } catch (Fail f) { return true; } }
 
     /**
      * One usage line for `pin`, because four diagnostics quote it and the fourth was
