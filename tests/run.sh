@@ -7,7 +7,9 @@
 # exactly as a user would: through ./flixw, against an unmodified stock flix.jar.
 #
 # The suite downloads one real compiler on first run (~34 MB) and reuses the cache
-# afterwards. Set FLIXW_TEST_VERSION to pin a different release.
+# afterwards. Set FLIXW_TEST_VERSION to pin a different release -- 0.78.0 or later: the
+# fixtures carry only the [package] keys those compilers accept (version, repository, flix),
+# and 0.76 and older still require name, description and authors.
 #
 # shellcheck disable=SC2016
 # Several cases run `sh -c '...'` so that a failure inside the case cannot abort the
@@ -411,11 +413,8 @@ EOF
 mkdir -p "$proj/src"
 cat > "$proj/flix.toml" <<EOF
 [package]
-name        = "flixw-regression"
-description = "scratch project for the flixw regression suite"
 version     = "0.1.0"
 flix        = "$version"
-authors     = ["nobody"]
 EOF
 cat > "$proj/src/Main.flix" <<'EOF'
 def main(): Unit \ IO = println("ok")
@@ -426,11 +425,8 @@ EOF
 mkdir -p "$proj/nested/src"
 cat > "$proj/nested/flix.toml" <<EOF
 [package]
-name        = "flixw-nested"
-description = "a project nested inside the first, exiting 42"
 version     = "0.1.0"
 flix        = "$version"
-authors     = ["nobody"]
 EOF
 cat > "$proj/nested/src/Main.flix" <<'EOF'
 def main(): Unit \ {IO, Sys.Exit} = {
@@ -992,9 +988,9 @@ t 0  "a decoy flix key in another table is ignored"              sh -c '
   { cat "$1/flix.toml.good"; printf "\n[other]\nflix = \"9.9.9\"\n"; } > flix.toml
   ./flixw -- --version' sh "$work"
 t 0  "a decoy inside a multi-line string is ignored"             sh -c '
-  { printf "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"; \
-    printf "description = \"\"\"\nflix = \"9.9.9\"\n\"\"\"\n"; \
-    grep "^flix" "$1/flix.toml.good"; printf "authors = [\"n\"]\n"; } > flix.toml
+  { printf "[package]\nversion = \"0.1.0\"\n"; \
+    printf "repository = \"\"\"\nflix = \"9.9.9\"\n\"\"\"\n"; \
+    grep "^flix" "$1/flix.toml.good"; } > flix.toml
   ./flixw -- --version' sh "$work"
 t 0  "a trailing comment on the version is ignored"              sh -c '
   sed "s/^flix .*/flix        = \"'"$version"'\"  # pinned/" "$1/flix.toml.good" > flix.toml
@@ -1056,9 +1052,9 @@ cp "$work/flix.toml.good" flix.toml
 # the manifest at all, but the floor check still reads it, and must still ignore the decoy.
 t 0  "the floor reader ignores a flix key inside a description"  sh -c '
   cp flix.toml "$1/toml.keep"
-  { printf "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"; \
-    printf "description = \"\"\"\nflix = \"9.9.9\"\n\"\"\"\n"; \
-    printf "flix = \"0.70.0\"\nauthors = [\"n\"]\n"; } > flix.toml
+  { printf "[package]\nversion = \"0.1.0\"\n"; \
+    printf "repository = \"\"\"\nflix = \"9.9.9\"\n\"\"\"\n"; \
+    printf "flix = \"0.70.0\"\n"; } > flix.toml
   ./flixw doctor >/dev/null 2>&1; rc=$?
   cp "$1/toml.keep" flix.toml; exit $rc' sh "$work"
 cp "$work/flix.toml.good" flix.toml
@@ -2859,11 +2855,8 @@ t 0  "examples list is quiet when there is no examples/ directory" sh -c '
 mkdir -p "$ep/examples/cli-tool/src"
 cat > "$ep/examples/cli-tool/flix.toml" <<EOF
 [package]
-name = "cli-tool"
-description = "example"
 version = "0.1.0"
 flix = "$version"
-authors = ["t"]
 EOF
 # Sys.Env.Env.getArgs is the one channel a `run --` token actually reaches: proof that
 # forwarding works end to end, not only that the process launches. The @Test def is for
@@ -3080,13 +3073,9 @@ lpkg=$work/localpkg
 rm -rf "$lpkg" && mkdir -p "$lpkg/src"
 cat > "$lpkg/flix.toml" <<EOF
 [package]
-name        = "localpkg"
-description = "a synthetic package this project overrides"
 version     = "1.0.0"
 repository  = "github:flixw-test/localpkg"
 flix        = "$version"
-authors     = ["t"]
-modules     = ["LocalPkg"]
 EOF
 cat > "$lpkg/src/LocalPkg.flix" <<'FLIX'
 mod LocalPkg {
@@ -3105,12 +3094,9 @@ git init -q "$lp"
 # only inside an overlay, once an override seeds it -- is introduced further down.
 cat > "$lp/flix.toml" <<EOF
 [package]
-name        = "localconsumer"
-description = "depended on by an example below, and later overridden with localpkg"
 version     = "0.1.0"
 repository  = "github:flixw-test/localconsumer"
 flix        = "$version"
-authors     = ["t"]
 EOF
 cat > "$lp/src/LocalConsumer.flix" <<'FLIX'
 mod LocalConsumer {
@@ -3151,11 +3137,8 @@ t 89 "an overlay verb with no overrides yet is refused" sh -c '
 mkdir -p "$lp/examples/local-example/src"
 cat > "$lp/examples/local-example/flix.toml" <<EOF
 [package]
-name        = "local-example"
-description = "depends on localconsumer, the root project itself"
 version     = "0.1.0"
 flix        = "$version"
-authors     = ["t"]
 
 [dependencies]
 "github:flixw-test/localconsumer" = "0.1.0"
@@ -3241,12 +3224,9 @@ lpkg2=$work/localpkg2
 rm -rf "$lpkg2" && mkdir -p "$lpkg2/src"
 cat > "$lpkg2/flix.toml" <<EOF
 [package]
-name        = "localpkg2"
-description = "depends on localpkg, itself an active override -- must be refused"
 version     = "1.0.0"
 repository  = "github:flixw-test/localpkg2"
 flix        = "$version"
-authors     = ["t"]
 
 [dependencies]
 "github:flixw-test/localpkg" = "1.0.0"
@@ -3262,12 +3242,9 @@ g 89 'already a local override' "add refuses a package depending on an active ov
 # first, so this test cannot pass merely by re-triggering the first direction above.
 cat > "$lpkg2/flix.toml" <<EOF
 [package]
-name        = "localpkg2"
-description = "no dependency of its own -- only localpkg depends on this one"
 version     = "1.0.0"
 repository  = "github:flixw-test/localpkg2"
 flix        = "$version"
-authors     = ["t"]
 EOF
 cp "$lpkg/flix.toml" "$work/lpkg-flix.toml.bak"
 cat >> "$lpkg/flix.toml" <<EOF
