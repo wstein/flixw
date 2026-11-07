@@ -9,6 +9,14 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request supersedes the older head of the same pull request. The
+# group names workflow, event and PR number, so different PRs never cancel one another.
+# Every other event falls back to the run id: a push to main and a manual dispatch each get
+# a group of their own and nothing displaces them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   FLIXW_TEST_VERSION: "0.79.0"
 
