@@ -941,6 +941,11 @@ public final class UnitCheck {
         eq("local compiler: no selection is no override", String.valueOf(envJar), String.valueOf(flixw.overridden(root)));
         flixw.writeLocalCompiler(root, jar.toRealPath(), digest);
         eq("local compiler: a selection is an override", "true", String.valueOf(flixw.overridden(root)));
+        Path broken = Files.createTempDirectory("flixw-local-compiler-bad-");
+        Files.createDirectories(flixw.localCompilerFile(broken).getParent());
+        Files.writeString(flixw.localCompilerFile(broken), "not toml\n");
+        eq("local compiler: an unreadable selection is an override, not an error", "true",
+           String.valueOf(flixw.overridden(broken)));
         flixw.LocalCompiler selected = flixw.readLocalCompiler(root);
         if (selected != null && selected.path().equals(jar.toRealPath())
             && selected.selectedSha256().equals(digest)) ok();
