@@ -1803,13 +1803,51 @@ public final class UnitCheck {
     // ---- committed fixtures: the manifest keys Flix 0.78 and later accept ----
 
     /**
-     * Flix 0.78 rejects name, description and authors in [package] (allowed: version,
-     * repository, flix); 0.76 and older require them. tests/run.sh and CI test against 0.78.0
-     * or later, so no committed fixture manifest may carry the three. The Windows smoke job
-     * copies tests/fixtures/smoke and runs the real compiler on it, which is where this
-     * went wrong once: the fixture kept the keys after the harness stopped writing them.
+     * Flix 0.78 and later reject every [package] entry except version, repository and
+     * flix (observed with `flix check` on 0.78.0 and 0.79.0: name, description, authors and
+     * license are each refused). 0.76 and older require name, description and authors;
+     * 0.77.0 accepted a manifest either way. tests/run.sh and CI test against 0.78.0 or
+     * later, so no committed fixture manifest may carry another [package] key. The Windows
+     * smoke job copies tests/fixtures/smoke and runs the real compiler on it, which is
+     * where this went wrong once: the fixture kept the keys after the harness stopped
+     * writing them.
      */
+    static List<String> packageKeyViolations(String manifest) {
+        List<String> found = new ArrayList<>();
+        boolean inPackage = false;
+        for (String line : manifest.split("\n", -1)) {
+            String t = line.strip();
+            if (t.startsWith("[")) inPackage = t.equals("[package]");
+            else if (inPackage) {
+                var mt = java.util.regex.Pattern.compile("^\\s*(name|description|authors)\\s*=").matcher(line);
+                if (mt.find()) found.add(mt.group(1));
+            }
+        }
+        return found;
+    }
+
     static void fixtureManifests(Path root) throws IOException {
+        // The check has to be able to fail: one manifest per way of writing a key Flix 0.78+
+        // refuses, and one that must stay accepted.
+        String[][] cases = {
+            {"name", "[package]\nname = \"x\"\nflix = \"0.79.0\"\n"},
+            {"description", "[package]\ndescription = \"x\"\n"},
+            {"authors", "[package]\nauthors = [\"x\"]\n"},
+            {"modules", "[package]\nmodules = [\"x\"]\n"},
+            {"license", "[package]\nlicense = \"MIT\"\n"},
+            {"Name", "[package]\nName = \"x\"\n"},
+            {"quoted \"name\"", "[package]\n\"name\" = \"x\"\n"},
+            {"[ package ] header", "[ package ]\nname = \"x\"\n"},
+            {"[package] # comment", "[package] # c\nname = \"x\"\n"},
+            {"dotted package.name", "package.name = \"x\"\n"},
+        };
+        for (String[] c : cases)
+            eq("fixture manifest check rejects " + c[0], "true", String.valueOf(!packageKeyViolations(c[1]).isEmpty()));
+        eq("fixture manifest check accepts version, repository, flix", "[]", packageKeyViolations(
+            "[package]\nversion = \"0.1.0\"\nrepository = \"r\"\nflix = \"0.79.0\"\n").toString());
+        eq("fixture manifest check ignores name in [dependencies]", "[]", packageKeyViolations(
+            "[package]\nflix = \"0.79.0\"\n[dependencies]\nname = \"x\"\n").toString());
+
         Path fixtures = root.resolve("tests/fixtures");
         List<Path> manifests = new ArrayList<>();
         if (Files.isDirectory(fixtures)) {
@@ -1818,20 +1856,9 @@ public final class UnitCheck {
             }
         }
         if (manifests.isEmpty()) { bad("fixture manifests: none found under " + fixtures, "expected at least the smoke project"); return; }
-        var key = java.util.regex.Pattern.compile("^\\s*(name|description|authors)\\s*=");
-        for (Path m : manifests) {
-            boolean inPackage = false;
-            List<String> found = new ArrayList<>();
-            for (String line : Files.readAllLines(m, StandardCharsets.UTF_8)) {
-                String t = line.strip();
-                if (t.startsWith("[")) inPackage = t.equals("[package]");
-                else if (inPackage) {
-                    var mt = key.matcher(line);
-                    if (mt.find()) found.add(mt.group(1));
-                }
-            }
-            eq("fixture manifest " + root.relativize(m) + ": no [package] key Flix 0.78+ rejects", "[]", found.toString());
-        }
+        for (Path m : manifests)
+            eq("fixture manifest " + root.relativize(m) + ": no [package] key Flix 0.78+ rejects", "[]",
+               packageKeyViolations(Files.readString(m, StandardCharsets.UTF_8)).toString());
     }
 
     static String firstLine(String s) {
