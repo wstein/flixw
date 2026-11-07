@@ -1,6 +1,7 @@
 # Minimal project used by the Windows smoke job. `flix pin` rewrites the version.
-# Flix 0.78 and later accept only version, repository and flix in [package]; 0.76 and
-# older still require name, description and authors. CI tests against 0.78 or later.
+# Flix 0.78 and later accept only version, repository and flix in [package] and reject
+# any other key. 0.76 and older require name, description and authors; 0.77.0 accepted
+# the manifest with or without them (checked with `flix check`). CI tests 0.78 or later.
 [package]
 version     = "0.1.0"
 flix        = "0.75.2"
