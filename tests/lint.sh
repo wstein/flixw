@@ -271,13 +271,22 @@ fi
 # runners busy beside the newer one. The group is keyed by workflow, event and PR number,
 # and falls back to the run id so push (main) and workflow_dispatch runs each get their own
 # group: nothing displaces them. Cancellation is on for pull_request events only.
+# No YAML parser here, so each key line is normalised -- trailing comment cut, quotes and
+# all whitespace removed -- and compared whole against the expected line. Indentation, spacing
+# inside ${{ }} and quoting may vary; a key hidden in a comment, or any other value, may not.
+# Limits: the first `group:` / `cancel-in-progress:` line of the top-level `concurrency:`
+# block is the one read, and a flow-style `concurrency: { ... }` is not recognised.
 ci_yaml="$root/.github/workflows/ci.yaml"
-ci_group=$(sed -n '/^concurrency:/,/^[a-z]/{/^  group:/p;}' "$ci_yaml")
-ci_cancel=$(sed -n '/^concurrency:/,/^[a-z]/{/^  cancel-in-progress:/p;}' "$ci_yaml")
-if printf '%s\n' "$ci_group" | grep -Fq 'github.workflow' \
-   && printf '%s\n' "$ci_group" | grep -Fq 'github.event_name' \
-   && printf '%s\n' "$ci_group" | grep -Fq 'github.event.pull_request.number || github.run_id' \
-   && [ "$ci_cancel" = "  cancel-in-progress: \${{ github.event_name == 'pull_request' }}" ]; then
+ci_norm() { sed 's/[[:space:]]#.*$//; s/["'"'"']//g; s/[[:space:]]//g'; }
+ci_key() {
+  sed -n "/^concurrency:/,/^[A-Za-z]/{/^[[:space:]][[:space:]]*$1:/p;}" "$ci_yaml" | sed -n 1p | ci_norm
+}
+ci_group=$(ci_key group)
+ci_cancel=$(ci_key cancel-in-progress)
+# shellcheck disable=SC2016  # ${{ }} is GitHub expression syntax, not a shell expansion
+want_group=$(printf '%s\n' 'group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}' | ci_norm)
+want_cancel=$(printf '%s\n' "cancel-in-progress: \${{ github.event_name == 'pull_request' }}" | ci_norm)
+if [ "$ci_group" = "$want_group" ] && [ "$ci_cancel" = "$want_cancel" ]; then
   say "ok    ci.yaml cancels superseded pull_request runs only; push and dispatch runs stay independent"
 else
   bad "ci.yaml needs a top-level concurrency group (workflow, event, PR number or run id) with cancel-in-progress limited to pull_request"
