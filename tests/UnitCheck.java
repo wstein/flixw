@@ -828,6 +828,58 @@ public final class UnitCheck {
         eq("tree: task names are attached to the task namespace", "true",
            String.valueOf(tree.subcommands().get("task").getSubcommands().keySet()
                               .containsAll(List.of("fmt-all", "zzz-deploy"))));
+        // One model, two consumers: the tree's node is the verb's own help model, not a copy.
+        eq("tree: pin offers exactly what pin --help documents", "true",
+           String.valueOf(tree.subcommands().get("pin").getCommandSpec().optionsMap().keySet()
+                              .equals(flixwcli.pinSpec(parsed).optionsMap().keySet())));
+        eq("tree: doctor offers exactly what doctor --help documents", "true",
+           String.valueOf(tree.subcommands().get("doctor").getCommandSpec().optionsMap().keySet()
+                              .equals(flixwcli.doctorSpec(parsed).optionsMap().keySet())));
+        eq("tree: completion keeps its shell positional", "1",
+           String.valueOf(tree.subcommands().get("completion").getCommandSpec()
+                              .positionalParameters().size()));
+        eq("tree: wrapper verbs keep the (wrapper) description", "true",
+           String.valueOf(tree.subcommands().get("pin").getCommandSpec().usageMessage()
+                              .description()[0].startsWith("(wrapper) ")));
+        // A generated script is a snapshot; tasks.toml is edited far more often than the
+        // compiler is pinned, so the completions carry the namespace and not its names.
+        picocli.CommandLine.Model.CommandSpec forScript = flixwcli.tree(parsed, "flixw", false);
+        eq("tree: completion model has the task namespace", "true",
+           String.valueOf(forScript.subcommands().containsKey("task")));
+        eq("tree: completion model bakes no project task names", "0",
+           String.valueOf(forScript.subcommands().get("task").getSubcommands().size()));
+        eq("tree: completion model keeps the wrapper flags", "true",
+           String.valueOf(forScript.subcommands().get("pin").getCommandSpec()
+                                   .optionsMap().containsKey("--refresh")));
+
+        // Compiler-first: a verb the pinned compiler implements keeps the compiler's node, and
+        // the wrapper's arguments for the same word do not leak onto it.
+        Path clash = Files.createTempDirectory("uc-clash-").resolve("ctx.txt");
+        Files.writeString(clash, "flixwVersion=0.34.9\n"
+                               + "compilerVersion=0.76.2\n"
+                               + "compilerVerbs=check pin doctor task completion wrapper\n"
+                               + "wrapperVerbs=pin info doctor task\n"
+                               + "\ntasks:\n"
+                               + "fmt-all\tflix fmt\n");
+        picocli.CommandLine.Model.CommandSpec clashTree =
+            flixwcli.tree(flixwcli.Ctx.read(clash), "flixw");
+        eq("tree: a compiler-owned pin keeps none of the wrapper's flags", "false",
+           String.valueOf(clashTree.subcommands().get("pin").getCommandSpec()
+                                   .optionsMap().containsKey("--refresh")));
+        eq("tree: a compiler-owned doctor keeps none of the wrapper's flags", "false",
+           String.valueOf(clashTree.subcommands().get("doctor").getCommandSpec()
+                                   .optionsMap().containsKey("--fix")));
+        eq("tree: a compiler-owned task gets no project task names", "0",
+           String.valueOf(clashTree.subcommands().get("task").getSubcommands().size()));
+        eq("tree: a compiler-owned completion takes no wrapper shell argument", "0",
+           String.valueOf(clashTree.subcommands().get("completion").getCommandSpec()
+                                   .positionalParameters().size()));
+        eq("tree: a compiler-owned wrapper has no wrapper flags", "false",
+           String.valueOf(clashTree.subcommands().get("wrapper").getCommandSpec()
+                                   .optionsMap().containsKey("--upgrade")));
+        eq("tree: a wrapper verb the compiler does not own is still the wrapper's", "true",
+           String.valueOf(clashTree.subcommands().get("info").getCommandSpec()
+                                   .optionsMap().containsKey("--verbose")));
 
         // Compiler verb help: renders picocli spec and never delegates to flix compiler
         StringBuilder buildCapture = new StringBuilder();

@@ -530,6 +530,20 @@ final class flixwcli {
      * completion that disagrees with the documentation on the same terminal.
      */
     static CommandSpec tree(Ctx c, String name) {
+        return tree(c, name, true);
+    }
+
+    /**
+     * {@link #tree(Ctx, String)}, with or without this project's own task names.
+     *
+     * <p>A generated completion script is a snapshot that outlives the file it was read from:
+     * {@code .flixw/tasks.toml} is hand-edited far more often than the compiler is re-pinned,
+     * and a name baked in at generation time would go stale without anything saying so. So the
+     * completions are built with {@code projectTasks} false -- the {@code task} node is
+     * there, its names are not, and {@code ./flixw task} lists them at the moment of asking.
+     * {@code help} reads the file as it is now and passes true.
+     */
+    static CommandSpec tree(Ctx c, String name, boolean projectTasks) {
         List<String> compilerVerbs = c.words("compilerVerbs");
 
         CommandSpec root = base(name,
@@ -549,17 +563,9 @@ final class flixwcli {
         }
         for (String v : c.words("wrapperVerbs")) {
             if (compilerVerbs.contains(v)) continue;
-            if (v.equals("examples")) {
-                CommandSpec ex = examplesSpec(c);
-                ex.usageMessage().description("(wrapper) " + wrapperDesc(v));
-                root.addSubcommand("examples", new CommandLine(ex));
-            } else if (v.equals("local")) {
-                CommandSpec loc = localSpec(c);
-                loc.usageMessage().description("(wrapper) " + wrapperDesc(v));
-                root.addSubcommand("local", new CommandLine(loc));
-            } else {
-                sub(root, v, "(wrapper) " + wrapperDesc(v));
-            }
+            CommandSpec own = v.equals("task") ? taskSpec(c, projectTasks) : wrapperVerbSpec(c, v);
+            if (own != null) attachWrapper(root, v, own);
+            else sub(root, v, "(wrapper) " + wrapperDesc(v));
         }
         // Plugins from the lock: registered under their declared bare verb (if any) and
         // under the canonical `plugin <name>` namespace, so TAB-completion offers them.
@@ -579,13 +585,8 @@ final class flixwcli {
         // than the one with none of it. Same compiler-first guard as any other word.
         // Both carry their own arguments into the tree, because the tree is the model the
         // completions come from: a word with no arguments completes to nothing after it.
-        if (!compilerVerbs.contains("wrapper"))
-            wrapperOptions(sub(root, "wrapper", "(wrapper) " + wrapperDesc("wrapper")));
-        if (!compilerVerbs.contains("completion"))
-            sub(root, "completion", "(wrapper) " + wrapperDesc("completion"))
-                .addPositional(PositionalParamSpec.builder().paramLabel("<shell>")
-                    .completionCandidates(List.of("bash", "zsh", "fish", "pwsh"))
-                    .description("the shell to emit a script for").build());
+        if (!compilerVerbs.contains("wrapper")) attachWrapper(root, "wrapper", wrapperSpec(c));
+        if (!compilerVerbs.contains("completion")) attachWrapper(root, "completion", completionSpec(c));
         Optional<CommandSpec> curatedRoot = "true".equals(c.get("upstream"))
             ? loadSpec(c.get("compilerVersion")) : Optional.empty();
         if (curatedRoot.isPresent()) {
@@ -613,6 +614,52 @@ final class flixwcli {
             } catch (RuntimeException ignored) { }
         }
         return root;
+    }
+
+    /**
+     * The model of one wrapper verb, the one factory behind both its own help screen and its
+     * node in {@link #tree}; {@code null} for a verb with no arguments of its own to describe.
+     *
+     * <p>Two copies of a verb's arguments are two chances to disagree, and they did: the
+     * screens had the flags and the tree, which the completions come from, had empty nodes.
+     * {@code task} is not here because its model depends on whether names are wanted; see
+     * {@link #taskSpec}.
+     */
+    static CommandSpec wrapperVerbSpec(Ctx c, String verb) {
+        return switch (verb) {
+            case "pin" -> pinSpec(c);
+            case "info" -> infoSpec(c);
+            case "doctor" -> doctorSpec(c);
+            case "validate" -> validateSpec(c);
+            case "wrapper" -> wrapperSpec(c);
+            case "completion" -> completionSpec(c);
+            case "examples" -> examplesSpec(c);
+            case "local" -> localSpec(c);
+            default -> null;
+        };
+    }
+
+    /** Hangs a verb's own model under {@code root}, described the way the tree describes wrapper verbs. */
+    static void attachWrapper(CommandSpec root, String verb, CommandSpec own) {
+        own.usageMessage().description("(wrapper) " + wrapperDesc(verb));
+        root.addSubcommand(verb, new CommandLine(own));
+    }
+
+    /**
+     * {@code ./flixw task}: one subcommand per name in {@code .flixw/tasks.toml}, or none.
+     * Shared by {@code help task} and the tree's {@code task} node.
+     */
+    static CommandSpec taskSpec(Ctx c, boolean names) {
+        List<String[]> rows = c.rows("tasks");
+        CommandSpec s = base("./flixw task",
+            ".flixw/tasks.toml -- npm-`scripts`-style aliases for this project.",
+            "",
+            rows.isEmpty() ? "No tasks defined in this project."
+                           : "Never fetched and never verified, because there is nothing to"
+                           + " verify: the file is committed alongside the code it builds.");
+        if (names)
+            for (String[] r : rows) sub(s, r[0], r.length > 1 ? r[1] : "");
+        return s;
     }
 
     static String wrapperDesc(String verb) {
@@ -1027,14 +1074,7 @@ final class flixwcli {
     static void task(Ctx c, String name) {
         List<String[]> rows = c.rows("tasks");
         if (name == null || name.equals("--help") || name.equals("-h")) {
-            CommandSpec s = base("./flixw task",
-                ".flixw/tasks.toml -- npm-`scripts`-style aliases for this project.",
-                "",
-                rows.isEmpty() ? "No tasks defined in this project."
-                               : "Never fetched and never verified, because there is nothing to"
-                               + " verify: the file is committed alongside the code it builds.");
-            for (String[] r : rows) sub(s, r[0], r.length > 1 ? r[1] : "");
-            render(s);
+            render(taskSpec(c, true));
             return;
         }
         for (String[] r : rows) {
@@ -1072,7 +1112,7 @@ final class flixwcli {
      * of error, which is the argument for the {@code CommandSpec} in the first place.
      */
     static void completion(Ctx c, String shell) {
-        CommandSpec spec = tree(c, "flixw");
+        CommandSpec spec = tree(c, "flixw", false);
         switch (shell) {
             // picocli's own generator, from the same tree `help` renders. One script serves
             // both shells. Writing a second bash generator beside a maintained one would be

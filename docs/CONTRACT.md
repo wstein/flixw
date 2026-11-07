@@ -781,6 +781,14 @@ their own descriptions, the wrapper verbs they have not displaced, and the compi
 options with the value-taking ones marked as such. `help` renders that same tree, so a
 completion cannot disagree with the help screen on the same terminal.
 
+The wrapper verbs' arguments come from the same model as their own help screens: `pin
+--refresh`, `doctor --fix` and `info --verbose` complete because `./flixw pin --help` and the
+tree are built by one factory per verb. A word the pinned compiler implements keeps the
+compiler's node and takes none of the wrapper's arguments. The `task` node is in the script,
+but this project's task names are not: `.flixw/tasks.toml` is edited far more often than the
+compiler is pinned, so a script that baked them in would go stale without saying so. `./flixw
+help` reads the file as it is and lists them; `./flixw task` prints the current names.
+
 bash, zsh and fish come from picocli's own `AutoComplete`; PowerShell is the one flixw
 implementation still walking that model. `cmd.exe` gets nothing — it has no per-command
 completion mechanism to hook.
