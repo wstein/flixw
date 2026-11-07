@@ -1998,17 +1998,22 @@ for flag in --help -h; do
   done
 done
 # The routes that already bypass the renderer must go on doing so while it is broken.
-t 7 "failing renderer: forced -- route is untouched"            sh -c '
+# Both routes must not consult the renderer at all: under FLIXW_TRACE a consulted and failed
+# renderer says "cannot render compiler help", so that line on stderr is the failure.
+t 7 "failing renderer: forced -- route does not ask it" sh -c '
   rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
-  out=$(FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$2/" ./flixw -- check --help 2>/dev/null); rc=$?
+  out=$(FLIXW_TRACE=1 FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$2/" \
+        ./flixw -- check --help 2>"$3"); rc=$?
   [ "$out" = "raw:check,--help" ] || exit 99
-  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")"
-t 7 "failing renderer: FLIX_BACKEND=compiler is untouched"      sh -c '
+  ! grep -q "cannot render compiler help" "$3" || exit 98
+  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")" "$work/helpfallback.err"
+t 7 "failing renderer: FLIX_BACKEND=compiler does not ask it" sh -c '
   rm -rf "$FLIX_CACHE_HOME/wrapper/assets"
-  out=$(FLIX_BACKEND=compiler FLIX_JAR="$1/rawhelp/rawhelp.jar" FLIXW_ASSET_SOURCE="$2/" \
-        ./flixw check --help 2>/dev/null); rc=$?
+  out=$(FLIXW_TRACE=1 FLIX_BACKEND=compiler FLIX_JAR="$1/rawhelp/rawhelp.jar" \
+        FLIXW_ASSET_SOURCE="$2/" ./flixw check --help 2>"$3"); rc=$?
   [ "$out" = "raw:check,--help" ] || exit 99
-  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")"
+  ! grep -q "cannot render compiler help" "$3" || exit 98
+  exit $rc' sh "$work" "$(fileurl "$work/badcli-exit3")" "$work/helpfallback.err"
 # A renderer that works still wins (the `doc --help` cases above); the probe of the compiler's own `<verb> --help` is part
 # of it, so a probe that exits nonzero (rawhelp: 7) fails the render and reaches the compiler.
 for flag in --help -h; do
