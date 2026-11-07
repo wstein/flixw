@@ -3078,7 +3078,7 @@ repository  = "github:flixw-test/localpkg"
 flix        = "$version"
 EOF
 cat > "$lpkg/src/LocalPkg.flix" <<'FLIX'
-mod LocalPkg {
+pub mod LocalPkg {
     pub def greet(): String = "hello from local pkg"
 }
 FLIX
@@ -3099,7 +3099,7 @@ repository  = "github:flixw-test/localconsumer"
 flix        = "$version"
 EOF
 cat > "$lp/src/LocalConsumer.flix" <<'FLIX'
-mod LocalConsumer {
+pub mod LocalConsumer {
     pub def hello(): String = "hello from consumer"
 }
 FLIX
@@ -3144,6 +3144,7 @@ flix        = "$version"
 "github:flixw-test/localconsumer" = "0.1.0"
 EOF
 cat > "$lp/examples/local-example/src/Main.flix" <<'FLIX'
+use localconsumer::LocalConsumer
 def main(): Unit \ IO = println(LocalConsumer.hello())
 FLIX
 
@@ -3180,6 +3181,7 @@ cat >> "$lp/flix.toml" <<EOF
 "github:flixw-test/localpkg" = "1.0.0"
 EOF
 cat > "$lp/src/Main.flix" <<'FLIX'
+use localpkg::LocalPkg
 def main(): Unit \ IO = println(LocalPkg.greet())
 
 @Test
