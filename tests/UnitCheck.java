@@ -838,6 +838,28 @@ public final class UnitCheck {
         } finally {
             if (prev == null) System.clearProperty("flixw.specs.dir"); else System.setProperty("flixw.specs.dir", prev);
         }
+
+        // Composition: the root's own definition wins, the clash is reported, the result does
+        // not depend on anything but the order the spec declares its options.
+        var curated = flixwcli.loadSpec("0.76.2").orElseThrow();
+        var seeded = picocli.CommandLine.Model.CommandSpec.create().name("./flixw");
+        seeded.addOption(picocli.CommandLine.Model.OptionSpec.builder("--json").description("kept").build());
+        List<String> clashes = flixwcli.compose(seeded, curated);
+        eq("compose: a name already on the root is reported", "true",
+           String.valueOf(clashes.size() == 1 && clashes.get(0).contains("--json")));
+        eq("compose: the root's own option is kept", "kept",
+           String.join("", seeded.findOption("--json").description()));
+        eq("compose: the rest of the spec still arrives", "true",
+           String.valueOf(seeded.findOption("--listen") != null && !seeded.argGroups().isEmpty()));
+        var again = picocli.CommandLine.Model.CommandSpec.create().name("./flixw");
+        again.addOption(picocli.CommandLine.Model.OptionSpec.builder("--json").description("kept").build());
+        eq("compose: same inputs, same report", clashes.toString(), flixwcli.compose(again, curated).toString());
+        for (String f : flixwcli.SPECS) {
+            String v = f.substring("flix-".length(), f.length() - ".picocli".length());
+            var fresh = picocli.CommandLine.Model.CommandSpec.create().name("./flixw");
+            eq("compose: shipped spec " + v + " collides with nothing", "[]",
+               flixwcli.compose(fresh, flixwcli.loadSpec(v).orElseThrow()).toString());
+        }
     }
 
     /**
