@@ -798,7 +798,12 @@ tree) prints `flixw: warning:` once on stderr per run, naming the spec file, the
 and the reason, on the screens that read the spec: `help` (the overview is built without it),
 `help flix <command>` and `<command> --help` (the compiler's raw text). Wrapper-verb screens
 read no spec and print no warning. Exit status is
-unchanged. `completion` does not degrade; see above.
+unchanged. `completion` does not degrade; see the Completion section below.
+
+Present means named: a file that is not valid UTF-8, a directory or a dangling link in place of
+the file, and an unreadable file are broken, not absent, from `flixw-specs.jar` and from
+`-Dflixw.specs.dir` alike. Each diagnostic names the exception type and ends with
+`run: ./flixw wrapper --upgrade`, because the spec ships in the release.
 
 ## Completion
 
