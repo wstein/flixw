@@ -849,7 +849,8 @@ public final class UnitCheck {
         seeded.addOption(picocli.CommandLine.Model.OptionSpec.builder("--json").description("kept").build());
         List<String> clashes = flixwcli.compose(seeded, curated);
         eq("compose: a name already on the root is reported", "true",
-           String.valueOf(clashes.size() == 1 && clashes.get(0).contains("--json")));
+           String.valueOf(clashes.size() == 1 && clashes.get(0).contains("--json")
+                          && clashes.get(0).contains("is already defined; the existing one is kept")));
         eq("compose: the root's own option is kept", "kept",
            String.join("", seeded.findOption("--json").description()));
         eq("compose: the rest of the spec still arrives", "true",
