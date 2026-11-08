@@ -802,7 +802,8 @@ unchanged. `completion` does not degrade; see the Completion section below.
 
 Present means named: a file that is not valid UTF-8, a directory or a dangling link in place of
 the file, and an unreadable file are broken, not absent, from `flixw-specs.jar` and from
-`-Dflixw.specs.dir` alike. Each diagnostic names the exception type and ends with
+`-Dflixw.specs.dir` alike. The diagnostic for an unusable file names the exception type; both
+kinds end with
 `run: ./flixw wrapper --upgrade   (once a newer release carries a corrected spec)`: the
 spec ships in the release, and on the newest release the command has nothing to fetch.
 
