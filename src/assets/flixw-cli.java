@@ -1030,17 +1030,40 @@ final class flixwcli {
      * installed project had never rendered a curated screen at all.
      */
     static Optional<CommandSpec> loadSpec(String version) {
+        return loadSpec(version, flixwcli.class::getResourceAsStream);
+    }
+
+    /**
+     * {@link #loadSpec(String)} with the class-path lookup passed in, so a test can stand in
+     * for {@code flixw-specs.jar} without building one.
+     *
+     * <p>Both routes classify alike: nothing at the name is absent; anything there that is not
+     * a regular, readable, valid UTF-8 file that parses is broken. Decoding is strict because a
+     * lenient decode would substitute U+FFFD, parse whatever is left and ship a screen from
+     * damaged text. A link whose target is gone is present (it is named) and so broken.
+     */
+    static Optional<CommandSpec> loadSpec(String version,
+                                          java.util.function.Function<String, InputStream> resource) {
         String name = specFileForVersion(version);
         if (name == null) return Optional.empty();
         String from = "flixw-specs.jar";
-        try (InputStream in = flixwcli.class.getResourceAsStream("/specs/" + name)) {
-            if (in != null)
-                return Optional.of(CommandSpecDsl.parse(new String(in.readAllBytes(), StandardCharsets.UTF_8)));
-            String dir = System.getProperty("flixw.specs.dir");
-            Path disk = dir == null || dir.isBlank() ? null : Paths.get(dir, name);
-            if (disk == null || !Files.isRegularFile(disk)) return Optional.empty();
-            from = "flixw.specs.dir";
-            return Optional.of(CommandSpecDsl.parse(Files.readString(disk, StandardCharsets.UTF_8)));
+        try {
+            byte[] raw;
+            try (InputStream in = resource.apply("/specs/" + name)) {
+                raw = in == null ? null : in.readAllBytes();
+            }
+            if (raw == null) {
+                String dir = System.getProperty("flixw.specs.dir");
+                Path disk = dir == null || dir.isBlank() ? null : Paths.get(dir, name);
+                if (disk == null || !Files.exists(disk, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+                    return Optional.empty();
+                from = "flixw.specs.dir";
+                raw = Files.readAllBytes(disk);   // a directory or a dangling link throws here
+            }
+            return Optional.of(CommandSpecDsl.parse(StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(raw)).toString()));
         } catch (Exception e) {
             // Present and unusable, which is not the same as absent: absent returned above.
             throw new SpecError(specLabel(version, name) + " in " + from + " is unusable: " + reason(e), e);
