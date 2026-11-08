@@ -1360,7 +1360,6 @@ between shim and stage 0, not an implementation detail:
 <cache>/stage0/<sha256 of flixw.java>/flixw.class
 <cache>/compilers/flix-<version>-<sha256>.jar
 <cache>/verbs/<identity>.verbs
-<cache>/verbs/<identity>.compl        # only if the compiler ships its own completer
 <cache>/verbs/<sha256>.pin            # repository and tag last pinned as (informational)
 <cache>/verbs/<sha256>.fetched        # every URL a download produced these bytes from
 <cache>/jdks/<temurin package name>/  # only if you accepted the JDK offer

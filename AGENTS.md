@@ -295,7 +295,6 @@ The shim must know where the compiled stage 0 lives, so these paths are contract
 <cache>/assets/<sha256 of asset source>/*.class    # compiled companion assets (~63ms vs ~402ms)
 <cache>/compilers/flix-<version>-<sha256>.jar     # content-addressed compiler
 <cache>/verbs/<digest|override-…>.verbs           # captured `flix --help` verb set
-<cache>/verbs/<digest|override-…>.compl           # the compiler's own completer, if it has one
 <cache>/verbs/<digest>.pin                        # the repo and exact tag last pinned as
 <cache>/verbs/<digest>.fetched                    # URLs a download produced these bytes from
 ```
