@@ -679,7 +679,7 @@ final class flixwcli {
      * so only a release with a corrected one helps; a damaged cached copy is re-fetched by its
      * digest without anyone asking. {@code FLIX_JAR} sidesteps the spec but is not a repair.
      */
-    static final String SPEC_REPAIR = "       run: ./flixw wrapper --upgrade   (a newer release carries a corrected spec)";
+    static final String SPEC_REPAIR = "       run: ./flixw wrapper --upgrade   (once a newer release carries a corrected spec)";
 
     /** Help's half of the policy: say what is wrong, then carry on without the spec. */
     static void warnSpec(SpecError e) {
