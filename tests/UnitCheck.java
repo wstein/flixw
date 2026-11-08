@@ -763,7 +763,7 @@ public final class UnitCheck {
         Path javaExe = Paths.get(win ? "C:\\uc java\\bin\\java.exe" : "/opt/uc java\\bin/java");
         String desc = "two words\ttab \\n literal\nnewline";
         for (String raw : new String[]{"a b", "tab\there", "nl\nhere", "cr\rhere", "back\\slash",
-                                       "lit\\n", "trail\\", "C:\\x y\\z", "", "k=v"}) {
+                                       "lit\\n", "trail\\", "C:\\x y\\z", "", "k=v", "end:"}) {
             Path one = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
             Files.writeString(one, "contract=1\n" + flixw.kv("projectRoot", raw)
                                  + flixw.kv("javaExe", "x") + "\ntasks:\n"
