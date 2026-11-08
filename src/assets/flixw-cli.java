@@ -670,11 +670,16 @@ final class flixwcli {
         return "curated command spec " + f + " (Flix " + version + ")";
     }
 
-    /** The first line of a failure's own message, or its class name when it has none. */
+    /**
+     * The exception's type and the first line of its message. The type is not decoration: for
+     * I/O failures the message alone is a bare path ({@code AccessDeniedException}) or a byte
+     * count ({@code MalformedInputException}), which says nothing about what went wrong.
+     */
     static String reason(Throwable t) {
         String m = t.getMessage();
         String first = m == null || m.isBlank() ? "" : m.strip().lines().findFirst().orElse("");
-        return first.isEmpty() ? t.getClass().getSimpleName() : first;
+        String type = t.getClass().getSimpleName();
+        return first.isEmpty() ? type : type + ": " + first;
     }
 
     /** Help's half of the policy: say what is wrong, then carry on without the spec. */
