@@ -5542,42 +5542,39 @@ public final class flixw {
     static String helpContext(Path root, Lock lock, Path jar, Jvm jvm, List<String> compilerVerbs,
                               String identity, boolean override) {
         if (compilerVerbs == null) compilerVerbs = List.of();
-        StringBuilder b = new StringBuilder();
-        b.append("flixwVersion=").append(WRAPPER_VERSION).append('\n');
-        b.append("projectRoot=").append(root == null ? "" : root).append('\n');
-        b.append("cacheHome=").append(cacheHome()).append('\n');
-        b.append("compilerVersion=").append(lock == null ? "" : lock.version()).append('\n');
+        // contract=1 is the first line: a reader that does not know it must not guess at the
+        // rest. Values are escaped (see esc); lists are space-separated verb tokens.
+        StringBuilder b = new StringBuilder("contract=1\n");
+        b.append(kv("flixwVersion", WRAPPER_VERSION)).append(kv("projectRoot", root))
+         .append(kv("cacheHome", cacheHome()))
+         .append(kv("compilerVersion", lock == null ? "" : lock.version()));
         // Whether the pinned compiler is upstream Flix, unoverridden -- verified once here,
         // where the lock's repository is already known, rather than re-derived from
         // anything about the rendered --help layout, which any fork can reproduce exactly.
         // help flix <command>'s option curation is sourced from flix/flix's own code and
         // must not apply to a fork or an unverified FLIX_JAR override.
-        b.append("upstream=").append(isUpstream(lock, override)).append('\n');
-        b.append("compilerJar=").append(jar == null ? "" : jar).append('\n');
-        b.append("javaExe=").append(jvm == null ? "" : jvm.exe()).append('\n');
-        b.append("helpFile=")
-         .append(identity == null || storedHelp(identity) == null ? "" : helpFile(identity))
-         .append('\n');
-        b.append("compilerVerbs=").append(String.join(" ", compilerVerbs)).append('\n');
+        b.append(kv("upstream", isUpstream(lock, override))).append(kv("compilerJar", jar))
+         .append(kv("javaExe", jvm == null ? "" : jvm.exe()))
+         .append(kv("helpFile", identity == null || storedHelp(identity) == null ? ""
+                                                                               : helpFile(identity)))
+         .append(kv("compilerVerbs", String.join(" ", compilerVerbs)));
         // The verb list a project with no resolved compiler falls back to, sent always so
         // it does not vary with what this project has pinned.
         List<String> fallback = new ArrayList<>(WRAPPER_VERBS);
         for (String v : BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
         fallback.sort(null);
-        b.append("fallbackVerbs=").append(String.join(",", fallback)).append('\n');
+        b.append(kv("fallbackVerbs", String.join(" ", fallback)));
         List<String> wv = new ArrayList<>(WRAPPER_VERBS);
         wv.removeAll(compilerVerbs);
-        b.append("wrapperVerbs=").append(String.join(" ", wv)).append('\n');
+        b.append(kv("wrapperVerbs", String.join(" ", wv)));
         b.append('\n').append("plugins:").append('\n');
         if (lock != null)
             for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
-                b.append(e.getKey()).append('\t').append(e.getValue().version()).append('\t')
-                 .append(e.getValue().sha256()).append('\t')
-                 .append(e.getValue().source() == null ? "" : e.getValue().source()).append('\t')
-                 .append(e.getValue().description() == null ? "" : e.getValue().description())
-                 .append('\t')
-                 .append(e.getValue().command() == null ? "" : e.getValue().command())
-                 .append('\n');
+                b.append(esc(e.getKey())).append('\t').append(esc(e.getValue().version())).append('\t')
+                 .append(esc(e.getValue().sha256())).append('\t')
+                 .append(esc(e.getValue().source())).append('\t')
+                 .append(esc(e.getValue().description())).append('\t')
+                 .append(esc(e.getValue().command())).append('\n');
         b.append('\n').append("tasks:").append('\n');
         if (root != null)
             for (Map.Entry<String, String> e : readTasks(root).entrySet())
@@ -5585,8 +5582,11 @@ public final class flixw {
         return b.toString();
     }
 
+    /** One {@code key=value} line of the context, value escaped; null is empty. */
+    static String kv(String k, Object v) { return k + "=" + (v == null ? "" : esc(v.toString())) + "\n"; }
+
     /**
-     * Escapes a value for the tab-separated rows above.
+     * Escapes a value for the context's lines and tab-separated rows.
      *
      * <p>Load-bearing for tasks specifically. A task is an arbitrary shell string the project
      * wrote, and nothing stops it holding a tab or a newline -- a lock's decoded {@code \\n}

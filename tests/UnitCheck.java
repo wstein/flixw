@@ -762,6 +762,18 @@ public final class UnitCheck {
         Path jar = Paths.get(win ? "C:\\uc jar dir\\flix jar.jar" : "/tmp/uc jar dir/flix\ttab\nnl.jar");
         Path javaExe = Paths.get(win ? "C:\\uc java\\bin\\java.exe" : "/opt/uc java\\bin/java");
         String desc = "two words\ttab \\n literal\nnewline";
+        for (String raw : new String[]{"a b", "tab\there", "nl\nhere", "cr\rhere", "back\\slash",
+                                       "lit\\n", "trail\\", "C:\\x y\\z", "", "k=v"}) {
+            Path one = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
+            Files.writeString(one, "contract=1\n" + flixw.kv("projectRoot", raw)
+                                 + flixw.kv("javaExe", "x") + "\ntasks:\n"
+                                 + flixw.esc(raw) + "\t" + flixw.esc(raw) + "\n", StandardCharsets.UTF_8);
+            flixwcli.Ctx r = flixwcli.Ctx.read(one);
+            eq("contract: string round trip of '" + flixw.esc(raw) + "' (value)", raw, r.get("projectRoot"));
+            if (!raw.isEmpty()) eq("contract: string round trip of '" + flixw.esc(raw) + "' (row)", raw + "|" + raw,
+               r.rows("tasks").size() == 1 ? r.rows("tasks").get(0)[0] + "|" + r.rows("tasks").get(0)[1]
+                                           : "rows=" + r.rows("tasks").size());
+        }
         flixw.Lock lock = new flixw.Lock("0.75.3", "https://x/f.jar", "a".repeat(64),
             "flix/flix", null, null, java.util.Map.of("m",
                 new flixw.PluginDep("1.0.0", "b".repeat(64), "https://x/p.jar", desc, "metrics")));
@@ -804,6 +816,51 @@ public final class UnitCheck {
         eq("contract: a fallback verb is a help topic", "false",
            String.valueOf(err.toString(StandardCharsets.UTF_8).contains("no help topic")));
 
+        // Versioning. The producer names its contract on the first line, the reader accepts
+        // that number, and any other is refused with a diagnostic and a non-zero status
+        // rather than rendered from keys whose meaning it cannot know.
+        String text = Files.readString(file, StandardCharsets.UTF_8);
+        eq("contract: the producer's first line is its version", "contract=" + flixwcli.CONTRACT,
+           text.split("\n", 2)[0]);
+        eq("contract: the reader parses it", String.valueOf(flixwcli.CONTRACT),
+           String.valueOf(c.contract));
+        // A companion from before the field splits the list on spaces only.
+        eq("contract: fallbackVerbs splits on spaces alone", String.valueOf(fallback.size()),
+           String.valueOf(text.lines().filter(l -> l.startsWith("fallbackVerbs="))
+                              .findFirst().get().substring(14).split(" +").length));
+        Path newer = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
+        for (String bad : new String[]{"2", "99", "x", "-1", ""}) {
+            Files.writeString(newer, "contract=" + bad + "\nflixwVersion=1\n", StandardCharsets.UTF_8);
+            StringBuilder out = new StringBuilder();
+            int rc = runHelpCapture(new String[]{newer.toString(), "pin"}, out);
+            eq("contract: version '" + bad + "' is refused", "87", String.valueOf(rc));
+            eq("contract: version '" + bad + "' renders nothing", "", out.toString());
+        }
+        java.io.ByteArrayOutputStream e3 = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream prev3 = System.err;
+        System.setErr(new java.io.PrintStream(e3, true, StandardCharsets.UTF_8));
+        try {
+            Files.writeString(newer, "contract=2\n", StandardCharsets.UTF_8);
+            flixwcli.run(new String[]{newer.toString(), "pin"});
+        } finally { System.setErr(prev3); }
+        String diag = e3.toString(StandardCharsets.UTF_8);
+        eq("contract: the diagnostic names both versions", "true",
+           String.valueOf(diag.contains("contract 2") && diag.contains("reads contract 1")));
+
+        // Stage 0 from before the field: no version, comma-separated list, raw values.
+        Files.writeString(newer, "flixwVersion=0.34.9\nfallbackVerbs=check,build,run\n"
+                               + "compilerJar=C:\\tmp\\jar\n", StandardCharsets.UTF_8);
+        flixwcli.Ctx old = flixwcli.Ctx.read(newer);
+        eq("contract: no field is contract 0", "0", String.valueOf(old.contract));
+        eq("contract: contract 0 still reads a comma list", "check|build|run",
+           String.join("|", old.words("fallbackVerbs")));
+        eq("contract: contract 0 values stay raw", "C:\\tmp\\jar", old.get("compilerJar"));
+        Files.writeString(newer, "contract=1\ncompilerJar=C:\\\\tmp\\\\jar\nfallbackVerbs=a,b c\n",
+                          StandardCharsets.UTF_8);
+        flixwcli.Ctx cur = flixwcli.Ctx.read(newer);
+        eq("contract: contract 1 values are unescaped", "C:\\tmp\\jar", cur.get("compilerJar"));
+        eq("contract: contract 1 does not split on commas", "a,b|c",
+           String.join("|", cur.words("fallbackVerbs")));
     }
 
     static void unifiedHelpRouting() throws Exception {
