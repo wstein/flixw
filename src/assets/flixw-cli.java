@@ -572,7 +572,31 @@ final class flixwcli {
      * {@code help} reads the file as it is now and passes true.
      */
     static CommandSpec tree(Ctx c, String name, boolean projectTasks) {
+        return tree(c, name, projectTasks, false);
+    }
+
+    /**
+     * {@link #tree(Ctx, String, boolean)} with a failure policy for a curated spec that is
+     * present and unusable (malformed, or colliding with what the tree already holds).
+     *
+     * <p>{@code strict} is for output that outlives the run: a completion script built from half
+     * a model is installed into a shell and found out days later, so it throws {@link SpecError}
+     * and writes nothing. Help is read once and by a person, so it warns on stderr and renders
+     * what it has, which for a verb means the compiler's own help. A spec that is merely
+     * <em>absent</em> is neither: that is the ordinary case, and says nothing.
+     */
+    static CommandSpec tree(Ctx c, String name, boolean projectTasks, boolean strict) {
         List<String> compilerVerbs = c.words("compilerVerbs");
+        Optional<CommandSpec> curatedRoot = Optional.empty();
+        boolean specBroken = false;
+        if ("true".equals(c.get("upstream"))) {
+            try { curatedRoot = loadSpec(c.get("compilerVersion")); }
+            catch (SpecError e) {
+                if (strict) throw e;
+                warnSpec(e);
+                specBroken = true;
+            }
+        }
 
         CommandSpec root = base(name,
             "flixw " + c.get("flixwVersion") + " -- repository-local Flix bootstrap.",
@@ -585,7 +609,7 @@ final class flixwcli {
 
         for (String v : compilerVerbs) {
             // A curated spec gives full option/positional fidelity for this one verb.
-            CommandSpec fromSpec = specVerb(c, v);
+            CommandSpec fromSpec = specBroken ? null : specVerb(c, v);
             if (fromSpec != null) root.addSubcommand(v, new CommandLine(fromSpec));
             else sub(root, v, "");
         }
@@ -615,33 +639,89 @@ final class flixwcli {
         // completions come from: a word with no arguments completes to nothing after it.
         if (!compilerVerbs.contains("wrapper")) attachWrapper(root, "wrapper", wrapperSpec(c));
         if (!compilerVerbs.contains("completion")) attachWrapper(root, "completion", completionSpec(c));
-        Optional<CommandSpec> curatedRoot = "true".equals(c.get("upstream"))
-            ? loadSpec(c.get("compilerVersion")) : Optional.empty();
         if (curatedRoot.isPresent()) {
-            CommandSpec cs = curatedRoot.get();
-            for (OptionSpec opt : cs.options())
-                try { root.addOption(opt); } catch (RuntimeException ignored) { }
-            for (ArgGroupSpec grp : cs.argGroups())
-                try { root.addArgGroup(grp); } catch (RuntimeException ignored) { }
-            for (HelpSectionSpec sec : cs.helpSectionSpecs().values())
-                try { root.addHelpSectionSpec(sec); } catch (RuntimeException ignored) { }
-            for (String secName : cs.helpSections()) {
-                Optional<OptionSpec> trig = cs.findHelpSectionTrigger(secName);
-                if (trig.isPresent() && !root.optionsMap().containsKey(trig.get().longestName())) {
-                    try { root.addOption(trig.get()); } catch (RuntimeException ignored) { }
-                }
+            List<String> clashes = compose(root, curatedRoot.get());
+            if (!clashes.isEmpty()) {
+                SpecError e = new SpecError(specLabel(c.get("compilerVersion"), "")
+                    + " collides with the command tree: " + String.join("; ", clashes), null);
+                if (strict) throw e;
+                warnSpec(e);
             }
         }
         if (!root.optionsMap().containsKey("--Xhelp")) {
-            try {
-                root.addOption(OptionSpec.builder("--Xhelp")
-                    .usageHelp(true)
-                    .helpSection("experimental")
-                    .description("shows the experimental options for this command.")
-                    .build());
-            } catch (RuntimeException ignored) { }
+            root.addOption(OptionSpec.builder("--Xhelp")
+                .usageHelp(true)
+                .helpSection("experimental")
+                .description("shows the experimental options for this command.")
+                .build());
         }
         return root;
+    }
+
+    /** A curated spec that is present and unusable; see {@link #loadSpec}. */
+    static final class SpecError extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        SpecError(String message, Throwable cause) { super(message, cause); }
+    }
+
+    static String specLabel(String version, String file) {
+        String f = file.isEmpty() ? specFileForVersion(version) : file;
+        return "curated command spec " + f + " (Flix " + version + ")";
+    }
+
+    /** The first line of a failure's own message, or its class name when it has none. */
+    static String reason(Throwable t) {
+        String m = t.getMessage();
+        String first = m == null || m.isBlank() ? "" : m.strip().lines().findFirst().orElse("");
+        return first.isEmpty() ? t.getClass().getSimpleName() : first;
+    }
+
+    /** Help's half of the policy: say what is wrong, then carry on without the spec. */
+    static void warnSpec(SpecError e) {
+        System.err.println("flixw: warning: " + e.getMessage());
+        System.err.println("       help is rendered without it, from the compiler's own help;"
+                         + " completion refuses to run until it is fixed.");
+    }
+
+    /**
+     * Copies the curated root's options, groups and help sections onto {@code root}, and returns
+     * what could not be copied, one line each; empty means everything arrived.
+     *
+     * <p>Collision policy, deterministic and not configurable: an option already on {@code root}
+     * wins, in the order the spec declares them, and the curated one is reported rather than
+     * dropped silently or allowed to replace it. The same option object arriving twice (an
+     * option that is both listed and a group member) is not a collision. A group that picocli
+     * refuses is reported with picocli's own reason. Flattening, not {@code CommandSpecMerger}:
+     * the merger's namespace semantics (which subcommand an option belongs to) were not
+     * checked against this tree, and copying onto the root is what this has always done.
+     */
+    static List<String> compose(CommandSpec root, CommandSpec cs) {
+        List<String> problems = new ArrayList<>();
+        for (OptionSpec opt : cs.options()) addCurated(root, opt, problems);
+        for (ArgGroupSpec grp : cs.argGroups()) {
+            try { root.addArgGroup(grp); }
+            catch (RuntimeException e) { problems.add("argument group: " + reason(e)); }
+        }
+        for (HelpSectionSpec sec : cs.helpSectionSpecs().values()) root.addHelpSectionSpec(sec);
+        for (String secName : cs.helpSections()) {
+            Optional<OptionSpec> trig = cs.findHelpSectionTrigger(secName);
+            if (trig.isPresent()) addCurated(root, trig.get(), problems);
+        }
+        return problems;
+    }
+
+    private static void addCurated(CommandSpec root, OptionSpec opt, List<String> problems) {
+        for (String n : opt.names()) {
+            OptionSpec have = root.findOption(n);
+            if (have == opt) return;
+            if (have != null) {
+                problems.add("option " + n + " is already defined; the existing one is kept");
+                return;
+            }
+        }
+        try { root.addOption(opt); }
+        catch (RuntimeException e) { problems.add("option " + opt.longestName() + ": " + reason(e)); }
     }
 
     /**
@@ -886,7 +966,9 @@ final class flixwcli {
         // exit code instead of replacing a real failure with a successful screen.
         if (probed != null && probed.status != 0) throw new Exit(probed.status);
 
-        CommandSpec fromSpec = specVerb(c, name);
+        CommandSpec fromSpec = null;
+        try { fromSpec = specVerb(c, name); }
+        catch (SpecError e) { warnSpec(e); }   // falls through to the compiler's raw help below
         if (fromSpec != null) { render(fromSpec, helpFlag); return; }
 
         List<String> compilerVerbs = c.words("compilerVerbs");
@@ -927,6 +1009,11 @@ final class flixwcli {
     /**
      * The curated spec for one compiler version, or empty when none has been authored.
      *
+     * <p>Empty means <em>absent</em>: no file for this version, or no source to look in. A spec
+     * that is there and cannot be read or parsed throws {@link SpecError} instead, naming the
+     * file, the version and the parser's own reason; callers decide what a broken spec costs
+     * ({@link #tree(Ctx, String, boolean, boolean)}).
+     *
      * <p>Read from {@code /specs/} on the class path, which stage 0 fills with this release's
      * own {@code flixw-specs.jar} -- fetched and digest-verified like every other asset -- or,
      * for this repository's unit checks, from the directory {@code -Dflixw.specs.dir} names.
@@ -940,15 +1027,19 @@ final class flixwcli {
     static Optional<CommandSpec> loadSpec(String version) {
         String name = specFileForVersion(version);
         if (name == null) return Optional.empty();
+        String from = "flixw-specs.jar";
         try (InputStream in = flixwcli.class.getResourceAsStream("/specs/" + name)) {
             if (in != null)
                 return Optional.of(CommandSpecDsl.parse(new String(in.readAllBytes(), StandardCharsets.UTF_8)));
             String dir = System.getProperty("flixw.specs.dir");
             Path disk = dir == null || dir.isBlank() ? null : Paths.get(dir, name);
-            if (disk != null && Files.isRegularFile(disk))
-                return Optional.of(CommandSpecDsl.parse(Files.readString(disk, StandardCharsets.UTF_8)));
-        } catch (Exception ignored) { }
-        return Optional.empty();
+            if (disk == null || !Files.isRegularFile(disk)) return Optional.empty();
+            from = "flixw.specs.dir";
+            return Optional.of(CommandSpecDsl.parse(Files.readString(disk, StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            // Present and unusable, which is not the same as absent: absent returned above.
+            throw new SpecError(specLabel(version, name) + " in " + from + " is unusable: " + reason(e), e);
+        }
     }
 
     /**
@@ -1143,7 +1234,14 @@ final class flixwcli {
      * of error, which is the argument for the {@code CommandSpec} in the first place.
      */
     static void completion(Ctx c, String shell) {
-        CommandSpec spec = tree(c, "flixw", false);
+        CommandSpec spec;
+        try { spec = tree(c, "flixw", false, true); }
+        catch (SpecError e) {
+            System.err.println("flixw: " + e.getMessage());
+            System.err.println("       no completion script was written: one generated without the"
+                             + " spec would be missing options and not say so.");
+            throw new Exit(89);
+        }
         switch (shell) {
             // picocli's own generator, from the same tree `help` renders. One script serves
             // both shells. Writing a second bash generator beside a maintained one would be
