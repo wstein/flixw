@@ -888,6 +888,13 @@ public final class UnitCheck {
         return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).startsWith("windows");
     }
 
+    static <T> T withoutDir(java.util.concurrent.Callable<T> body) throws Exception {
+        String prev = System.getProperty("flixw.specs.dir");
+        System.clearProperty("flixw.specs.dir");
+        try { return body.call(); }
+        finally { if (prev != null) System.setProperty("flixw.specs.dir", prev); }
+    }
+
     /** One spec file that is there and cannot be used is broken on every route, whatever way it is unusable. */
     static void specClassification() throws Exception {
         Path ctx = specCtx("0.76.2");
@@ -905,6 +912,18 @@ public final class UnitCheck {
                 eq("spec: " + k[0] + " writes no script", "", r.out);
             });
         }
+        // The class-path route, through the seam: the same bytes must be refused there too.
+        byte[] bytes = {'c', 'o', 'm', (byte) 0xC3, (byte) 0x28};
+        try { flixwcli.loadSpec("0.76.2", n -> new java.io.ByteArrayInputStream(bytes)); bad("spec: invalid UTF-8 from the jar is refused", "loaded"); }
+        catch (flixwcli.SpecError e) { eq("spec: invalid UTF-8 from the jar is refused", "true",
+            String.valueOf(e.getMessage().contains("flixw-specs.jar") && e.getMessage().contains("MalformedInputException"))); }
+        try { flixwcli.loadSpec("0.76.2", n -> new java.io.InputStream() {
+                  public int read() throws IOException { throw new IOException("boom"); } });
+              bad("spec: an unreadable jar entry is refused", "loaded"); }
+        catch (flixwcli.SpecError e) { eq("spec: an unreadable jar entry is refused", "true",
+            String.valueOf(e.getMessage().contains("IOException: boom"))); }
+        eq("spec: no entry in the jar and no directory is absent", "true",
+           String.valueOf(withoutDir(() -> flixwcli.loadSpec("0.76.2", n -> null)).isEmpty()));
         if (!isWindows()) {
             // A link whose target is gone: the file is named, so it is present and unreadable.
             Path dangling = Files.createTempDirectory("uc-spec-dangling-");
