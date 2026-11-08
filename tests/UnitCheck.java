@@ -854,6 +854,25 @@ public final class UnitCheck {
            String.join("", seeded.findOption("--json").description()));
         eq("compose: the rest of the spec still arrives", "true",
            String.valueOf(seeded.findOption("--listen") != null && !seeded.argGroups().isEmpty()));
+        // The failure policy around it: tree() cannot reach a clash with shipped specs, so drive it here.
+        flixwcli.Ctx cc = flixwcli.Ctx.read(specCtx("0.76.2"));
+        var strictRoot = picocli.CommandLine.Model.CommandSpec.create().name("./flixw");
+        strictRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--json").description("kept").build());
+        try { flixwcli.composeChecked(cc, strictRoot, curated, true); bad("compose: a clash fails a strict build", "no exception"); }
+        catch (flixwcli.SpecError e) {
+            eq("compose: a clash fails a strict build", "true",
+               String.valueOf(e.getMessage().contains("collides") && e.getMessage().contains("--json")));
+        }
+        var lenientRoot = picocli.CommandLine.Model.CommandSpec.create().name("./flixw");
+        lenientRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--json").description("kept").build());
+        java.io.PrintStream realErr = System.err;
+        java.io.ByteArrayOutputStream warned = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(warned, true, StandardCharsets.UTF_8));
+        try { flixwcli.composeChecked(cc, lenientRoot, curated, false); }
+        finally { System.setErr(realErr); }
+        eq("compose: a clash only warns outside a strict build", "true",
+           String.valueOf(warned.toString(StandardCharsets.UTF_8).contains("warning")
+                          && warned.toString(StandardCharsets.UTF_8).contains("collides")));
         var again = picocli.CommandLine.Model.CommandSpec.create().name("./flixw");
         again.addOption(picocli.CommandLine.Model.OptionSpec.builder("--json").description("kept").build());
         eq("compose: same inputs, same report", clashes.toString(), flixwcli.compose(again, curated).toString());

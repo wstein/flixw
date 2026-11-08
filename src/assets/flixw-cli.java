@@ -639,15 +639,7 @@ final class flixwcli {
         // completions come from: a word with no arguments completes to nothing after it.
         if (!compilerVerbs.contains("wrapper")) attachWrapper(root, "wrapper", wrapperSpec(c));
         if (!compilerVerbs.contains("completion")) attachWrapper(root, "completion", completionSpec(c));
-        if (curatedRoot.isPresent()) {
-            List<String> clashes = compose(root, curatedRoot.get());
-            if (!clashes.isEmpty()) {
-                SpecError e = new SpecError(specLabel(c.get("compilerVersion"), "")
-                    + " collides with the command tree: " + String.join("; ", clashes), null);
-                if (strict) throw e;
-                warnSpec(e);
-            }
-        }
+        if (curatedRoot.isPresent()) composeChecked(c, root, curatedRoot.get(), strict);
         if (!root.optionsMap().containsKey("--Xhelp")) {
             root.addOption(OptionSpec.builder("--Xhelp")
                 .usageHelp(true)
@@ -695,6 +687,21 @@ final class flixwcli {
         System.err.println("       help is rendered without it, from the compiler's own help;"
                          + " completion refuses to run until it is fixed.");
         System.err.println(SPEC_REPAIR);
+    }
+
+    /**
+     * {@link #compose} plus the failure policy: a clash fails a strict (completion) build and is
+     * a warning otherwise. Split out because no shipped spec clashes with the tree today -- the
+     * root holds no options of its own before this runs -- so {@code tree} cannot reach the
+     * branch and the unit check drives it here with a root that does.
+     */
+    static void composeChecked(Ctx c, CommandSpec root, CommandSpec curated, boolean strict) {
+        List<String> clashes = compose(root, curated);
+        if (clashes.isEmpty()) return;
+        SpecError e = new SpecError(specLabel(c.get("compilerVersion"), "")
+            + " collides with the command tree: " + String.join("; ", clashes), null);
+        if (strict) throw e;
+        warnSpec(e);
     }
 
     /**
