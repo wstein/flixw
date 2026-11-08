@@ -96,6 +96,15 @@ final class flixwcli {
         }
     }
 
+    /**
+     * The version of the context file this renderer reads; stage 0 writes {@code contract=1}
+     * as its first line. Absent means contract 0, the unversioned layout: comma-separated
+     * {@code fallbackVerbs} and unescaped values. A higher number is refused (see {@link #body}).
+     * Adding a key that older readers can ignore does not move it; changing what an existing
+     * key means does.
+     */
+    static final int CONTRACT = 1;
+
     private static void body(String[] args) throws Exception {
         if (args.length < 1) {
             System.err.println("usage: java -cp picocli.jar flixw-cli.java"
@@ -103,6 +112,16 @@ final class flixwcli {
             throw new Exit(87);
         }
         Ctx c = Ctx.read(Paths.get(args[0]));
+        if (c.contract < 0 || c.contract > CONTRACT) {
+            // A newer stage 0 wrote this, in a shape this renderer cannot read. Stage 0 takes the
+            // non-zero status as "no rendering" and prints its own resident help instead.
+            System.err.println("flixw: stage 0 sent context contract " + c.get("contract")
+                + "; this renderer reads contract " + CONTRACT + " and, for contract 0 (no"
+                + " field), the layout before versioning");
+            System.err.println("       stage 0 and its companion assets are from different flixw"
+                + " releases; run: ./flixw wrapper --upgrade");
+            throw new Exit(87);
+        }
         String topic = args.length > 1 ? args[1] : null;
         String name = args.length > 2 ? args[2] : null;
         List<String> jvmOpts = args.length > 3 ? List.of(args).subList(3, args.length) : List.of();
@@ -194,6 +213,8 @@ final class flixwcli {
     static final class Ctx {
         final Map<String, String> kv = new LinkedHashMap<>();
         final Map<String, List<String[]>> sections = new LinkedHashMap<>();
+        /** The {@code contract} field: 0 when absent, -1 when it is not a number. */
+        int contract;
 
         static Ctx read(Path p) throws IOException {
             Ctx c = new Ctx();
@@ -212,6 +233,11 @@ final class flixwcli {
                     if (eq > 0) c.kv.put(line.substring(0, eq), line.substring(eq + 1));
                 }
             }
+            String v = c.kv.get("contract");
+            try { c.contract = v == null ? 0 : Integer.parseInt(v); }
+            catch (NumberFormatException e) { c.contract = -1; }
+            // Contract 0 wrote values raw; from 1 on they are escaped like the rows.
+            if (c.contract >= 1) c.kv.replaceAll((k, val) -> unesc(val));
             return c;
         }
 
@@ -240,7 +266,8 @@ final class flixwcli {
         List<String[]> rows(String s) { return sections.getOrDefault(s, List.of()); }
         List<String> words(String k) {
             String v = get(k);
-            return v.isBlank() ? List.of() : List.of(v.split(" +"));
+            // Contract 0 wrote fallbackVerbs comma-separated, so it is read either way.
+            return v.isBlank() ? List.of() : List.of(v.trim().split(contract == 0 ? "[ ,]+" : " +"));
         }
     }
 
