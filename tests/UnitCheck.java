@@ -755,7 +755,10 @@ public final class UnitCheck {
         System.setOut(new java.io.PrintStream(out, true, StandardCharsets.UTF_8));
         System.setErr(new java.io.PrintStream(err, true, StandardCharsets.UTF_8));
         int rc;
+        // An exception out of the renderer is a failed assertion, not the end of the run: the
+        // status -1 matches no expectation and the type and message land in stderr for the report.
         try { rc = flixwcli.run(args); }
+        catch (Throwable t) { rc = -1; System.err.println("threw " + t); }
         finally { System.setOut(realOut); System.setErr(realErr); }
         return new Ran(rc, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
     }
