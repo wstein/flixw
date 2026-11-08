@@ -2652,20 +2652,19 @@ t 0 "...and wrote no project files anywhere it ran"              sh -c '
 g 0 'flixw 9.9.10' "...and the global launcher answers with that version, still with no project" \
   sh -c 'cd "$1" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
 
-# --upgrade moves to the newest published flixw. What the suite can assert is the guard
-# that keeps it from walking backwards -- and it must hold whether this version is newer
-# than the newest release (working on flixw) or exactly it (the commit a release was cut
-# from), which is why both no-op paths end in the same sentence.
-set +e
-upg=$(./flixw wrapper --upgrade 2>&1); rc=$?
-set -e
-case $rc:$upg in
-  0:*"Nothing to do"*)
-    pass=$((pass + 1)); printf '  ok   %-52s rc=%s\n' "upgrade declines to downgrade" "$rc" ;;
-  *)
-    fail=$((fail + 1)); printf '  FAIL %-52s rc=%s\n' "upgrade declines to downgrade" "$rc"
-    printf '       %s\n' "$(printf '%s' "$upg" | head -3 | tr '\n' '|')" ;;
-esac
+# The live latest release can fail independently of the guard (and can move ahead of
+# this checkout). Use the already-upgraded 9.9.9 project against this checkout's release
+# fixture: different verified bytes and an older version force the version guard rather
+# than the matching-digest shortcut. fileurl keeps the same case runnable in Git Bash.
+g 0 "newer than the newest release ($wrapper_version). Nothing to do" \
+  "upgrade declines to downgrade" sh -c '
+  cd "$1" && FLIXW_RELEASE_SOURCE="$2/" ./flixw wrapper --upgrade 2>&1' \
+  sh "$upgproj" "$relfixture_url"
+t 0 "...and the newer project stage 0 is untouched" sh -c '
+  cmp "$1/.flixw/flixw.java" "$2/flixw.java"' sh "$upgproj" "$newrel"
+g 0 "is the newest release. Nothing to do" \
+  "upgrade leaves an identical release in place" sh -c '
+  FLIXW_RELEASE_SOURCE="$1/" ./flixw wrapper --upgrade 2>&1' sh "$relfixture_url"
 
 # --- what install says afterwards -----------------------------------------
 echo "install advice"
