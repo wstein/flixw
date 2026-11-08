@@ -2247,6 +2247,14 @@ public final class UnitCheck {
         return i < 0 ? s : s.substring(0, i);
     }
 
+    interface Check { void run() throws Exception; }
+
+    /** Runs one group; an exception escaping it is one failed assertion, and the groups after it still run. */
+    static void guarded(String name, Check check) {
+        try { check.run(); }
+        catch (Throwable t) { bad(name + ": threw", String.valueOf(t)); }
+    }
+
     public static void main(String[] args) throws Exception {
         Path dir = Paths.get(args.length > 0 ? args[0] : "tests/corpus");
         Path fixtures = Paths.get(args.length > 1 ? args[1] : "tests/schema");
@@ -2269,8 +2277,8 @@ public final class UnitCheck {
         examplesGrammar();
         releaseChannel();
         releaseAssets();
-        curatedSpecs();
-        specErrors();
+        guarded("curatedSpecs", UnitCheck::curatedSpecs);
+        guarded("specErrors", UnitCheck::specErrors);
         unifiedHelpRouting();
         companionContract();
         editorJarPrefs();
