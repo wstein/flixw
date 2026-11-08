@@ -113,7 +113,7 @@ those cases. It reaches what the shell cannot: the manifest scanner over
 manifests, JDK selection and discovery in stage 0 plus the provisioner asset's own
 metadata parsing and platform coordinates, pin targets, verb capture against both help
 renderers, 33 lock fixtures and the lock schema against the hand-written validators,
-the bounds on `runCapture`, the four completion scripts with the note they read,
+the bounds on `runCapture`, the four completion scripts as static snapshots of the picocli model,
 `examples/` discovery and symlink containment, the verb-flags-before-`<name>` grammar
 (including a Windows-only regression: a `\r\n`-terminated `--help` silently lost every
 flag's arity until `captureHelp` started normalizing line endings), `autoRunBoundary`, and
@@ -127,7 +127,7 @@ manifest reading (`[package]` fields, bare-string and inline-table `[dependencie
 entries) and `.flixw/local/packages.toml` round-trip, the `tag_name` extraction
 `--upgrade --pre-release` reads out of a GitHub releases API response, and that every
 `WRAPPER_VERBS` entry renders a real description in `flixw-cli.java`'s `wrapperDesc`
-rather than the blank line `local` shipped with — 513 assertions in total.
+rather than the blank line `local` shipped with.
 Refresh the corpus with
 `sh tests/fetch-corpus.sh`; see `tests/corpus/README.md` before changing it.
 
