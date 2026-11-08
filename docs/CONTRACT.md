@@ -757,6 +757,40 @@ command starts reading one it did not before — this curation will not notice o
 `./flixw -- <verb> --help` always reaches the compiler directly for the unedited, current
 answer regardless.
 
+### The request to the renderer
+
+Stage 0 hands the renderer (`flixw-cli.java`) one temporary context file and positional
+arguments: `<context-file> <topic> [<name>] [<jvm-token>...]`. A help flag that is not plain
+`--help`/`-h` (such as `--Xhelp`) travels in the topic, name or first-token slot, and the
+renderer recognises it by its shape. The renderer is fetched per wrapper release and
+digest-verified against that release's `SHA256SUMS`, so the two halves ship together; they
+can still differ under `FLIXW_ASSET_SOURCE` or a source launch.
+
+The context file's first line is `contract=<n>`. This renderer reads contract 1.
+
+| contract | meaning |
+|---|---|
+| absent (0) | the layout before versioning: values raw, `fallbackVerbs` comma-separated; still read |
+| 1 | values escaped as in the tab rows (`\\`, `\t`, `\n`, `\r`); every verb list space-separated |
+| anything else (higher, non-numeric, empty) | refused: a diagnostic on stderr and exit 87 (the status `FLIXW008` also uses), nothing on stdout |
+
+A refused request ends differently by caller, and the diagnostic is printed on stderr in
+every case. `help ...` and `completion <shell>` exit 87. `<wrapper-verb> --help` (such as
+`pin --help`) prints its resident usage text and exits 0. `<compiler-verb> --help` falls
+back to the compiler's own screen and exits 0. `-- <verb> --help` never goes through the
+renderer.
+
+Keys: `flixwVersion`, `compilerVersion`, `upstream`, `compilerJar`, `javaExe`, `helpFile`,
+`compilerVerbs`, `fallbackVerbs`, `wrapperVerbs` (read), `projectRoot`, `cacheHome` (written,
+not read), and the `plugins:` and `tasks:` tables. A key that older readers can ignore is
+added without moving the number; changing what an existing key means moves it.
+
+**Known limit.** The positional arguments keep each token whole, but they are not
+slot-separated: when the topic or the name is absent, the first validated `FLIX_JVM_OPTS`
+token moves into that slot (`FLIX_JVM_OPTS=-Xmx512m ./flixw help` answers `no help topic
+'-Xmx512m'`, exit 89). Moving topic, name, help flag and JVM tokens into the context file
+would remove this and is not done here.
+
 ## Completion
 
 `./flixw completion bash|zsh|fish|pwsh` prints a TAB-completion script on stdout.
