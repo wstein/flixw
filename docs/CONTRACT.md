@@ -770,14 +770,15 @@ The context file's first line is `contract=<n>`. This renderer reads contract 1.
 
 | contract | meaning |
 |---|---|
-| absent (0) | the layout before versioning: values raw, `fallbackVerbs` comma-separated; still read |
-| 1 | values escaped as in the tab rows (`\\`, `\t`, `\n`, `\r`); every verb list space-separated |
-| anything else (higher, non-numeric, empty) | refused: a diagnostic on stderr and exit 87 (the status `FLIXW008` also uses), nothing on stdout |
+| absent, or `0` (also `-0`) | the layout before versioning: values raw, `fallbackVerbs` comma-separated; still read |
+| `1` (also `+1` and `01`, as Java parses integers) | values escaped as in the tab rows (`\\`, `\t`, `\n`, `\r`); every verb list space-separated |
+| anything else (higher, negative, non-numeric, empty, or with a leading or trailing space such as `" 1"`) | refused: a diagnostic on stderr and exit 87 (the status `FLIXW008` also uses), nothing on stdout |
 
 A refused request ends differently by caller, and the diagnostic is printed on stderr in
 every case. `help ...` and `completion <shell>` exit 87. `<wrapper-verb> --help` (such as
 `pin --help`) prints its resident usage text and exits 0. `<compiler-verb> --help` falls
-back to the compiler's own screen and exits 0. `-- <verb> --help` never goes through the
+back to the compiler's own screen and exits 0; `<compiler-verb> -h` and `--Xhelp` go to the
+compiler as typed and get its own answer to that argv (`Unknown option`, exit 1). `-- <verb> --help` never goes through the
 renderer.
 
 Keys: `flixwVersion`, `compilerVersion`, `upstream`, `compilerJar`, `javaExe`, `helpFile`,
