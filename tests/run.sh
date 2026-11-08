@@ -2665,6 +2665,22 @@ t 0 "...and the newer project stage 0 is untouched" sh -c '
 g 0 "is the newest release. Nothing to do" \
   "upgrade leaves an identical release in place" sh -c '
   FLIXW_RELEASE_SOURCE="$1/" ./flixw wrapper --upgrade 2>&1' sh "$relfixture_url"
+# Same version, different bytes: the digest shortcut does not apply, so the version guard
+# decides. A release that carries this wrapper's version is not newer and is left alone.
+samerel=$work/release-sameversion
+rm -rf "$samerel" && mkdir -p "$samerel"
+cp "$relfixture/flixw.java" "$samerel/flixw.java"
+printf '\n// same version, other bytes\n' >> "$samerel/flixw.java"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$samerel" && sha256sum flixw.java > SHA256SUMS)
+else
+  (cd "$samerel" && shasum -a 256 flixw.java > SHA256SUMS)
+fi
+cp "$proj/.flixw/flixw.java" "$work/same-before.java"
+g 0 "newer than the newest release ($wrapper_version). Nothing to do" \
+  "upgrade leaves a same-version release with other bytes in place" sh -c '
+  FLIXW_RELEASE_SOURCE="$1/" ./flixw wrapper --upgrade 2>&1' sh "$(fileurl "$samerel")"
+t 0 "...and the stage 0 is untouched" sh -c 'cmp "$1/.flixw/flixw.java" "$2"' sh "$proj" "$work/same-before.java"
 
 # --- what install says afterwards -----------------------------------------
 echo "install advice"
