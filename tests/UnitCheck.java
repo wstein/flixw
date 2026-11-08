@@ -865,6 +865,97 @@ public final class UnitCheck {
         }
     }
 
+    /** A context file for a project on Flix {@code version} whose compiler lists check, build and run. */
+    static Path specCtx(String version) throws IOException {
+        Path helpFile = Files.createTempFile("uc-spec-help-", ".txt");
+        Files.writeString(helpFile, "Usage: flix [check|build|run]\nCommand: check\nCommand: build\nCommand: run\n");
+        Path ctx = Files.createTempDirectory("uc-spec-ctx-").resolve("ctx.txt");
+        Files.writeString(ctx, "flixwVersion=0.34.9\ncompilerVersion=" + version + "\nupstream=true\n"
+            + "helpFile=" + helpFile + "\ncompilerVerbs=check build run\n"
+            + "wrapperVerbs=pin info doctor validate help task\n\nplugins:\n\ntasks:\n");
+        return ctx;
+    }
+
+    /** Runs {@code body} with {@code -Dflixw.specs.dir} set to {@code dir}, then puts the old value back. */
+    static void withSpecsDir(Path dir, Check body) throws Exception {
+        String prev = System.getProperty("flixw.specs.dir");
+        System.setProperty("flixw.specs.dir", dir.toString());
+        try { body.run(); }
+        finally { if (prev == null) System.clearProperty("flixw.specs.dir"); else System.setProperty("flixw.specs.dir", prev); }
+    }
+
+    static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).startsWith("windows");
+    }
+
+    /** One spec file that is there and cannot be used is broken on every route, whatever way it is unusable. */
+    static void specClassification() throws Exception {
+        Path ctx = specCtx("0.76.2");
+        // Bytes that are not UTF-8: decoding must refuse them rather than substitute U+FFFD.
+        Path badBytes = Files.createTempDirectory("uc-spec-bytes-");
+        Files.write(badBytes.resolve("flix-0.76.2.picocli"), new byte[]{'c', 'o', 'm', (byte) 0xC3, (byte) 0x28});
+        // A directory where the file belongs.
+        Path asDir = Files.createTempDirectory("uc-spec-asdir-");
+        Files.createDirectory(asDir.resolve("flix-0.76.2.picocli"));
+        Object[][] broken = {{"invalid UTF-8", badBytes}, {"a directory in place of the file", asDir}};
+        for (Object[] k : broken) {
+            withSpecsDir((Path) k[1], () -> {
+                Ran r = runCaptured(ctx.toString(), "completion", "bash");
+                eq("spec: " + k[0] + " refuses completion", "89", String.valueOf(r.rc));
+                eq("spec: " + k[0] + " writes no script", "", r.out);
+            });
+        }
+        if (!isWindows()) {
+            // A link whose target is gone: the file is named, so it is present and unreadable.
+            Path dangling = Files.createTempDirectory("uc-spec-dangling-");
+            try {
+                Files.createSymbolicLink(dangling.resolve("flix-0.76.2.picocli"), dangling.resolve("nowhere"));
+                withSpecsDir(dangling, () -> eq("spec: a dangling link refuses completion", "89",
+                    String.valueOf(runCaptured(ctx.toString(), "completion", "bash").rc)));
+            } catch (UnsupportedOperationException | IOException e) {
+                // the file system has no symbolic links; nothing to classify
+            }
+        }
+    }
+
+    /** The reason names the exception type, because for I/O failures the message alone is a path or a byte count. */
+    static void specReasons() throws Exception {
+        Path ctx = specCtx("0.76.2");
+        Path badBytes = Files.createTempDirectory("uc-spec-bytes-");
+        Files.write(badBytes.resolve("flix-0.76.2.picocli"), new byte[]{'c', 'o', 'm', (byte) 0xC3, (byte) 0x28});
+        withSpecsDir(badBytes, () -> eq("spec reason: invalid UTF-8 names its type", "true",
+            String.valueOf(runCaptured(ctx.toString(), "completion", "bash").err.contains("MalformedInputException"))));
+        if (!isWindows()) {
+            Path locked = Files.createTempDirectory("uc-spec-locked-");
+            Path f = locked.resolve("flix-0.76.2.picocli");
+            Files.writeString(f, "command flix \"x\" {}\n");
+            f.toFile().setReadable(false, false);
+            try {
+                // Root reads it anyway; the case only exists where the permission is enforced.
+                if (!Files.isReadable(f))
+                    withSpecsDir(locked, () -> {
+                        Ran r = runCaptured(ctx.toString(), "completion", "bash");
+                        eq("spec reason: an unreadable file refuses completion", "89", String.valueOf(r.rc));
+                        eq("spec reason: an unreadable file names its type", "true",
+                           String.valueOf(r.err.contains("AccessDeniedException")));
+                    });
+            } finally { f.toFile().setReadable(true, false); }
+        }
+    }
+
+    /** A broken spec is a defect in the release, so the message says how to get a corrected one. */
+    static void specRepair() throws Exception {
+        Path junk = Files.createTempDirectory("uc-spec-junk-");
+        Files.writeString(junk.resolve("flix-0.76.2.picocli"), "this is not a spec {{{\n");
+        Path ctx = specCtx("0.76.2");
+        withSpecsDir(junk, () -> {
+            eq("spec repair: completion names the command", "true", String.valueOf(
+                runCaptured(ctx.toString(), "completion", "bash").err.contains("run: ./flixw wrapper --upgrade")));
+            eq("spec repair: help names the command", "true", String.valueOf(
+                runCaptured(ctx.toString()).err.contains("run: ./flixw wrapper --upgrade")));
+        });
+    }
+
     /**
      * Stage 0's request to the help companion, produced by the real {@code helpContext} and
      * read by the real {@code Ctx.read}: what the producer writes is what the consumer gets.
@@ -2279,6 +2370,9 @@ public final class UnitCheck {
         releaseAssets();
         guarded("curatedSpecs", UnitCheck::curatedSpecs);
         guarded("specErrors", UnitCheck::specErrors);
+        guarded("specClassification", UnitCheck::specClassification);
+        guarded("specReasons", UnitCheck::specReasons);
+        guarded("specRepair", UnitCheck::specRepair);
         unifiedHelpRouting();
         companionContract();
         editorJarPrefs();
