@@ -813,6 +813,9 @@ public final class UnitCheck {
         System.setErr(new java.io.PrintStream(err, true, StandardCharsets.UTF_8));
         try { flixwcli.run(new String[]{plain.toString(), "build"}); }
         finally { System.setErr(realErr); }
+        flixwcli.Ctx none = flixwcli.Ctx.read(plain);
+        eq("contract: an absent root is empty, not 'null'", "", none.get("projectRoot"));
+        eq("contract: an absent jar is empty, not 'null'", "", none.get("compilerJar"));
         eq("contract: a fallback verb is a help topic", "false",
            String.valueOf(err.toString(StandardCharsets.UTF_8).contains("no help topic")));
 
