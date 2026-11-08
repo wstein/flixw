@@ -792,6 +792,14 @@ token moves into that slot (`FLIX_JVM_OPTS=-Xmx512m ./flixw help` answers `no he
 '-Xmx512m'`, exit 89). Moving topic, name, help flag and JVM tokens into the context file
 would remove this and is not done here.
 
+**A broken curated spec degrades help, loudly.** Absent specs fall back to the compiler's own
+`--help` without a word. A spec that is present and unusable (unparsable, or colliding with the
+tree) prints `flixw: warning:` once on stderr per run, naming the spec file, the Flix version
+and the reason, on the screens that read the spec: `help` (the overview is built without it),
+`help flix <command>` and `<command> --help` (the compiler's raw text). Wrapper-verb screens
+read no spec and print no warning. Exit status is
+unchanged. `completion` does not degrade; see above.
+
 ## Completion
 
 `./flixw completion bash|zsh|fish|pwsh` prints a TAB-completion script on stdout.
@@ -823,6 +831,14 @@ compiler's node and takes none of the wrapper's arguments. The `task` node is in
 but this project's task names are not: `.flixw/tasks.toml` is edited far more often than the
 compiler is pinned, so a script that baked them in would go stale without saying so. `./flixw
 help` reads the file as it is and lists them; `./flixw task` prints the current names.
+
+**An absent curated spec is not a broken one.** No spec for the pinned version, or no
+`flixw-specs.jar`, is the ordinary case: the script is built from the compiler's own `--help`
+and nothing is said. A spec that is *there* but cannot be parsed, or whose options collide with
+the command tree, fails the command: nothing on stdout, a diagnostic on stderr naming the spec
+file, the Flix version and the parser's reason, exit 89. A script generated from half a model
+would be installed into a shell and found out later, so none is written. A collision keeps the
+tree's own option, reports each clash, and still counts as a failure for completion.
 
 bash, zsh and fish come from picocli's own `AutoComplete`; PowerShell is the one flixw
 implementation still walking that model. `cmd.exe` gets nothing — it has no per-command

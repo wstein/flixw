@@ -30,6 +30,6 @@ the compiler's own `--help` text, so an uncurated or custom build never breaks.
 `flixw-cli.java` does not hardcode any spec text blocks in Java source code. Instead, `loadSpec(version)` resolves specs dynamically:
 1. **Release asset**: `tests/pack.sh` builds every file here into `flixw-specs.jar` (via `tests/specs.sh`), published and digest-verified like every other asset. Stage 0 puts it on the renderer's class path, where `loadSpec` reads `/specs/flix-<version>.picocli`. Not bundled into `picocli.jar`: Flix's command line is flixw's data, and a new Flix release should need a flixw release, not a library one.
 2. **Unit checks**: `-Dflixw.specs.dir` points `tests/UnitCheck.java` at this directory.
-3. **Graceful regex fallback**: No spec for the version, or no `flixw-specs.jar` in the release, falls back to regex-parsed `--help` output.
+3. **Graceful regex fallback**: No spec for the version, or no `flixw-specs.jar` in the release, falls back to regex-parsed `--help` output. A spec that is present but cannot be parsed, or collides with the command tree, is not "no spec": help warns on stderr (file, version, reason) and falls back, and `completion` exits 89 without writing a script.
 
 Adding a file here means naming it in `SPECS` in `flixw-cli.java` too; `tests/UnitCheck.java` fails if the two disagree.
