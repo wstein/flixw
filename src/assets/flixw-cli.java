@@ -682,11 +682,19 @@ final class flixwcli {
         return first.isEmpty() ? type : type + ": " + first;
     }
 
+    /**
+     * What repairs a broken curated spec. It ships inside the release's {@code flixw-specs.jar},
+     * so only a release with a corrected one helps; a damaged cached copy is re-fetched by its
+     * digest without anyone asking. {@code FLIX_JAR} sidesteps the spec but is not a repair.
+     */
+    static final String SPEC_REPAIR = "       run: ./flixw wrapper --upgrade   (a newer release carries a corrected spec)";
+
     /** Help's half of the policy: say what is wrong, then carry on without the spec. */
     static void warnSpec(SpecError e) {
         System.err.println("flixw: warning: " + e.getMessage());
         System.err.println("       help is rendered without it, from the compiler's own help;"
                          + " completion refuses to run until it is fixed.");
+        System.err.println(SPEC_REPAIR);
     }
 
     /**
@@ -1268,6 +1276,7 @@ final class flixwcli {
             System.err.println("flixw: " + e.getMessage());
             System.err.println("       no completion script was written: one generated without the"
                              + " spec would be missing options and not say so.");
+            System.err.println(SPEC_REPAIR);
             throw new Exit(89);
         }
         switch (shell) {
