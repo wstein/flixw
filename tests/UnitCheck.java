@@ -988,9 +988,9 @@ public final class UnitCheck {
         Path ctx = specCtx("0.76.2");
         withSpecsDir(junk, () -> {
             eq("spec repair: completion names the command", "true", String.valueOf(
-                runCaptured(ctx.toString(), "completion", "bash").err.contains("run: ./flixw wrapper --upgrade")));
+                runCaptured(ctx.toString(), "completion", "bash").err.contains("run: ./flixw wrapper --upgrade   (once a newer release carries a corrected spec)")));
             eq("spec repair: help names the command", "true", String.valueOf(
-                runCaptured(ctx.toString()).err.contains("run: ./flixw wrapper --upgrade")));
+                runCaptured(ctx.toString()).err.contains("run: ./flixw wrapper --upgrade   (once a newer release carries a corrected spec)")));
         });
     }
 
