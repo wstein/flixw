@@ -221,7 +221,8 @@ final class flixwcli {
             String section = null;
             for (String line : Files.readAllLines(p, StandardCharsets.UTF_8)) {
                 if (line.isBlank()) continue;
-                if (line.endsWith(":") && !line.contains("=")) {
+                // A row has a tab; a task such as "echo Next steps:" ends in a colon too.
+                if (line.endsWith(":") && !line.contains("=") && !line.contains("\t")) {
                     section = line.substring(0, line.length() - 1);
                     c.sections.put(section, new ArrayList<>());
                 } else if (section != null) {
