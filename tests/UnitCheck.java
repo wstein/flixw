@@ -745,6 +745,101 @@ public final class UnitCheck {
         }
     }
 
+    /** Exit status, stdout and stderr of one renderer run. */
+    record Ran(int rc, String out, String err) { }
+
+    static Ran runCaptured(String... args) throws Exception {
+        java.io.PrintStream realOut = System.out, realErr = System.err;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        java.io.ByteArrayOutputStream err = new java.io.ByteArrayOutputStream();
+        System.setOut(new java.io.PrintStream(out, true, StandardCharsets.UTF_8));
+        System.setErr(new java.io.PrintStream(err, true, StandardCharsets.UTF_8));
+        int rc;
+        try { rc = flixwcli.run(args); }
+        finally { System.setOut(realOut); System.setErr(realErr); }
+        return new Ran(rc, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * A missing curated spec, a broken one and a composition collision are three different
+     * situations. Absent is the ordinary case and degrades without a word; broken and colliding
+     * are defects in what was shipped, and are said out loud: a completion script is refused
+     * (a script generated from half a model is installed into a shell and found out later), while
+     * interactive help keeps working from the compiler's own help and warns on stderr.
+     *
+     * <p>Only files are written and no path is built from a control character, so every
+     * platform runs the same cases; paths are compared by file name, not by separator.
+     */
+    static void specErrors() throws Exception {
+        Path helpFile = Files.createTempFile("uc-spec-help-", ".txt");
+        Files.writeString(helpFile, "Usage: flix [check|build|run]\nCommand: check\nCommand: build\nCommand: run\n");
+        String prev = System.getProperty("flixw.specs.dir");
+        try {
+            Path none = Files.createTempDirectory("uc-spec-none-");
+            Path dup = Files.createTempDirectory("uc-spec-dup-");
+            Files.writeString(dup.resolve("flix-0.76.2.picocli"),
+                "command flix \"The Flix 0.76.2\" {\n  option --dup : boolean \"x\"\n  option --dup : boolean \"y\"\n"
+              + "  command check \"checks.\" {}\n}\n");
+            Path junk = Files.createTempDirectory("uc-spec-junk-");
+            Files.writeString(junk.resolve("flix-0.76.2.picocli"), "this is not a spec {{{\n");
+
+            for (String version : new String[]{"0.76.2", "0.99.0"}) {
+                Path ctx = Files.createTempDirectory("uc-spec-ctx-").resolve("ctx.txt");
+                Files.writeString(ctx, "flixwVersion=0.34.9\ncompilerVersion=" + version + "\nupstream=true\n"
+                    + "helpFile=" + helpFile + "\ncompilerVerbs=check build run\n"
+                    + "wrapperVerbs=pin info doctor validate help task\n\nplugins:\n\ntasks:\n");
+                Object[][] cases = {
+                    {"absent (empty directory)", none, false},
+                    {"duplicate option", dup, true},
+                    {"unparsable", junk, true},
+                };
+                for (Object[] k : cases) {
+                    String label = "specs: " + version + " " + k[0] + ": ";
+                    // 0.99.0 has no curated spec at all, so no directory can make it broken.
+                    boolean broken = (Boolean) k[2] && version.equals("0.76.2");
+                    System.setProperty("flixw.specs.dir", k[1].toString());
+                    Ran comp = runCaptured(ctx.toString(), "completion", "bash");
+                    Ran help = runCaptured(ctx.toString());
+                    Ran verb = runCaptured(ctx.toString(), "flix", "check");
+                    if (!broken) {
+                        eq(label + "completion succeeds", "0", String.valueOf(comp.rc));
+                        eq(label + "completion offers the compiler's verbs", "true",
+                           String.valueOf(comp.out.contains("check") && comp.out.contains("build")));
+                        eq(label + "completion says nothing on stderr", "", comp.err);
+                        eq(label + "help succeeds", "0", String.valueOf(help.rc));
+                        eq(label + "help says nothing on stderr", "", help.err);
+                        eq(label + "help <verb> says nothing on stderr", "", verb.err);
+                        continue;
+                    }
+                    for (String shell : new String[]{"bash", "zsh", "fish", "pwsh"}) {
+                        Ran r = runCaptured(ctx.toString(), "completion", shell);
+                        eq(label + shell + " completion is refused", "89", String.valueOf(r.rc));
+                        eq(label + shell + " completion writes no script", "", r.out);
+                        eq(label + shell + " completion names the spec file", "true",
+                           String.valueOf(r.err.contains("flix-0.76.2.picocli")));
+                        eq(label + shell + " completion names the compiler version", "true",
+                           String.valueOf(r.err.contains("0.76.2")));
+                    }
+                    if (k[1] == dup)
+                        eq(label + "completion carries the parser's own reason", "true",
+                           String.valueOf(comp.err.contains("--dup")));
+                    eq(label + "help still succeeds", "0", String.valueOf(help.rc));
+                    eq(label + "help still shows the compiler's verbs", "true",
+                       String.valueOf(help.out.contains("check") && help.out.contains("build")));
+                    eq(label + "help warns about the spec file", "true",
+                       String.valueOf(help.err.contains("flix-0.76.2.picocli") && help.err.contains("warning")));
+                    eq(label + "help warns once", "1", String.valueOf(help.err.split("warning", -1).length - 1));
+                    eq(label + "help <verb> falls back to the raw help", "true",
+                       String.valueOf(verb.rc == 0 && verb.out.contains("Command: check")));
+                    eq(label + "help <verb> warns about the spec file", "true",
+                       String.valueOf(verb.err.contains("flix-0.76.2.picocli") && verb.err.contains("warning")));
+                }
+            }
+        } finally {
+            if (prev == null) System.clearProperty("flixw.specs.dir"); else System.setProperty("flixw.specs.dir", prev);
+        }
+    }
+
     /**
      * Stage 0's request to the help companion, produced by the real {@code helpContext} and
      * read by the real {@code Ctx.read}: what the producer writes is what the consumer gets.
@@ -2150,6 +2245,7 @@ public final class UnitCheck {
         releaseChannel();
         releaseAssets();
         curatedSpecs();
+        specErrors();
         unifiedHelpRouting();
         companionContract();
         editorJarPrefs();
