@@ -745,6 +745,67 @@ public final class UnitCheck {
         }
     }
 
+    /**
+     * Stage 0's request to the help companion, produced by the real {@code helpContext} and
+     * read by the real {@code Ctx.read}: what the producer writes is what the consumer gets.
+     *
+     * <p>Every list and every free-text value crosses the boundary here, because the two
+     * halves are written in different files and agreed on by comment alone.
+     */
+    static void companionContract() throws Exception {
+        // Tab and newline are legal in a Unix path and rejected by Windows (InvalidPathException),
+        // so those paths are built only off Windows; there a backslash and spaces stand in. The
+        // escape round trip over strings alone is checked on every platform just below.
+        boolean win = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
+                            .startsWith("windows");
+        Path root = Paths.get(win ? "C:\\uc root\\back\\slash" : "/tmp/uc root\ttab\\back\nnl");
+        Path jar = Paths.get(win ? "C:\\uc jar dir\\flix jar.jar" : "/tmp/uc jar dir/flix\ttab\nnl.jar");
+        Path javaExe = Paths.get(win ? "C:\\uc java\\bin\\java.exe" : "/opt/uc java\\bin/java");
+        String desc = "two words\ttab \\n literal\nnewline";
+        flixw.Lock lock = new flixw.Lock("0.75.3", "https://x/f.jar", "a".repeat(64),
+            "flix/flix", null, null, java.util.Map.of("m",
+                new flixw.PluginDep("1.0.0", "b".repeat(64), "https://x/p.jar", desc, "metrics")));
+        List<String> verbs = List.of("check", "build", "run");
+        Path file = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
+        Files.writeString(file, flixw.helpContext(root, lock, jar,
+            new flixw.Jvm(javaExe, 21, "test"), verbs, null, false), StandardCharsets.UTF_8);
+        flixwcli.Ctx c = flixwcli.Ctx.read(file);
+
+        List<String> fallback = new ArrayList<>(flixw.WRAPPER_VERBS);
+        for (String v : flixw.BUILTIN_VERBS) if (!fallback.contains(v)) fallback.add(v);
+        java.util.Collections.sort(fallback);
+        eq("contract: fallbackVerbs keeps every verb", String.join("|", fallback),
+           String.join("|", c.words("fallbackVerbs")));
+        eq("contract: compilerVerbs keeps every verb", "check|build|run",
+           String.join("|", c.words("compilerVerbs")));
+        eq("contract: projectRoot survives its special characters", root.toString(),
+           c.get("projectRoot"));
+        eq("contract: compilerJar survives", jar.toString(), c.get("compilerJar"));
+        eq("contract: javaExe survives", javaExe.toString(), c.get("javaExe"));
+        List<String[]> plugins = c.rows("plugins");
+        eq("contract: one plugin row", "1", String.valueOf(plugins.size()));
+        if (plugins.size() == 1) {
+            eq("contract: plugin row keeps six fields", "6", String.valueOf(plugins.get(0).length));
+            eq("contract: plugin description survives", desc,
+               plugins.get(0).length > 4 ? plugins.get(0)[4] : "(missing)");
+            eq("contract: plugin command survives", "metrics",
+               plugins.get(0).length > 5 ? plugins.get(0)[5] : "(missing)");
+        }
+
+        // What a person sees: help for a stock verb while no compiler layout was parsed.
+        Path plain = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
+        Files.writeString(plain, flixw.helpContext(null, null, null, null, List.of(), null, false),
+                          StandardCharsets.UTF_8);
+        java.io.PrintStream realErr = System.err;
+        java.io.ByteArrayOutputStream err = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(err, true, StandardCharsets.UTF_8));
+        try { flixwcli.run(new String[]{plain.toString(), "build"}); }
+        finally { System.setErr(realErr); }
+        eq("contract: a fallback verb is a help topic", "false",
+           String.valueOf(err.toString(StandardCharsets.UTF_8).contains("no help topic")));
+
+    }
+
     static void unifiedHelpRouting() throws Exception {
         Path ctx = Files.createTempDirectory("uc-help-").resolve("ctx.txt");
         Files.writeString(ctx, "flixwVersion=0.34.9\n");
@@ -2030,6 +2091,7 @@ public final class UnitCheck {
         releaseAssets();
         curatedSpecs();
         unifiedHelpRouting();
+        companionContract();
         editorJarPrefs();
         localCompilerPrefs();
         pluginDescription();
