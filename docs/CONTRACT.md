@@ -879,8 +879,15 @@ would be installed into a shell and found out later, so none is written. A colli
 tree's own option, reports each clash, and still counts as a failure for completion.
 
 bash, zsh and fish come from picocli's own `AutoComplete`; PowerShell is the one flixw
-implementation still walking that model. `cmd.exe` gets nothing — it has no per-command
-completion mechanism to hook.
+implementation still walking that model. Its script holds one table row per command path,
+written from the model, and the completer resolves the active path from the command AST: the
+words before the cursor, quotes removed, with a word that names a subcommand moving to that
+node and an option that takes a value consuming the word after it. TAB then offers that node's
+subcommands, positional values and options, plus options inherited from its ancestors, and
+nothing else: `doctor` offers `--fix` and not `pin`'s `--refresh`, and `examples local` offers
+its own verbs. In an option's value position, and after `--`, it offers nothing, so PowerShell
+completes file names. `cmd.exe` gets nothing — it has no per-command completion mechanism to
+hook.
 
 Generating a script needs **no project**. It is what somebody runs while setting up a shell,
 routinely before any flixw project exists on the machine; outside a project the tree is the
