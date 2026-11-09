@@ -1410,6 +1410,24 @@ public final class UnitCheck {
         eq("pwsh: a nested node does not inherit an option left unscoped", "false",
            String.valueOf(inhLeaf.contains("--rootonly")));
 
+        // Only a required value is a slot: an option whose value is optional (arity 0..1) is
+        // followed by an ordinary candidate, as docs/CONTRACT.md says of `wrapper --purge [days]`.
+        var arRoot = picocli.CommandLine.Model.CommandSpec.create().name("flixw");
+        arRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--must").arity("1").build());
+        arRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--maybe").arity("0..1").build());
+        arRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--flag").build());
+        StringBuilder arOut = new StringBuilder();
+        java.io.PrintStream arReal = System.out;
+        System.setOut(new java.io.PrintStream(new java.io.ByteArrayOutputStream() {
+            @Override public synchronized void write(byte[] b, int o, int l) {
+                arOut.append(new String(b, o, l, StandardCharsets.UTF_8));
+            }
+        }, true, StandardCharsets.UTF_8));
+        try { flixwcli.pwsh(arRoot); } finally { System.setOut(arReal); }
+        eq("pwsh: only a required value is a value slot",
+           "$global:flixwNodes[''] = @{ c = @(); o = @('--must','--maybe','--flag'); v = @('--must') }",
+           arOut.toString().lines().filter(l -> l.startsWith("$global:flixwNodes[''] = ")).findFirst().orElse(""));
+
         // Compiler-first: a verb the pinned compiler implements keeps the compiler's node, and
         // the wrapper's arguments for the same word do not leak onto it.
         // Two contexts: stage 0 already takes compiler verbs out of wrapperVerbs (the second), and

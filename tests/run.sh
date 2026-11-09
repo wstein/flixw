@@ -2263,7 +2263,7 @@ if command -v pwsh >/dev/null 2>&1; then
   t 0 "pwsh completes inside an open double quote"  pw_has   'flixw "pi' pin
   t 0 "pwsh matches verbs case-sensitively"         pw_lacks "flixw DOCTOR " --fix
   t 0 "pwsh offers the root after an unknown word"  pw_has   "flixw DOCTOR " doctor pin
-  t 0 "pwsh optional option values are not slots"   pw_has   "flixw wrapper --purge " --schema
+  t 0 "pwsh --purge (no value in the model) is no slot" pw_has   "flixw wrapper --purge " --schema
   t 0 "pwsh --install-jdk takes no value"           pw_has   "flixw wrapper --install-jdk " --version
   t 0 "pwsh completes the shell names"              pw_has   "flixw completion " bash zsh fish pwsh
   t 0 "pwsh registers for flixw.cmd too"            pw_has   "flixw.cmd doctor " --fix
