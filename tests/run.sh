@@ -2185,22 +2185,45 @@ if command -v pwsh >/dev/null 2>&1; then
   pwd_native() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
   mkdir -p "$work/pwdir"
   ./flixw completion pwsh > "$work/c.ps1"
-  # pw_words <line>: what the completer offers after <line>, space separated. pwsh prints the
-  # words in brackets, so a crash or silence is a failure here and not "nothing offered".
+  # pw_words <line> [script] [process]: candidates, with optional fault fixtures below.
+  # CompleteInput catches completer exceptions internally, so status alone is insufficient:
+  # inspect PowerShell's error state as well, before accepting even an empty bracket frame.
   pw_words() {
     pw_out=$( cd "$work/pwdir" &&
-      PW_SCRIPT=$(pwd_native "$work/c.ps1") PW_LINE=$1 pwsh -NoProfile -NonInteractive -Command '
+      PW_SCRIPT=$(pwd_native "${2:-$work/c.ps1}") PW_LINE=$1 "${3:-pwsh}" -NoProfile -NonInteractive -Command '
+        $ErrorActionPreference = "Stop"
+        $Error.Clear()
         . $env:PW_SCRIPT
         $l = $env:PW_LINE
         $w = ([System.Management.Automation.CommandCompletion]::CompleteInput($l, $l.Length, $null)).CompletionMatches |
           ForEach-Object { $_.CompletionText }
-        "[" + ($w -join " ") + "]"' | tr -d '\r' ) || return 1
+        if ($Error.Count) {
+          [Console]::Error.WriteLine(($Error | Out-String))
+          exit 1
+        }
+        "[" + ($w -join " ") + "]"' ) || return 1
+    pw_out=$(printf '%s' "$pw_out" | tr -d '\r')
     case $pw_out in "["*"]") pw_out=${pw_out#[}; pw_out=${pw_out%]}; printf '%s\n' "$pw_out" ;; *) return 1 ;; esac
   }
   # pw_has <line> <word>... / pw_lacks <line> <word>... / pw_none <line>
   pw_has()   { l=$1; shift; o=$(pw_words "$l") || return 1; o=" $o "; for w in "$@"; do case $o in *" $w "*) ;; *) return 1 ;; esac; done; }
   pw_lacks() { l=$1; shift; o=$(pw_words "$l") || return 1; o=" $o "; for w in "$@"; do case $o in *" $w "*) return 1 ;; esac; done; }
-  pw_none()  { o=$(pw_words "$1") || return 1; test -z "$(printf '%s' "$o" | tr -d ' ')"; }
+  pw_none()  { o=$(pw_words "$@") || return 1; test -z "$(printf '%s' "$o" | tr -d ' ')"; }
+  # Exercise the evidence reader too: a successful empty answer differs from a parser,
+  # registration, completer or process failure, even when that process prints brackets.
+  printf '%s\n' "Register-ArgumentCompleter -Native -CommandName flixw -ScriptBlock { }" > "$work/pw-empty.ps1"
+  printf '%s\n' "Register-ArgumentCompleter -Native -CommandName flixw -ScriptBlock { throw 'completer failed' }" > "$work/pw-completion-error.ps1"
+  printf '%s\n' "throw 'registration failed'" > "$work/pw-registration-error.ps1"
+  printf '%s\n' '{' > "$work/pw-parse-error.ps1"
+  pw_rejects() { if pw_words "$@"; then return 1; fi; }
+  pw_failed_process() { printf '[]\n'; return 42; }
+  pw_silent_process() { return 0; }
+  t 0 "pwsh harness accepts a genuine empty answer" pw_none "flixw " "$work/pw-empty.ps1"
+  t 0 "pwsh harness rejects completer errors"       pw_rejects "flixw " "$work/pw-completion-error.ps1"
+  t 0 "pwsh harness rejects registration errors"    pw_rejects "flixw " "$work/pw-registration-error.ps1"
+  t 0 "pwsh harness rejects parser errors"          pw_rejects "flixw " "$work/pw-parse-error.ps1"
+  t 0 "pwsh harness rejects framed process failure" pw_rejects "flixw " "$work/c.ps1" pw_failed_process
+  t 0 "pwsh harness rejects silent success"         pw_rejects "flixw " "$work/c.ps1" pw_silent_process
   t 0 "pwsh root offers verbs"                      pw_has   "flixw " doctor pin examples
   t 0 "pwsh root offers no option of another verb"  pw_lacks "flixw " --fix --refresh --java
   t 0 "pwsh completes a verb prefix"                pw_has   "flixw pi" pin
