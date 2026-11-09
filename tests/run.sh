@@ -2214,6 +2214,9 @@ if command -v pwsh >/dev/null 2>&1; then
   t 0 "pwsh reads a quoted verb"                    pw_has   "flixw 'doctor' --f" --fix
   t 0 "pwsh reads a double-quoted nested path"      pw_has   "flixw \"examples\" 'local' " run
   t 0 "pwsh joined option value is not a value slot" pw_has  "flixw pin --editor-jar=copy --re" --refresh
+  t 0 "pwsh offers nothing after --"                pw_none  "flixw pin -- "
+  t 0 "pwsh completes inside an open quote"        pw_has   "flixw 'pi" pin
+  t 0 "pwsh completes inside an open double quote"  pw_has   'flixw "pi' pin
   t 0 "pwsh completes the shell names"              pw_has   "flixw completion " bash zsh fish pwsh
   t 0 "pwsh registers for flixw.cmd too"            pw_has   "flixw.cmd doctor " --fix
 else

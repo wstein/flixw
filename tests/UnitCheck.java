@@ -1386,6 +1386,30 @@ public final class UnitCheck {
            String.valueOf(forScript.subcommands().get("pin").getCommandSpec()
                                    .optionsMap().containsKey("--refresh")));
 
+        // The PowerShell table gives a node the options its ancestors scope as inherited, and
+        // only those. No node in the real tree scopes one, so a model that does is built here.
+        var inhRoot = picocli.CommandLine.Model.CommandSpec.create().name("flixw");
+        inhRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--shared").arity("1")
+            .scopeType(picocli.CommandLine.ScopeType.INHERIT).build());
+        inhRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--rootonly").build());
+        var inhMid = picocli.CommandLine.Model.CommandSpec.create().name("mid");
+        inhRoot.addSubcommand("mid", new picocli.CommandLine(inhMid));
+        inhMid.addSubcommand("leaf", new picocli.CommandLine(
+            picocli.CommandLine.Model.CommandSpec.create().name("leaf")));
+        StringBuilder inhOut = new StringBuilder();
+        java.io.PrintStream inhReal = System.out;
+        System.setOut(new java.io.PrintStream(new java.io.ByteArrayOutputStream() {
+            @Override public synchronized void write(byte[] b, int o, int l) {
+                inhOut.append(new String(b, o, l, StandardCharsets.UTF_8));
+            }
+        }, true, StandardCharsets.UTF_8));
+        try { flixwcli.pwsh(inhRoot); } finally { System.setOut(inhReal); }
+        String inhLeaf = inhOut.toString().lines().filter(l -> l.startsWith("    'mid leaf' = ")).findFirst().orElse("");
+        eq("pwsh: a nested node inherits the option and its value slot",
+           "    'mid leaf' = @{ c = @(); o = @('--shared'); v = @('--shared') }", inhLeaf);
+        eq("pwsh: a nested node does not inherit an option left unscoped", "false",
+           String.valueOf(inhLeaf.contains("--rootonly")));
+
         // Compiler-first: a verb the pinned compiler implements keeps the compiler's node, and
         // the wrapper's arguments for the same word do not leak onto it.
         // Two contexts: stage 0 already takes compiler verbs out of wrapperVerbs (the second), and
