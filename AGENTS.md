@@ -995,7 +995,8 @@ These come from the paper's prototype contract (§5) and are easy to break accid
   the `pwsh` script, which registers against the existing `flixw.cmd`; **the trampoline does
   not move to a `.ps1`**, because a `.ps1` is not invokable as a bare command from `cmd.exe`
   or a build tool and a Group-Policy execution policy can make one administratively
-  unrunnable. The pwsh registration is verified against real `pwsh` by hand, not in CI.
+  unrunnable. The pwsh completer is executed by the suite where `pwsh` is on the `PATH`, which CI's Linux and
+  Windows suite jobs provide; Windows PowerShell 5.1 is unchecked.
 - GitHub Pages needs two pieces of repository configuration that no workflow can supply and
   no failure message names: the site must exist with Actions as its source, and the
   `github-pages` environment must allow `v*` **tags**, since GitHub creates it allowing the
