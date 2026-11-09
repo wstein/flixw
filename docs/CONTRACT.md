@@ -653,6 +653,26 @@ installation, the other being `./flixw doctor --fix`. The bare
 verbs above collide with names Flix could claim *on purpose*; rewriting flixw's own files
 never will, so it does not compete for one.
 
+**The overview and the completions show stage 0's routing, not a copy of it.** Stage 0 decides
+each word once (`owner`: `compiler`, `wrapper` or `plugin`), dispatches on that answer, and
+sends the same answers to the renderer as the context key `owners` (`verb=owner`, space
+separated, one entry per word the screen can list). The renderer reads the key and groups,
+attaches and completes by it; it decides nothing about who answers a word, and it never
+parses compiler argv. The answers include the exceptions a verb list does not show:
+
+- `wrapper` is the wrapper's even when the compiler implements the word, whatever the backend.
+- `completion` is the wrapper's unless the compiler claims it, whatever the backend.
+- `FLIX_BACKEND=wrapper` makes a wrapper verb the wrapper's even when the compiler implements
+  it; `FLIX_BACKEND=compiler` makes every other word the compiler's.
+- A plugin's declared verb is the plugin's only when neither the compiler nor the wrapper
+  (including `wrapper` and `completion`) answers it; otherwise it is listed as
+  `plugin <name>`, which always works.
+
+Not covered: `plugin list|remove|install|upgrade` are answered by stage 0 before routing even
+when the compiler implements `plugin`; the screen shows the word `plugin` as the compiler's. A
+plugin verb that is installed but not in the lock is dispatched and not listed, because the
+context carries the lock's plugins only.
+
 `./flixw help` and `./flixw --help` render one Picocli command tree: the compiler-first routing
 view plus the pinned compiler's captured descriptions. `./flixw help flix` shows the compiler's
 own captured help unedited. `help` is a bare verb and retires under rule 3 like any other;
@@ -782,9 +802,12 @@ compiler as typed and get its own answer to that argv (`Unknown option`, exit 1)
 renderer.
 
 Keys: `flixwVersion`, `compilerVersion`, `upstream`, `compilerJar`, `javaExe`, `helpFile`,
-`compilerVerbs`, `fallbackVerbs`, `wrapperVerbs` (read), `projectRoot`, `cacheHome` (written,
+`compilerVerbs`, `fallbackVerbs`, `wrapperVerbs`, `owners` (read), `projectRoot`, `cacheHome` (written,
 not read), and the `plugins:` and `tasks:` tables. A key that older readers can ignore is
-added without moving the number; changing what an existing key means moves it.
+added without moving the number; changing what an existing key means moves it. `owners` is
+such a key: it is additive, so the contract stays `1`. A renderer that finds no `owners`
+(a stage 0 from before it) derives the same map from `compilerVerbs`, `wrapperVerbs` and the
+plugin rows. An older renderer ignores the key and keeps its own grouping.
 
 **Known limit.** The positional arguments keep each token whole, but they are not
 slot-separated: when the topic or the name is absent, the first validated `FLIX_JVM_OPTS`
