@@ -2166,16 +2166,32 @@ t 0 "pwsh examples local node excludes examples list" pwsh_out 'examples local' 
 
 g 0 'runs Flix check in a disposable overlay' "help examples local lists the overlay verbs" ./flixw help examples local
 g 0 'examples local build-pkg' "bash completes the examples local verbs" ./flixw completion bash
+# Fish's top-level local branch also offers these verbs, so executing it alone could
+# conceal a missing examples-local branch. Check its generated rows even without fish.
+t 0 "fish models all examples local verbs at their nested path" sh -c '
+  ./flixw completion fish > "$1/local.fish" || exit 1
+  grep -F "__fish_seen_subcommand_from examples; and __fish_seen_subcommand_from local;" \
+    "$1/local.fish" > "$1/local-rows.fish" || exit 1
+  for verb in run check build build-jar build-fatjar build-pkg test doc; do
+    grep -Fq -- "-f -a '"'"'$verb'"'"' -d" "$1/local-rows.fish" || exit 1
+  done' sh "$work"
 t 0  "zsh and bash share one generated script"                  sh -c '
   test "$(./flixw completion bash)" = "$(./flixw completion zsh)"'
 if command -v fish >/dev/null 2>&1; then
+  t 0 "fish completes all examples local verbs"                sh -c '
+    fish --no-config -c "source $1/local.fish; complete -C \"flixw examples local \"" \
+      > "$1/fish-local.txt" || exit 1
+    cut -f1 "$1/fish-local.txt" > "$1/fish-local-words.txt"
+    for verb in run check build build-jar build-fatjar build-pkg test doc; do
+      grep -qx "$verb" "$1/fish-local-words.txt" || exit 1
+    done' sh "$work"
   t 0  "fish completes pin --refresh"                           sh -c '
     ./flixw completion fish > "$1/w.fish"
     fish --no-config -c "source $1/w.fish; complete -C \"flixw pin --re\"" | grep -q "^--refresh"' sh "$work"
   t 0  "fish completes doctor --fix"                            sh -c '
     fish --no-config -c "source $1/w.fish; complete -C \"flixw doctor --f\"" | grep -q "^--fix"' sh "$work"
 else
-  s "fish completes pin --refresh and doctor --fix" "no fish on this machine"
+  s "fish completes pin --refresh, doctor --fix and examples local" "no fish on this machine"
 fi
 # PowerShell executes the generated completer for real: CommandCompletion.CompleteInput runs
 # the registered native completer over a parsed line, so the AST, the cursor and the quoting
