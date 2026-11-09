@@ -1359,9 +1359,11 @@ final class flixwcli {
         System.out.println();
         System.out.println("# One row per command path. c: candidates (subcommands, positional values),");
         System.out.println("# o: options, v: the options of o that take a value.");
-        System.out.println("$global:flixwNodes = @{");
+        // Ordinal, like picocli and the bash script: a Hashtable literal ignores case, so
+        // `flixw DOCTOR` would otherwise resolve to the doctor node.
+        System.out.println("$global:flixwNodes = [System.Collections.Hashtable]::new("
+                         + "[System.StringComparer]::Ordinal)");
         pwshNode("", spec, List.of());
-        System.out.println("}");
         System.out.println("Register-ArgumentCompleter -Native -CommandName flixw,flixw.cmd"
                          + " -ScriptBlock {");
         System.out.println("    param($wordToComplete, $commandAst, $cursorPosition)");
@@ -1410,7 +1412,7 @@ final class flixwcli {
         }
         StringBuilder kids = new StringBuilder();
         for (String k : children) pwshWord(kids, k);
-        System.out.println("    " + q(path.replace("'", "''")) + " = @{ c = @(" + kids + "); o = @(" + opts
+        System.out.println("$global:flixwNodes[" + q(path.replace("'", "''")) + "] = @{ c = @(" + kids + "); o = @(" + opts
                          + "); v = @(" + valued + ") }");
         List<OptionSpec> next = new ArrayList<>(inherited);
         for (OptionSpec o : spec.options())
