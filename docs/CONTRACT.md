@@ -862,6 +862,10 @@ their own descriptions, the wrapper verbs they have not displaced, and the compi
 options with the value-taking ones marked as such. `help` renders that same tree, so a
 completion cannot disagree with the help screen on the same terminal.
 
+`examples local` carries the verbs `./flixw local` runs in an overlay (`run`, `check`, `build`,
+`build-jar`, `build-fatjar`, `build-pkg`, `test`, `doc`), so every shell completes them after
+`examples local` and `help examples local` lists them under Commands.
+
 The wrapper verbs' arguments come from the same model as their own help screens: `pin
 --refresh`, `doctor --fix` and `info --verbose` complete because `./flixw pin --help` and the
 tree are built by one factory per verb. A word the pinned compiler implements keeps the
@@ -885,8 +889,11 @@ words before the cursor, quotes removed, with a word that names a subcommand mov
 node and an option that takes a value consuming the word after it. TAB then offers that node's
 subcommands, positional values and options, plus options inherited from its ancestors, and
 nothing else: `doctor` offers `--fix` and not `pin`'s `--refresh`, and `examples local` offers
-its own verbs. In an option's value position, and after `--`, it offers nothing, so PowerShell
-completes file names. `cmd.exe` gets nothing — it has no per-command completion mechanism to
+its own verbs. Verbs match case-sensitively, as in the other shells. In the value position of an
+option the model declares with a required value (`pin --java`, `pin --local`), and after `--`, it
+offers nothing, so PowerShell completes file names. An option whose value is optional or absent
+in the model (`wrapper --purge [days]`, `wrapper --upgrade [<version>]`, `wrapper --install-jdk`)
+has no value slot: its following word is completed as an ordinary candidate. `cmd.exe` gets nothing — it has no per-command completion mechanism to
 hook.
 
 Generating a script needs **no project**. It is what somebody runs while setting up a shell,
