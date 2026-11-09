@@ -270,6 +270,36 @@ final class flixwcli {
             // Contract 0 wrote fallbackVerbs comma-separated, so it is read either way.
             return v.isBlank() ? List.of() : List.of(v.trim().split(contract == 0 ? "[ ,]+" : " +"));
         }
+
+        /**
+         * Word to owner ({@code compiler}, {@code wrapper} or {@code plugin}), in the order stage 0
+         * lists them. Read from stage 0's {@code owners} key, which is its own routing decision
+         * and so includes the early-dispatch and forced-backend exceptions; this class decides
+         * nothing about who answers a word.
+         *
+         * <p>A stage 0 that predates the key sends only the verb lists, and the same map is then
+         * derived from them as it was before the key existed: the compiler first, then the
+         * wrapper's verbs, {@code wrapper} and {@code completion}, then a declared plugin verb
+         * nothing else claimed.
+         */
+        Map<String, String> owners() {
+            Map<String, String> m = new LinkedHashMap<>();
+            if (kv.containsKey("owners")) {
+                for (String t : words("owners")) {
+                    int eq = t.lastIndexOf('=');
+                    if (eq > 0) m.put(t.substring(0, eq), t.substring(eq + 1));
+                }
+                return m;
+            }
+            List<String> cv = words("compilerVerbs");
+            for (String v : cv) m.put(v, "compiler");
+            for (String v : words("wrapperVerbs")) m.putIfAbsent(v, "wrapper");
+            m.put("wrapper", "wrapper");
+            m.putIfAbsent("completion", "wrapper");
+            for (String[] r : rows("plugins"))
+                if (r.length > 5 && !r[5].isEmpty()) m.putIfAbsent(r[5], "plugin");
+            return m;
+        }
     }
 
     // ---- compiler help formats ----------------------------------------------
@@ -412,14 +442,15 @@ final class flixwcli {
      * picocli reads Git Bash as a pseudo-TTY. Removed rather than kept as decoration.
      */
     static String commandList(CommandLine.Help help, Ctx c) {
-        List<String> compilerVerbs = c.words("compilerVerbs");
+        Map<String, String> owners = c.owners();
         List<String[]> compiler = new ArrayList<>(), wrapper = new ArrayList<>();
         for (Map.Entry<String, CommandLine> e : help.commandSpec().subcommands().entrySet()) {
             String[] d = e.getValue().getCommandSpec().usageMessage().description();
             // tree() prefixes wrapper descriptions; the heading replaces it.
             String text = d.length == 0 ? "" : d[0].replaceFirst("^\\(wrapper\\) ", "");
-            (compilerVerbs.contains(e.getKey()) ? compiler : wrapper)
-                .add(new String[] { e.getKey(), text });
+            String owner = owners.getOrDefault(e.getKey(), "wrapper");
+            if (!"plugin".equals(owner))                       // listed below, by what it runs
+                ("compiler".equals(owner) ? compiler : wrapper).add(new String[] { e.getKey(), text });
         }
         List<String[]> plugins = new ArrayList<>(), tasks = new ArrayList<>();
         // What it is for, not which version it is: a version is state and `./flixw info -v`
@@ -429,7 +460,7 @@ final class flixwcli {
         // A plugin that declared a verb is listed as that verb, because that is what a
         // reader would type; one that did not keeps the long form, which always works.
         for (String[] r : c.rows("plugins")) {
-            String verb = r.length > 5 && !r[5].isEmpty() ? r[5] : "plugin " + r[0];
+            String verb = r.length > 5 && "plugin".equals(owners.get(r[5])) ? r[5] : "plugin " + r[0];
             plugins.add(new String[] { verb, r.length > 4 ? r[4] : "" });
         }
         for (String[] r : c.rows("tasks"))
@@ -587,6 +618,7 @@ final class flixwcli {
      */
     static CommandSpec tree(Ctx c, String name, boolean projectTasks, boolean strict) {
         List<String> compilerVerbs = c.words("compilerVerbs");
+        Map<String, String> owners = c.owners();
         Optional<CommandSpec> curatedRoot = Optional.empty();
         boolean specBroken = false;
         if ("true".equals(c.get("upstream"))) {
@@ -608,37 +640,35 @@ final class flixwcli {
           + " so the wrapper's own verbs retire by themselves as Flix grows.");
 
         for (String v : compilerVerbs) {
+            if (!"compiler".equals(owners.get(v))) continue;   // stage 0 routes it elsewhere
             // A curated spec gives full option/positional fidelity for this one verb.
             CommandSpec fromSpec = specBroken ? null : specVerb(c, v);
             if (fromSpec != null) root.addSubcommand(v, new CommandLine(fromSpec));
             else sub(root, v, "");
         }
-        for (String v : c.words("wrapperVerbs")) {
-            if (compilerVerbs.contains(v)) continue;
+        for (Map.Entry<String, String> e : owners.entrySet()) {
+            String v = e.getKey();
+            if (!"wrapper".equals(e.getValue())) continue;
             CommandSpec own = v.equals("task") ? taskSpec(c, projectTasks) : wrapperVerbSpec(c, v);
             if (own != null) attachWrapper(root, v, own);
             else sub(root, v, "(wrapper) " + wrapperDesc(v));
         }
-        // Plugins from the lock: registered under their declared bare verb (if any) and
-        // under the canonical `plugin <name>` namespace, so TAB-completion offers them.
+        // Plugins from the lock: registered under their declared bare verb when stage 0 routes
+        // that verb to the plugin, and always under the canonical `plugin <name>` namespace,
+        // so TAB-completion offers them. `wrapper` and `completion` are not in WRAPPER_VERBS
+        // (a namespace of flags, and a word answered before that table); stage 0 lists both
+        // as wrapper-owned unless the compiler claims `completion`, and each carries its own
+        // arguments, because a word with none completes to nothing after it.
         for (String[] r : c.rows("plugins")) {
             String bareVerb = r.length > 5 && !r[5].isEmpty() ? r[5] : null;
             String descText = r.length > 4 ? r[4] : "";
-            if (bareVerb != null && !root.subcommands().containsKey(bareVerb))
+            if (bareVerb != null && "plugin".equals(owners.get(bareVerb))
+                && !root.subcommands().containsKey(bareVerb))
                 sub(root, bareVerb, descText);
             CommandLine pluginCmd = root.subcommands().get("plugin");
             if (pluginCmd != null && !pluginCmd.getSubcommands().containsKey(r[0]))
                 sub(pluginCmd.getCommandSpec(), r[0], descText);
         }
-        // `wrapper` and `completion` are words a user types and neither is in WRAPPER_VERBS:
-        // the first is a namespace of flags, the second is answered before that table is
-        // consulted at all. Both were therefore absent from this screen while the offline
-        // fallback listed them, so the renderer with the whole model showed strictly less
-        // than the one with none of it. Same compiler-first guard as any other word.
-        // Both carry their own arguments into the tree, because the tree is the model the
-        // completions come from: a word with no arguments completes to nothing after it.
-        if (!compilerVerbs.contains("wrapper")) attachWrapper(root, "wrapper", wrapperSpec(c));
-        if (!compilerVerbs.contains("completion")) attachWrapper(root, "completion", completionSpec(c));
         if (curatedRoot.isPresent()) composeChecked(c, root, curatedRoot.get(), strict);
         if (!root.optionsMap().containsKey("--Xhelp")) {
             root.addOption(OptionSpec.builder("--Xhelp")

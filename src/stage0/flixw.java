@@ -5540,7 +5540,7 @@ public final class flixw {
 
     /** Everything the renderer is given, so it re-gathers none of it; see {@link #helpTopic}. */
     static String helpContext(Path root, Lock lock, Path jar, Jvm jvm, List<String> compilerVerbs,
-                              String identity, boolean override) {
+                              String identity, boolean override, String backend) {
         if (compilerVerbs == null) compilerVerbs = List.of();
         // contract=1 is the first line: a reader that does not know it must not guess at the
         // rest. Values are escaped (see esc); lists are space-separated verb tokens.
@@ -5567,6 +5567,15 @@ public final class flixw {
         List<String> wv = new ArrayList<>(WRAPPER_VERBS);
         wv.removeAll(compilerVerbs);
         b.append(kv("wrapperVerbs", String.join(" ", wv)));
+        // verb=owner per listed word (see owner); a key added to contract 1.
+        Set<String> words = new LinkedHashSet<>(compilerVerbs);
+        words.addAll(WRAPPER_VERBS);
+        words.addAll(List.of("wrapper", "completion"));
+        if (lock != null) for (PluginDep p : lock.plugins().values())
+            if (p.command() != null && !p.command().isEmpty()) words.add(p.command());
+        List<String> ow = new ArrayList<>();
+        for (String v : words) ow.add(v + "=" + owner(v, compilerVerbs, backend, lock));
+        b.append(kv("owners", String.join(" ", ow)));
         b.append('\n').append("plugins:").append('\n');
         if (lock != null)
             for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
@@ -5622,7 +5631,7 @@ public final class flixw {
             try { specs = ensureAsset(SPECS_ASSET); }
             catch (Fail f) { if (f.code.equals("FLIXW006")) throw f; tr("specs: " + f.getMessage()); }
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity,
-                                                overridden(root)),
+                                                overridden(root), env("FLIX_BACKEND")),
                               StandardCharsets.UTF_8);
             List<String> a = new ArrayList<>(List.of(ctx.toString()));
             a.addAll(rest.subList(0, Math.min(3, rest.size())));
@@ -5871,6 +5880,22 @@ public final class flixw {
         }
     }
 
+    /**
+     * Who answers {@code v}: {@code compiler}, {@code wrapper} or {@code plugin}. Shared by
+     * {@link #realMain}'s dispatch and the renderer's context, so a screen cannot list a word
+     * under a side that does not run it.
+     * {@code wrapper}, and {@code completion} unless the compiler claims it, are intercepted
+     * before routing, whatever the backend; otherwise a forced backend overrides the table,
+     * {@code FLIX_BACKEND=wrapper} for wrapper verbs only.
+     */
+    static String owner(String v, List<String> cv, String backend, Lock lock) {
+        if ("wrapper".equals(v) || "completion".equals(v) && !cv.contains(v)) return "wrapper";
+        boolean w = WRAPPER_VERBS.contains(v);
+        if ("compiler".equals(backend) || cv.contains(v) && !("wrapper".equals(backend) && w))
+            return "compiler";
+        return w ? "wrapper" : commandOwner(lock, v) != null ? "plugin" : "compiler";
+    }
+
     static void realMain(List<String> argv) {
         tr("stage 0 entered");
         String first = argv.isEmpty() ? null : argv.get(0);
@@ -6058,30 +6083,14 @@ public final class flixw {
         selfCompile(selfSource());
 
         // ---- dispatch ----------------------------------------------------
-        boolean toCompiler; List<String> forward = argv;
-        // A verb a plugin declared for itself, consulted only after the compiler's own set
-        // and the wrapper's have had their say -- so an installed plugin can never take a
-        // word away from either. Read from the lock, which is committed, so a plugin
-        // claiming a word shows up in a diff rather than in a surprise.
-        String pluginOwner = first == null || compilerVerbs.contains(first)
-                             || WRAPPER_VERBS.contains(first) ? null : commandOwner(lock, first);
-        if (forcedCompiler) {
-            toCompiler = true;
-            if ("--".equals(first)) forward = argv.subList(1, argv.size());
-        } else if (forcedWrapper && first != null && WRAPPER_VERBS.contains(first)) {
-            toCompiler = false;
-        } else if ("--".equals(first)) {
-            toCompiler = true; forward = argv.subList(1, argv.size());
-        } else if (first != null && compilerVerbs.contains(first)) {
-            toCompiler = true;
-            if ("run".equals(first) && isUpstream(lock, override)) forward = autoRunBoundary(argv);
-        } else if (first != null && WRAPPER_VERBS.contains(first)) {
-            toCompiler = false;
-        } else if (pluginOwner != null) {
-            toCompiler = false;                      // a plugin claimed this word in the lock
-        } else {
-            toCompiler = true;                       // unknown verbs, and no verb at all
-        }
+        // owner() alone decides; the renderer is sent the same answers.
+        String own = first == null ? "compiler" : owner(first, compilerVerbs, backend, lock);
+        boolean toCompiler = "compiler".equals(own);
+        String pluginOwner = "plugin".equals(own) ? commandOwner(lock, first) : null;
+        List<String> forward = argv;
+        if (toCompiler && "--".equals(first)) forward = argv.subList(1, argv.size());
+        else if (toCompiler && !forcedCompiler && "run".equals(first) && compilerVerbs.contains(first)
+                 && isUpstream(lock, override)) forward = autoRunBoundary(argv);
 
         // `help` retires if Flix claims it; bare --help cannot, while forced compiler stays raw.
         if (!toCompiler && "help".equals(first)
