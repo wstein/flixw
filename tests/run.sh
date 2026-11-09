@@ -2147,10 +2147,23 @@ fi
 
 # The wrapper verbs' own arguments complete too. They were hung into the tree as empty
 # nodes, so nothing was offered after `pin` or `doctor` although their help documents flags.
-# The PowerShell completer is one flat word list, so these only show that the flags are among
-# its words; offering them after the right verb alone is the path filtering of issue #13.
-g 0 "'--refresh'" "pwsh word list contains pin's --refresh"       ./flixw completion pwsh
-g 0 "'--fix'"     "pwsh word list contains doctor's --fix"        ./flixw completion pwsh
+# The PowerShell completer carries one node per command path (issue #13), so a word is offered
+# after its own command only. pwsh_node prints the one table line for a path; the static
+# cases below read the generated script, and the execution cases further down run it in a
+# real PowerShell where there is one.
+pwsh_node() { ./flixw completion pwsh | grep "^    '$1' = @{"; }
+pwsh_in()  { pwsh_node "$1" | grep -q -- "$2"; }
+pwsh_out() { n=$(pwsh_node "$1") && ! printf '%s\n' "$n" | grep -q -- "$2"; }
+t 0 "pwsh doctor node holds --fix"                    pwsh_in  doctor "o = @(.*'--fix'"
+t 0 "pwsh doctor node excludes pin's --refresh"       pwsh_out doctor "'--refresh'"
+t 0 "pwsh pin node holds --refresh"                   pwsh_in  pin "o = @(.*'--refresh'"
+t 0 "pwsh pin node excludes doctor's --fix"           pwsh_out pin "'--fix'"
+t 0 "pwsh pin node marks --java as taking a value"    pwsh_in  pin "v = @(.*'--java'"
+t 0 "pwsh pin node does not mark --refresh as valued" pwsh_out pin "v = @(.*'--refresh'"
+t 0 "pwsh root node excludes pin's options"           pwsh_out '' "'--refresh'"
+t 0 "pwsh examples local node holds its own verbs"    pwsh_in  'examples local' "c = @(.*'run'"
+t 0 "pwsh examples local node excludes examples list" pwsh_out 'examples local' "'list'"
+
 t 0  "zsh and bash share one generated script"                  sh -c '
   test "$(./flixw completion bash)" = "$(./flixw completion zsh)"'
 if command -v fish >/dev/null 2>&1; then
@@ -2161,6 +2174,50 @@ if command -v fish >/dev/null 2>&1; then
     fish --no-config -c "source $1/w.fish; complete -C \"flixw doctor --f\"" | grep -q "^--fix"' sh "$work"
 else
   s "fish completes pin --refresh and doctor --fix" "no fish on this machine"
+fi
+# PowerShell executes the generated completer for real: CommandCompletion.CompleteInput runs
+# the registered native completer over a parsed line, so the AST, the cursor and the quoting
+# are PowerShell's own. Skipped where there is no pwsh (CI's Windows runners have one).
+# The cwd is an empty directory: a completer that offers nothing falls back to file names.
+if command -v pwsh >/dev/null 2>&1; then
+  pwd_native() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
+  mkdir -p "$work/pwdir"
+  ./flixw completion pwsh > "$work/c.ps1"
+  # pw_words <line>: what the completer offers after <line>, space separated
+  pw_words() {
+    ( cd "$work/pwdir" &&
+      PW_SCRIPT=$(pwd_native "$work/c.ps1") PW_LINE=$1 pwsh -NoProfile -NonInteractive -Command '
+        . $env:PW_SCRIPT
+        $l = $env:PW_LINE
+        (([System.Management.Automation.CommandCompletion]::CompleteInput($l, $l.Length, $null)).CompletionMatches |
+          ForEach-Object { $_.CompletionText }) -join " "' | tr -d '\r' )
+  }
+  # pw_has <line> <word>... / pw_lacks <line> <word>... / pw_none <line>
+  pw_has()   { l=$1; shift; o=" $(pw_words "$l") "; for w in "$@"; do case $o in *" $w "*) ;; *) return 1 ;; esac; done; }
+  pw_lacks() { l=$1; shift; o=" $(pw_words "$l") "; for w in "$@"; do case $o in *" $w "*) return 1 ;; esac; done; }
+  pw_none()  { test -z "$(pw_words "$1" | tr -d ' ')"; }
+  t 0 "pwsh root offers verbs"                      pw_has   "flixw " doctor pin examples
+  t 0 "pwsh root offers no option of another verb"  pw_lacks "flixw " --fix --refresh --java
+  t 0 "pwsh completes a verb prefix"                pw_has   "flixw pi" pin
+  t 0 "pwsh doctor offers --fix only"               pw_has   "flixw doctor " --fix
+  t 0 "pwsh doctor excludes pin and its options"    pw_lacks "flixw doctor " --refresh --java pin
+  t 0 "pwsh pin offers its options"                 pw_has   "flixw pin " --refresh --java --stock
+  t 0 "pwsh pin excludes doctor's --fix"            pw_lacks "flixw pin " --fix doctor
+  t 0 "pwsh completes an option prefix after a verb" pw_has  "flixw pin --re" --refresh
+  t 0 "pwsh examples offers its verbs and local"    pw_has   "flixw examples " list local run
+  t 0 "pwsh examples local keeps its own candidates" pw_has  "flixw examples local " run check build
+  t 0 "pwsh examples local excludes examples list"  pw_lacks "flixw examples local " list local
+  t 0 "pwsh option value position offers nothing"   pw_none  "flixw pin --java "
+  t 0 "pwsh quoted option value position is empty"  pw_none  "flixw pin --java '21' --local "
+  t 0 "pwsh skips a quoted option value"            pw_has   "flixw pin --java '21' --re" --refresh
+  t 0 "pwsh skips a double-quoted option value"     pw_has   "flixw pin --local \"a b\" --st" --stock
+  t 0 "pwsh reads a quoted verb"                    pw_has   "flixw 'doctor' --f" --fix
+  t 0 "pwsh reads a double-quoted nested path"      pw_has   "flixw \"examples\" 'local' " run
+  t 0 "pwsh joined option value is not a value slot" pw_has  "flixw pin --editor-jar=copy --re" --refresh
+  t 0 "pwsh completes the shell names"              pw_has   "flixw completion " bash zsh fish pwsh
+  t 0 "pwsh registers for flixw.cmd too"            pw_has   "flixw.cmd doctor " --fix
+else
+  s "pwsh executes the generated completer" "no pwsh on this machine"
 fi
 t 0  "bash completes pin --refresh and doctor --fix"            sh -c '
   ./flixw completion bash > "$1/w.bash"
