@@ -942,6 +942,11 @@ final class flixwcli {
         }
         CommandSpec local = sub(s, "local", "runs an example against this project's local source.");
         local.usageMessage().customSynopsis("./flixw examples local <verb> <name> [-- args]");
+        // The verbs are the ones `./flixw local` runs in an overlay, so a completion after
+        // `examples local` offers them instead of an empty node.
+        for (Map.Entry<String, CommandLine> verb
+                 : localSpec("./flixw examples local", false).subcommands().entrySet())
+            local.addSubcommand(verb.getKey(), verb.getValue());
         s.usageMessage().footer("Examples are separate packages under examples/, each with its own flix.toml.");
         return s;
     }
@@ -1339,33 +1344,90 @@ final class flixwcli {
      * actually invokes; there is no {@code .ps1} to attach to, and there deliberately is not
      * one -- a {@code .ps1} cannot be run as a bare command from {@code cmd.exe} or a build
      * tool, and an execution policy can make it administratively unrunnable.
+     *
+     * <p>The script holds one table row per command path, written from the model, and the
+     * completer resolves the active path from {@code $commandAst}: the words before the
+     * cursor, with an option that takes a value consuming the word after it. A row lists the
+     * node's subcommands, its options and the options it inherits, so a word is offered after
+     * its own command only. No verb name is written into the logic, and no project task
+     * name into the table (see {@link #tree(Ctx, String, boolean, boolean)}).
      */
     static void pwsh(CommandSpec spec) {
         System.out.println("# flixw TAB completion for PowerShell, generated from this"
                          + " project's pinned compiler.");
         System.out.println("# Regenerate after a re-pin:  ./flixw completion pwsh");
         System.out.println();
-        StringBuilder words = new StringBuilder();
-        for (String k : spec.subcommands().keySet()) {
-            if (words.length() > 0) words.append(',');
-            words.append('\'').append(k).append('\'');
-        }
-        for (OptionSpec o : spec.options())
-            for (String n : o.names()) words.append(",'").append(n).append('\'');
-        for (CommandLine sub : spec.subcommands().values()) {
-            for (String subName : sub.getSubcommands().keySet())
-                words.append(",'").append(subName).append('\'');
-            for (OptionSpec subOpt : sub.getCommandSpec().options())
-                for (String n : subOpt.names()) words.append(",'").append(n).append('\'');
-        }
+        System.out.println("# One row per command path. c: candidates (subcommands, positional values),");
+        System.out.println("# o: options, v: the options of o that take a value.");
+        System.out.println("$global:flixwNodes = @{");
+        pwshNode("", spec, List.of());
+        System.out.println("}");
         System.out.println("Register-ArgumentCompleter -Native -CommandName flixw,flixw.cmd"
                          + " -ScriptBlock {");
         System.out.println("    param($wordToComplete, $commandAst, $cursorPosition)");
-        System.out.println("    @(" + words + ") |");
-        System.out.println("        Where-Object { $_ -like \"$wordToComplete*\" } |");
+        System.out.println("    $node = ''");
+        System.out.println("    $skip = $false");
+        System.out.println("    $elements = @($commandAst.CommandElements)");
+        System.out.println("    for ($i = 1; $i -lt $elements.Count; $i++) {");
+        System.out.println("        $e = $elements[$i]");
+        System.out.println("        if ($e.Extent.EndOffset -ge $cursorPosition) { break }   # the word being completed");
+        System.out.println("        $t = if ($e -is [System.Management.Automation.Language.StringConstantExpressionAst])"
+                         + " { $e.Value } else { $e.Extent.Text }");
+        System.out.println("        if ($skip) { $skip = $false; continue }                  # an option's value");
+        System.out.println("        if ($t -ceq '--') { return }                             # forwarded to the compiler");
+        System.out.println("        if ($t.StartsWith('-')) {");
+        System.out.println("            if (@($global:flixwNodes[$node].v) -ccontains $t) { $skip = $true }");
+        System.out.println("            continue");
+        System.out.println("        }");
+        System.out.println("        $next = if ($node) { \"$node $t\" } else { $t }");
+        System.out.println("        if ($global:flixwNodes.ContainsKey($next)) { $node = $next }");
+        System.out.println("    }");
+        System.out.println("    if ($skip) { return }                                        # an option's value is next");
+        System.out.println("    $prefix = $wordToComplete.TrimStart([char]39, [char]34)");
+        System.out.println("    @($global:flixwNodes[$node].c) + @($global:flixwNodes[$node].o) |");
+        System.out.println("        Select-Object -Unique |");
+        System.out.println("        Where-Object { $_.StartsWith($prefix, [System.StringComparison]::Ordinal) } |");
         System.out.println("        ForEach-Object { [System.Management.Automation"
                          + ".CompletionResult]::new($_, $_, 'ParameterValue', $_) }");
         System.out.println("}");
+    }
+
+    /** One table row for {@code spec} at {@code path}, then one for each subcommand. */
+    private static void pwshNode(String path, CommandSpec spec, List<OptionSpec> inherited) {
+        List<String> children = new ArrayList<>(spec.subcommands().keySet());
+        for (PositionalParamSpec p : spec.positionalParameters()) {
+            Iterable<String> values = p.completionCandidates();
+            if (values != null) for (String v : values) children.add(v);
+        }
+        // Inherited options first, so an option of the same name on this node replaces them.
+        Map<String, Boolean> options = new LinkedHashMap<>();
+        for (OptionSpec o : inherited) pwshOption(options, o);
+        for (OptionSpec o : spec.options()) pwshOption(options, o);
+        StringBuilder opts = new StringBuilder(), valued = new StringBuilder();
+        for (Map.Entry<String, Boolean> e : options.entrySet()) {
+            pwshWord(opts, e.getKey());
+            if (e.getValue()) pwshWord(valued, e.getKey());
+        }
+        StringBuilder kids = new StringBuilder();
+        for (String k : children) pwshWord(kids, k);
+        System.out.println("    " + q(path.replace("'", "''")) + " = @{ c = @(" + kids + "); o = @(" + opts
+                         + "); v = @(" + valued + ") }");
+        List<OptionSpec> next = new ArrayList<>(inherited);
+        for (OptionSpec o : spec.options())
+            if (o.scopeType() == CommandLine.ScopeType.INHERIT) next.add(o);
+        for (Map.Entry<String, CommandLine> e : spec.subcommands().entrySet())
+            pwshNode(path.isEmpty() ? e.getKey() : path + " " + e.getKey(),
+                     e.getValue().getCommandSpec(), next);
+    }
+
+    private static void pwshOption(Map<String, Boolean> into, OptionSpec o) {
+        if (o.hidden()) return;
+        for (String n : o.names()) into.put(n, o.arity().max() > 0);
+    }
+
+    private static void pwshWord(StringBuilder into, String word) {
+        if (into.length() > 0) into.append(',');
+        into.append(q(word.replace("'", "''")));
     }
 
     static String readOrEmpty(String path) {
