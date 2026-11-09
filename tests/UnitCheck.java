@@ -1404,9 +1404,9 @@ public final class UnitCheck {
             }
         }, true, StandardCharsets.UTF_8));
         try { flixwcli.pwsh(inhRoot); } finally { System.setOut(inhReal); }
-        String inhLeaf = inhOut.toString().lines().filter(l -> l.startsWith("    'mid leaf' = ")).findFirst().orElse("");
+        String inhLeaf = inhOut.toString().lines().filter(l -> l.startsWith("$global:flixwNodes['mid leaf'] = ")).findFirst().orElse("");
         eq("pwsh: a nested node inherits the option and its value slot",
-           "    'mid leaf' = @{ c = @(); o = @('--shared'); v = @('--shared') }", inhLeaf);
+           "$global:flixwNodes['mid leaf'] = @{ c = @(); o = @('--shared'); v = @('--shared') }", inhLeaf);
         eq("pwsh: a nested node does not inherit an option left unscoped", "false",
            String.valueOf(inhLeaf.contains("--rootonly")));
 
