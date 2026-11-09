@@ -1396,6 +1396,9 @@ public final class UnitCheck {
         inhRoot.addSubcommand("mid", new picocli.CommandLine(inhMid));
         inhMid.addSubcommand("leaf", new picocli.CommandLine(
             picocli.CommandLine.Model.CommandSpec.create().name("leaf")));
+        // Added after the subcommands: picocli still copies it down to the leaf.
+        inhRoot.addOption(picocli.CommandLine.Model.OptionSpec.builder("--late").arity("1")
+            .scopeType(picocli.CommandLine.ScopeType.INHERIT).build());
         StringBuilder inhOut = new StringBuilder();
         java.io.PrintStream inhReal = System.out;
         System.setOut(new java.io.PrintStream(new java.io.ByteArrayOutputStream() {
@@ -1406,7 +1409,7 @@ public final class UnitCheck {
         try { flixwcli.pwsh(inhRoot); } finally { System.setOut(inhReal); }
         String inhLeaf = inhOut.toString().lines().filter(l -> l.startsWith("$global:flixwNodes['mid leaf'] = ")).findFirst().orElse("");
         eq("pwsh: a nested node inherits the option and its value slot",
-           "$global:flixwNodes['mid leaf'] = @{ c = @(); o = @('--shared'); v = @('--shared') }", inhLeaf);
+           "$global:flixwNodes['mid leaf'] = @{ c = @(); o = @('--shared','--late'); v = @('--shared','--late') }", inhLeaf);
         eq("pwsh: a nested node does not inherit an option left unscoped", "false",
            String.valueOf(inhLeaf.contains("--rootonly")));
 

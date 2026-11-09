@@ -1363,7 +1363,7 @@ final class flixwcli {
         // `flixw DOCTOR` would otherwise resolve to the doctor node.
         System.out.println("$global:flixwNodes = [System.Collections.Hashtable]::new("
                          + "[System.StringComparer]::Ordinal)");
-        pwshNode("", spec, List.of());
+        pwshNode("", spec);
         System.out.println("Register-ArgumentCompleter -Native -CommandName flixw,flixw.cmd"
                          + " -ScriptBlock {");
         System.out.println("    param($wordToComplete, $commandAst, $cursorPosition)");
@@ -1395,15 +1395,15 @@ final class flixwcli {
     }
 
     /** One table row for {@code spec} at {@code path}, then one for each subcommand. */
-    private static void pwshNode(String path, CommandSpec spec, List<OptionSpec> inherited) {
+    private static void pwshNode(String path, CommandSpec spec) {
         List<String> children = new ArrayList<>(spec.subcommands().keySet());
         for (PositionalParamSpec p : spec.positionalParameters()) {
             Iterable<String> values = p.completionCandidates();
             if (values != null) for (String v : values) children.add(v);
         }
-        // Inherited options first, so an option of the same name on this node replaces them.
+        // picocli copies an option scoped INHERIT into every subcommand when it is added (in
+        // either order, at any depth), so spec.options() already holds the inherited ones.
         Map<String, Boolean> options = new LinkedHashMap<>();
-        for (OptionSpec o : inherited) pwshOption(options, o);
         for (OptionSpec o : spec.options()) pwshOption(options, o);
         StringBuilder opts = new StringBuilder(), valued = new StringBuilder();
         for (Map.Entry<String, Boolean> e : options.entrySet()) {
@@ -1414,12 +1414,9 @@ final class flixwcli {
         for (String k : children) pwshWord(kids, k);
         System.out.println("$global:flixwNodes[" + q(path.replace("'", "''")) + "] = @{ c = @(" + kids + "); o = @(" + opts
                          + "); v = @(" + valued + ") }");
-        List<OptionSpec> next = new ArrayList<>(inherited);
-        for (OptionSpec o : spec.options())
-            if (o.scopeType() == CommandLine.ScopeType.INHERIT) next.add(o);
         for (Map.Entry<String, CommandLine> e : spec.subcommands().entrySet())
             pwshNode(path.isEmpty() ? e.getKey() : path + " " + e.getKey(),
-                     e.getValue().getCommandSpec(), next);
+                     e.getValue().getCommandSpec());
     }
 
     private static void pwshOption(Map<String, Boolean> into, OptionSpec o) {
