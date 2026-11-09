@@ -1383,7 +1383,7 @@ final class flixwcli {
         System.out.println("        if ($global:flixwNodes.ContainsKey($next)) { $node = $next }");
         System.out.println("    }");
         System.out.println("    if ($skip) { return }                                        # an option's value is next");
-        System.out.println("    $prefix = $wordToComplete.TrimStart([char]39, [char]34)");
+        System.out.println("    $prefix = $wordToComplete.Trim([char]39, [char]34)");
         System.out.println("    @($global:flixwNodes[$node].c) + @($global:flixwNodes[$node].o) |");
         System.out.println("        Select-Object -Unique |");
         System.out.println("        Where-Object { $_.StartsWith($prefix, [System.StringComparison]::Ordinal) } |");
