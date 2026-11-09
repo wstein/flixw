@@ -5572,9 +5572,11 @@ public final class flixw {
         words.addAll(WRAPPER_VERBS);
         words.addAll(List.of("wrapper", "completion"));
         if (lock != null) for (PluginDep p : lock.plugins().values())
-            if (p.command() != null && !p.command().isEmpty()) words.add(p.command());
+            if (p.command() != null && p.command().matches(PLUGIN_NAME_PATTERN)) words.add(p.command());
         List<String> ow = new ArrayList<>();
-        for (String v : words) ow.add(v + "=" + owner(v, compilerVerbs, backend, lock));
+        for (String v : words)
+            ow.add(v + "=" + (v.equals("completion") ? compilerVerbs.contains(v) ? "compiler" : "wrapper"
+                                                     : owner(v, compilerVerbs, backend, lock)));
         b.append(kv("owners", String.join(" ", ow)));
         b.append('\n').append("plugins:").append('\n');
         if (lock != null)
@@ -5881,17 +5883,15 @@ public final class flixw {
     }
 
     /**
-     * Who answers {@code v}: {@code compiler}, {@code wrapper} or {@code plugin}. Shared by
-     * {@link #realMain}'s dispatch and the renderer's context, so a screen cannot list a word
-     * under a side that does not run it.
-     * {@code wrapper}, and {@code completion} unless the compiler claims it, are intercepted
-     * before routing, whatever the backend; otherwise a forced backend overrides the table,
-     * {@code FLIX_BACKEND=wrapper} for wrapper verbs only.
+     * Who answers {@code v}: {@code compiler}, {@code wrapper} or {@code plugin}. Dispatch and
+     * the renderer's {@code owners} share it. {@code wrapper} and {@code pin} (unless the
+     * compiler is forced) are answered before routing; {@code --} is the compiler's;
+     * {@code completion} is {@link #completionEarly}'s.
      */
     static String owner(String v, List<String> cv, String backend, Lock lock) {
-        if ("wrapper".equals(v) || "completion".equals(v) && !cv.contains(v)) return "wrapper";
+        if ("wrapper".equals(v) || "pin".equals(v) && !"compiler".equals(backend)) return "wrapper";
         boolean w = WRAPPER_VERBS.contains(v);
-        if ("compiler".equals(backend) || cv.contains(v) && !("wrapper".equals(backend) && w))
+        if ("compiler".equals(backend) || "--".equals(v) || cv.contains(v) && !("wrapper".equals(backend) && w))
             return "compiler";
         return w ? "wrapper" : commandOwner(lock, v) != null ? "plugin" : "compiler";
     }
