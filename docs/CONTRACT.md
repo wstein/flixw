@@ -661,12 +661,20 @@ attaches and completes by it; it decides nothing about who answers a word, and i
 parses compiler argv. The answers include the exceptions a verb list does not show:
 
 - `wrapper` is the wrapper's even when the compiler implements the word, whatever the backend.
-- `completion` is the wrapper's unless the compiler claims it, whatever the backend.
+- `completion` is listed by `completionEarly`'s decision: the wrapper's unless the cached verb
+  list of the compiler claims it, whatever the backend. A `completion` that reaches dispatch was
+  declined there and is routed like any other unknown word.
+- `pin` is the wrapper's even when the compiler implements it (the documented repair runs
+  before dispatch, which rule 3 above does not say), unless `FLIX_BACKEND=compiler`.
 - `FLIX_BACKEND=wrapper` makes a wrapper verb the wrapper's even when the compiler implements
-  it; `FLIX_BACKEND=compiler` makes every other word the compiler's.
+  it; `FLIX_BACKEND=compiler` makes every other word the compiler's, so the overview and the
+  completions then list only the verbs the compiler implements, and the completion script
+  differs by `FLIX_BACKEND`.
+- `--` is always the compiler's, whatever a lock declares.
 - A plugin's declared verb is the plugin's only when neither the compiler nor the wrapper
-  (including `wrapper` and `completion`) answers it; otherwise it is listed as
-  `plugin <name>`, which always works.
+  answers it; otherwise it is listed as `plugin <name>`, which always works. Only declared
+  verbs of the plugin name form (`[a-z][a-z0-9-]*`) enter `owners`, which is what keeps its
+  `verb=owner` tokens free of spaces and `=`; the values are therefore not escaped.
 
 Not covered: `plugin list|remove|install|upgrade` are answered by stage 0 before routing even
 when the compiler implements `plugin`; the screen shows the word `plugin` as the compiler's. A
