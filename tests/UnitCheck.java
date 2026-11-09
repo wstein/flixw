@@ -996,6 +996,55 @@ public final class UnitCheck {
     }
 
     /**
+     * The group each word is listed under on the overview, keyed by word; a plugin's long form
+     * ({@code plugin <name>}) is keyed as written. The screen is rendered from a context that
+     * {@code helpContext} produced, so what stage 0 sends is what the renderer shows.
+     */
+    static java.util.Map<String, String> displayedOwners(String ctxText) throws Exception {
+        Path f = Files.createTempDirectory("uc-owner-").resolve("ctx.txt");
+        Files.writeString(f, ctxText, StandardCharsets.UTF_8);
+        StringBuilder out = new StringBuilder();
+        runHelpCapture(new String[]{f.toString()}, out);
+        java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
+        String group = null;
+        for (String l : out.toString().split("\n")) {
+            if (l.matches("(Compiler|Wrapper|Plugin|Task) commands:")) {
+                group = l.substring(0, l.indexOf(' ')).toLowerCase(java.util.Locale.ROOT);
+            } else if (l.isBlank() || !l.startsWith("  ") || l.startsWith("  ./flixw")) {
+                if (!l.startsWith("  ")) group = group != null && l.isBlank() ? null : group;
+            } else if (group != null) {
+                String w = l.strip().split("\\s{2,}")[0];
+                m.put(w + (m.containsKey(w) ? "#2" : ""), group);
+            }
+        }
+        return m;
+    }
+
+    /**
+     * Collision fixtures: the owner the overview shows for a word against the owner stage 0
+     * dispatches it to, read from {@code realMain}'s order (early namespace, then compiler,
+     * then wrapper, then a declared plugin verb).
+     */
+    static void commandOwnership() throws Exception {
+        String sha = "a".repeat(64);
+        // wrapper is answered before routing, so a compiler that implements the word loses it.
+        flixw.Lock lock = new flixw.Lock("0.76.2", "https://x/f.jar", sha, "flix/flix", null, null,
+            java.util.Map.of("m", new flixw.PluginDep("1.0.0", sha, "https://x/p.jar", "d", "myverb"),
+                             "n", new flixw.PluginDep("1.0.0", sha, "https://x/q.jar", "d", "check")));
+        java.util.Map<String, String> shown = displayedOwners(flixw.helpContext(null, lock, null, null,
+            List.of("check", "build", "wrapper", "pin"), null, false));
+        eq("owner: wrapper is the wrapper's even when the compiler lists it", "wrapper", shown.get("wrapper"));
+        eq("owner: a compiler verb stays the compiler's", "compiler", shown.get("check"));
+        eq("owner: pin is the compiler's when it implements it", "compiler", shown.get("pin"));
+        eq("owner: a declared plugin verb is listed once", "plugin", shown.get("myverb"));
+        eq("owner: a declared plugin verb is not also a wrapper command", null, shown.get("myverb#2"));
+        eq("owner: a plugin verb the compiler owns is listed by its long form", "plugin",
+           shown.get("plugin n"));
+        eq("owner: a plugin verb the compiler owns is not shown as the plugin's", null,
+           shown.get("check#2"));
+    }
+
+    /**
      * Stage 0's request to the help companion, produced by the real {@code helpContext} and
      * read by the real {@code Ctx.read}: what the producer writes is what the consumer gets.
      *
@@ -2414,6 +2463,7 @@ public final class UnitCheck {
         guarded("specRepair", UnitCheck::specRepair);
         unifiedHelpRouting();
         companionContract();
+        commandOwnership();
         editorJarPrefs();
         localCompilerPrefs();
         pluginDescription();
