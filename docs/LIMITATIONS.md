@@ -135,10 +135,12 @@ here: it has no per-command completion hook. `doskey` does not provide one, and 
 `CompletionChar` registry setting completes filenames only. Nothing flixw could ship would
 change that.
 
-The `pwsh` completer is verified by hand against a real PowerShell — the registration does
-fire for `./flixw`, `flixw` and `flixw.cmd`, since PowerShell resolves the command name
-from the path — but it is not exercised in CI, so it carries the same field-coverage
-caveat as the `cmd.exe` trampoline above.
+The `pwsh` completer is executed by the regression suite, through PowerShell's own
+`CommandCompletion` over a parsed line, wherever `pwsh` is on the `PATH`: CI's Linux and
+Windows suite jobs run those cases. The registration fires for `./flixw`, `flixw` and
+`flixw.cmd`, since PowerShell resolves the command name from the path. Windows PowerShell 5.1
+is not checked, and neither is a real terminal with PSReadLine, so the completer carries the
+same field-coverage caveat as the `cmd.exe` trampoline above for those.
 
 ## Help introspection is not a contract
 
