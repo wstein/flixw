@@ -2151,7 +2151,7 @@ fi
 # after its own command only. pwsh_node prints the one table line for a path; the static
 # cases below read the generated script, and the execution cases further down run it in a
 # real PowerShell where there is one.
-pwsh_node() { ./flixw completion pwsh | grep "^    '$1' = @{"; }
+pwsh_node() { ./flixw completion pwsh | grep "^\$global:flixwNodes\['$1'\] = @{"; }
 pwsh_in()  { pwsh_node "$1" | grep -q -- "$2"; }
 pwsh_out() { n=$(pwsh_node "$1") && ! printf '%s\n' "$n" | grep -q -- "$2"; }
 t 0 "pwsh doctor node holds --fix"                    pwsh_in  doctor "o = @(.*'--fix'"
@@ -2164,6 +2164,8 @@ t 0 "pwsh root node excludes pin's options"           pwsh_out '' "'--refresh'"
 t 0 "pwsh examples local node holds its own verbs"    pwsh_in  'examples local' "c = @(.*'run'"
 t 0 "pwsh examples local node excludes examples list" pwsh_out 'examples local' "'list'"
 
+g 0 'runs Flix check in a disposable overlay' "help examples local lists the overlay verbs" ./flixw help examples local
+g 0 'examples local build-pkg' "bash completes the examples local verbs" ./flixw completion bash
 t 0  "zsh and bash share one generated script"                  sh -c '
   test "$(./flixw completion bash)" = "$(./flixw completion zsh)"'
 if command -v fish >/dev/null 2>&1; then
@@ -2183,19 +2185,22 @@ if command -v pwsh >/dev/null 2>&1; then
   pwd_native() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
   mkdir -p "$work/pwdir"
   ./flixw completion pwsh > "$work/c.ps1"
-  # pw_words <line>: what the completer offers after <line>, space separated
+  # pw_words <line>: what the completer offers after <line>, space separated. pwsh prints the
+  # words in brackets, so a crash or silence is a failure here and not "nothing offered".
   pw_words() {
-    ( cd "$work/pwdir" &&
+    pw_out=$( cd "$work/pwdir" &&
       PW_SCRIPT=$(pwd_native "$work/c.ps1") PW_LINE=$1 pwsh -NoProfile -NonInteractive -Command '
         . $env:PW_SCRIPT
         $l = $env:PW_LINE
-        (([System.Management.Automation.CommandCompletion]::CompleteInput($l, $l.Length, $null)).CompletionMatches |
-          ForEach-Object { $_.CompletionText }) -join " "' | tr -d '\r' )
+        $w = ([System.Management.Automation.CommandCompletion]::CompleteInput($l, $l.Length, $null)).CompletionMatches |
+          ForEach-Object { $_.CompletionText }
+        "[" + ($w -join " ") + "]"' | tr -d '\r' ) || return 1
+    case $pw_out in "["*"]") pw_out=${pw_out#[}; pw_out=${pw_out%]}; printf '%s\n' "$pw_out" ;; *) return 1 ;; esac
   }
   # pw_has <line> <word>... / pw_lacks <line> <word>... / pw_none <line>
-  pw_has()   { l=$1; shift; o=" $(pw_words "$l") "; for w in "$@"; do case $o in *" $w "*) ;; *) return 1 ;; esac; done; }
-  pw_lacks() { l=$1; shift; o=" $(pw_words "$l") "; for w in "$@"; do case $o in *" $w "*) return 1 ;; esac; done; }
-  pw_none()  { test -z "$(pw_words "$1" | tr -d ' ')"; }
+  pw_has()   { l=$1; shift; o=$(pw_words "$l") || return 1; o=" $o "; for w in "$@"; do case $o in *" $w "*) ;; *) return 1 ;; esac; done; }
+  pw_lacks() { l=$1; shift; o=$(pw_words "$l") || return 1; o=" $o "; for w in "$@"; do case $o in *" $w "*) return 1 ;; esac; done; }
+  pw_none()  { o=$(pw_words "$1") || return 1; test -z "$(printf '%s' "$o" | tr -d ' ')"; }
   t 0 "pwsh root offers verbs"                      pw_has   "flixw " doctor pin examples
   t 0 "pwsh root offers no option of another verb"  pw_lacks "flixw " --fix --refresh --java
   t 0 "pwsh completes a verb prefix"                pw_has   "flixw pi" pin
@@ -2217,6 +2222,10 @@ if command -v pwsh >/dev/null 2>&1; then
   t 0 "pwsh offers nothing after --"                pw_none  "flixw pin -- "
   t 0 "pwsh completes inside an open quote"        pw_has   "flixw 'pi" pin
   t 0 "pwsh completes inside an open double quote"  pw_has   'flixw "pi' pin
+  t 0 "pwsh matches verbs case-sensitively"         pw_lacks "flixw DOCTOR " --fix
+  t 0 "pwsh offers the root after an unknown word"  pw_has   "flixw DOCTOR " doctor pin
+  t 0 "pwsh optional option values are not slots"   pw_has   "flixw wrapper --purge " --schema
+  t 0 "pwsh --install-jdk takes no value"           pw_has   "flixw wrapper --install-jdk " --version
   t 0 "pwsh completes the shell names"              pw_has   "flixw completion " bash zsh fish pwsh
   t 0 "pwsh registers for flixw.cmd too"            pw_has   "flixw.cmd doctor " --fix
 else
