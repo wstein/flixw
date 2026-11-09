@@ -569,7 +569,7 @@ public final class UnitCheck {
     }
 
     static String upstreamLine(flixw.Lock lock, boolean override) {
-        for (String l : flixw.helpContext(null, lock, null, null, null, null, override).split("\n"))
+        for (String l : flixw.helpContext(null, lock, null, null, null, null, override, null).split("\n"))
             if (l.startsWith("upstream=")) return l.substring(9);
         return "missing";
     }
@@ -1022,26 +1022,78 @@ public final class UnitCheck {
 
     /**
      * Collision fixtures: the owner the overview shows for a word against the owner stage 0
-     * dispatches it to, read from {@code realMain}'s order (early namespace, then compiler,
-     * then wrapper, then a declared plugin verb).
+     * dispatches it to. The expected side is written out per word from {@code realMain}'s order
+     * (early namespace, forced backend, compiler, wrapper table, declared plugin verb), not
+     * computed, so a change in {@code owner} that moves a word fails here; the displayed side
+     * is rendered from a context {@code helpContext} produced.
      */
     static void commandOwnership() throws Exception {
         String sha = "a".repeat(64);
-        // wrapper is answered before routing, so a compiler that implements the word loses it.
+        // myverb is free; check, pin and wrapper are claimed by the compiler or the wrapper.
         flixw.Lock lock = new flixw.Lock("0.76.2", "https://x/f.jar", sha, "flix/flix", null, null,
-            java.util.Map.of("m", new flixw.PluginDep("1.0.0", sha, "https://x/p.jar", "d", "myverb"),
-                             "n", new flixw.PluginDep("1.0.0", sha, "https://x/q.jar", "d", "check")));
-        java.util.Map<String, String> shown = displayedOwners(flixw.helpContext(null, lock, null, null,
-            List.of("check", "build", "wrapper", "pin"), null, false));
-        eq("owner: wrapper is the wrapper's even when the compiler lists it", "wrapper", shown.get("wrapper"));
-        eq("owner: a compiler verb stays the compiler's", "compiler", shown.get("check"));
-        eq("owner: pin is the compiler's when it implements it", "compiler", shown.get("pin"));
-        eq("owner: a declared plugin verb is listed once", "plugin", shown.get("myverb"));
-        eq("owner: a declared plugin verb is not also a wrapper command", null, shown.get("myverb#2"));
-        eq("owner: a plugin verb the compiler owns is listed by its long form", "plugin",
-           shown.get("plugin n"));
-        eq("owner: a plugin verb the compiler owns is not shown as the plugin's", null,
-           shown.get("check#2"));
+            new java.util.TreeMap<>(java.util.Map.of(
+                "m", new flixw.PluginDep("1.0.0", sha, "https://x/p.jar", "d", "myverb"),
+                "n", new flixw.PluginDep("1.0.0", sha, "https://x/q.jar", "d", "check"),
+                "o", new flixw.PluginDep("1.0.0", sha, "https://x/r.jar", "d", "pin"),
+                "p", new flixw.PluginDep("1.0.0", sha, "https://x/s.jar", "d", "wrapper"))));
+        List<String> cv = List.of("check", "build", "run", "wrapper", "pin", "completion");
+        // word -> owner per backend: "" is ordinary dispatch.
+        String[][] expect = {
+            // word        ""        wrapper     compiler
+            { "check",     "compiler", "compiler", "compiler" },
+            { "build",     "compiler", "compiler", "compiler" },
+            { "wrapper",   "wrapper",  "wrapper",  "wrapper"  },   // before routing, any backend
+            { "completion", "compiler", "compiler", "compiler" }, // the compiler claims it
+            { "pin",       "compiler", "wrapper",  "compiler" },
+            { "info",      "wrapper",  "wrapper",  "compiler" },
+            { "doctor",    "wrapper",  "wrapper",  "compiler" },
+            { "plugin",    "wrapper",  "wrapper",  "compiler" },
+            { "myverb",    "plugin",   "plugin",   "compiler" },
+        };
+        String[] backends = { null, "wrapper", "compiler" };
+        for (int k = 0; k < backends.length; k++) {
+            String tag = "owner[backend=" + backends[k] + "]: ";
+            java.util.Map<String, String> shown = displayedOwners(flixw.helpContext(null, lock, null, null,
+                cv, null, false, backends[k]));
+            for (String[] e : expect) {
+                eq(tag + e[0] + " is dispatched to", e[k + 1],
+                   flixw.owner(e[0], cv, backends[k], lock));
+                // A forced compiler gets every word, but only the verbs it implements are listed.
+                eq(tag + e[0] + " is displayed as",
+                   k == 2 && !cv.contains(e[0]) ? null : e[k + 1], shown.get(e[0]));
+                eq(tag + e[0] + " is listed once", null, shown.get(e[0] + "#2"));
+            }
+            // A plugin verb something else owns is reachable only by its long form.
+            for (String n : List.of("n", "o", "p"))
+                eq(tag + "plugin " + n + " is listed by its long form", "plugin", shown.get("plugin " + n));
+        }
+        // Without the compiler's claim, completion is answered early, even when the compiler is forced.
+        List<String> bare = List.of("check");
+        for (String b : new String[] { null, "wrapper", "compiler" })
+            eq("owner: completion the compiler does not claim is the wrapper's [backend=" + b + "]",
+               "wrapper", flixw.owner("completion", bare, b, null));
+        eq("owner: an unknown word is the compiler's", "compiler", flixw.owner("frobnicate", cv, null, lock));
+        eq("owner: -- is the compiler's", "compiler", flixw.owner("--", cv, null, lock));
+        // The completion model is the same tree: the node a forced wrapper owns carries the
+        // wrapper's flags, and the one the compiler owns does not.
+        for (String b : new String[] { null, "wrapper" }) {
+            Path f = Files.createTempDirectory("uc-owner-").resolve("ctx.txt");
+            Files.writeString(f, flixw.helpContext(null, lock, null, null, cv, null, false, b),
+                              StandardCharsets.UTF_8);
+            picocli.CommandLine.Model.CommandSpec t = flixwcli.tree(flixwcli.Ctx.read(f), "flixw", false);
+            eq("owner: tree pin carries the wrapper's flags only when the wrapper owns it [" + b + "]",
+               String.valueOf(b != null), String.valueOf(t.subcommands().get("pin").getCommandSpec()
+                                                          .optionsMap().containsKey("--refresh")));
+            eq("owner: tree wrapper carries the wrapper's flags [" + b + "]", "true",
+               String.valueOf(t.subcommands().get("wrapper").getCommandSpec()
+                               .optionsMap().containsKey("--upgrade")));
+        }
+        // A stage 0 that sends no owners: the verb lists give the same answer as before the key.
+        Path legacy = Files.createTempDirectory("uc-owner-").resolve("ctx.txt");
+        Files.writeString(legacy, "contract=1\ncompilerVerbs=check wrapper\nwrapperVerbs=info\n"
+                                + "\nplugins:\nm\t1\t" + sha + "\t\td\tmyverb\n", StandardCharsets.UTF_8);
+        eq("owner: without the key, the lists decide", "{check=compiler, wrapper=wrapper, info=wrapper,"
+           + " completion=wrapper, myverb=plugin}", String.valueOf(flixwcli.Ctx.read(legacy).owners()));
     }
 
     /**
@@ -1079,7 +1131,7 @@ public final class UnitCheck {
         List<String> verbs = List.of("check", "build", "run");
         Path file = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
         Files.writeString(file, flixw.helpContext(root, lock, jar,
-            new flixw.Jvm(javaExe, 21, "test"), verbs, null, false), StandardCharsets.UTF_8);
+            new flixw.Jvm(javaExe, 21, "test"), verbs, null, false, null), StandardCharsets.UTF_8);
         flixwcli.Ctx c = flixwcli.Ctx.read(file);
 
         List<String> fallback = new ArrayList<>(flixw.WRAPPER_VERBS);
@@ -1105,7 +1157,7 @@ public final class UnitCheck {
 
         // What a person sees: help for a stock verb while no compiler layout was parsed.
         Path plain = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
-        Files.writeString(plain, flixw.helpContext(null, null, null, null, List.of(), null, false),
+        Files.writeString(plain, flixw.helpContext(null, null, null, null, List.of(), null, false, null),
                           StandardCharsets.UTF_8);
         java.io.PrintStream realErr = System.err;
         java.io.ByteArrayOutputStream err = new java.io.ByteArrayOutputStream();
@@ -1340,7 +1392,7 @@ public final class UnitCheck {
             eq(tag + "a compiler-owned completion takes no wrapper shell argument", "0",
                String.valueOf(clashTree.subcommands().get("completion").getCommandSpec()
                                        .positionalParameters().size()));
-            eq(tag + "a compiler-owned wrapper has no wrapper flags", "false",
+            eq(tag + "wrapper is answered before routing, so it keeps its flags", "true",
                String.valueOf(clashTree.subcommands().get("wrapper").getCommandSpec()
                                        .optionsMap().containsKey("--upgrade")));
             eq(tag + "a wrapper verb the compiler does not own is still the wrapper's", "true",
