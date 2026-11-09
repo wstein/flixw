@@ -1424,7 +1424,7 @@ final class flixwcli {
 
     private static void pwshOption(Map<String, Boolean> into, OptionSpec o) {
         if (o.hidden()) return;
-        for (String n : o.names()) into.put(n, o.arity().max() > 0);
+        for (String n : o.names()) into.put(n, o.arity().min() > 0);
     }
 
     private static void pwshWord(StringBuilder into, String word) {
