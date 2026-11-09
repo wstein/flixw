@@ -674,9 +674,9 @@ parses compiler argv. The answers include the exceptions a verb list does not sh
 - A plugin's declared verb is the plugin's only when neither the compiler nor the wrapper
   answers it; otherwise it is listed as `plugin <name>`, which always works. Only declared
   verbs of the plugin name form (`[a-z][a-z0-9-]*`) enter `owners`, which is what keeps its
-  `verb=owner` tokens free of spaces and `=`; the values are therefore not escaped.
+  `verb=owner` tokens free of spaces and `=`; the values still go through `kv`/`esc`, which changes nothing for such words.
 
-Not covered: `plugin list|remove|install|upgrade` are answered by stage 0 before routing even
+Not covered: the `completion` entry follows the verb list `helpContext` was given, while `completionEarly` decides from the cached verb list of the lock's compiler. Under `FLIX_JAR` or a local compiler, or with a cold cache, they can differ and `owners` then shows `completion=wrapper` for a word that dispatch hands to the compiler (as the renderer did before `owners`); without an override both are the same file. `plugin list|remove|install|upgrade` are answered by stage 0 before routing even
 when the compiler implements `plugin`; the screen shows the word `plugin` as the compiler's. A
 plugin verb that is installed but not in the lock is dispatched and not listed, because the
 context carries the lock's plugins only.
