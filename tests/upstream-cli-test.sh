@@ -189,6 +189,28 @@ no_zz() { ! printf '%s' "$out" | "$real_grep" -q 'cmd - zz'; }
 check "a builder inside a nested block comment is not counted" no_zz
 setup; export FAKE_BREAK="awk"; run; expect 2 "a failing comment scan is UNKNOWN" "cannot scan"
 unset FAKE_BREAK
+# A string literal inside `${...}` of an interpolation is not modelled; the scan stops rather
+# than let a `//` or `/*` in it discard the rest of the line.
+setup; cat >> "$up/$p_main" <<'X'
+val a = s"${"//"}"; cmd("zzB")
+X
+run; expect 2 "a string inside \${...} that holds // is UNKNOWN, not a discarded line" "interpolation"
+setup; cat >> "$up/$p_main" <<'X'
+val a = s"${"/*"}"; cmd("zzB")
+X
+run; expect 2 "a string inside \${...} that holds /* is UNKNOWN" "interpolation"
+setup; cat >> "$up/$p_main" <<'X'
+val a = s"""${"x"}"""; cmd("zzB")
+X
+run; expect 2 "a string inside \${...} of a triple-quoted string is UNKNOWN" "interpolation"
+setup; cat >> "$up/$p_main" <<'X'
+val a = s"${ {1} + g("x") }"; cmd("zzB")
+X
+run; expect 2 "a string after a nested brace inside \${...} is UNKNOWN" "interpolation"
+setup; cat >> "$up/$p_main" <<'X'
+val a = s"x ${name} y ${f(b)} z"; cmd("kept") // cmd(name)
+X
+run; expect 1 "an interpolation without a string inside is read" "cmd - kept"
 # Messages name the file as upstream's repository does, not the scratch copy.
 no_workpath() { ! printf '%s' "$out" | "$real_grep" -qF "$t/w"; }
 setup; printf '/* never closed\n' >> "$up/$p_main"; run; expect 2 "the scan's message names the upstream path" "$p_main ends inside"
