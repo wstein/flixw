@@ -690,8 +690,11 @@ flixw/
 
 ```console
 sh tests/lint.sh    # javac -Xlint:all -Werror, shellcheck, shim byte-parity
-sh tests/run.sh     # regression suite (needs network on first run)
+sh tests/run.sh     # regression suite (downloads its compiler into a fresh suite cache)
 ```
+
+CI retains per-group suite timings and an aggregate report. For optional local collection,
+report accounting, cache state and interpretation, see [tests/timing.md](tests/timing.md).
 
 On systems with `make`, the optional convenience aliases are `make lint` (also `make check`),
 `make test`, `make pages OUT=<dir>`, and `make pack OUT=<dir>`. They delegate directly to
