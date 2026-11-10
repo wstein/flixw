@@ -1129,6 +1129,35 @@ public final class UnitCheck {
      * halves are written in different files and agreed on by comment alone.
      */
     static void companionContract() throws Exception {
+        Path request = Files.createTempFile("uc-slots-", ".txt");
+        Files.writeString(request, flixw.helpContext(null, null, null, null, List.of(), null, false, null));
+        for (List<String> rest : List.of(List.<String>of(), List.of("task"))) {
+            String[] plainArgs = flixw.helpArgs(request, rest, List.of()).toArray(String[]::new);
+            Ran plainRun = runCaptured(plainArgs);
+            for (List<String> opts : List.of(List.of("-Xmx512m"), List.of(""), List.of("", "-Xmx512m"))) {
+                List<String> argv = flixw.helpArgs(request, rest, opts);
+                eq("request: three slots precede JVM tokens " + rest + opts, "4", String.valueOf(argv.size() - opts.size()));
+                eq("request: JVM tokens stay opaque " + rest + opts, opts.toString(), argv.subList(Math.min(4, argv.size()), argv.size()).toString());
+                Ran actual = runCaptured(argv.toArray(String[]::new));
+                eq("request: missing topic/name status " + rest + opts, String.valueOf(plainRun.rc()), String.valueOf(actual.rc()));
+                eq("request: missing topic/name output " + rest + opts, plainRun.out(), actual.out());
+                eq("request: missing topic/name diagnostic " + rest + opts, plainRun.err(), actual.err());
+            }
+        }
+        for (List<String> rest : List.of(List.of("--Xhelp"), List.of("flix", "--Xhelp"),
+                                        List.of("flix-direct", "check", "--help"))) {
+            List<String> argv = flixw.helpArgs(request, rest, List.of("-Xmx512m"));
+            eq("request: explicit help flag slot " + rest, rest.get(rest.size() - 1), argv.size() > 3 ? argv.get(3) : "<missing>");
+            eq("request: help flag does not consume JVM token " + rest, "-Xmx512m", argv.size() > 4 ? argv.get(4) : "<missing>");
+        }
+        String currentRequest = Files.readString(request);
+        Ran modern = runCaptured(flixw.helpArgs(request, List.of("task"), List.of()).toArray(String[]::new));
+        for (String version : List.of("", "contract=1\n")) {
+            Files.writeString(request, currentRequest.replace("contract=2\n", version));
+            Ran legacy = runCaptured(request.toString(), "task");
+            eq("request: old producer still renders tasks " + version, modern.out(), legacy.out());
+            eq("request: old producer status " + version, String.valueOf(modern.rc()), String.valueOf(legacy.rc()));
+        }
         // Tab and newline are legal in a Unix path and rejected by Windows (InvalidPathException),
         // so those paths are built only off Windows; there a backslash and spaces stand in. The
         // escape round trip over strings alone is checked on every platform just below.
@@ -1208,7 +1237,7 @@ public final class UnitCheck {
            String.valueOf(text.lines().filter(l -> l.startsWith("fallbackVerbs="))
                               .findFirst().get().substring(14).split(" +").length));
         Path newer = Files.createTempDirectory("uc-contract-").resolve("ctx.txt");
-        for (String bad : new String[]{"2", "99", "x", "-1", ""}) {
+        for (String bad : new String[]{"3", "99", "x", "-1", ""}) {
             Files.writeString(newer, "contract=" + bad + "\nflixwVersion=1\n", StandardCharsets.UTF_8);
             StringBuilder out = new StringBuilder();
             int rc = runHelpCapture(new String[]{newer.toString(), "pin"}, out);
@@ -1219,12 +1248,12 @@ public final class UnitCheck {
         java.io.PrintStream prev3 = System.err;
         System.setErr(new java.io.PrintStream(e3, true, StandardCharsets.UTF_8));
         try {
-            Files.writeString(newer, "contract=2\n", StandardCharsets.UTF_8);
+            Files.writeString(newer, "contract=3\n", StandardCharsets.UTF_8);
             flixwcli.run(new String[]{newer.toString(), "pin"});
         } finally { System.setErr(prev3); }
         String diag = e3.toString(StandardCharsets.UTF_8);
         eq("contract: the diagnostic names both versions", "true",
-           String.valueOf(diag.contains("contract 2") && diag.contains("reads contract 1")));
+           String.valueOf(diag.contains("contract 3") && diag.contains("reads contract 2")));
 
         // Stage 0 from before the field: no version, comma-separated list, raw values.
         Files.writeString(newer, "flixwVersion=0.34.9\nfallbackVerbs=check,build,run\n"

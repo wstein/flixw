@@ -787,20 +787,28 @@ answer regardless.
 
 ### The request to the renderer
 
-Stage 0 hands the renderer (`flixw-cli.java`) one temporary context file and positional
-arguments: `<context-file> <topic> [<name>] [<jvm-token>...]`. A help flag that is not plain
-`--help`/`-h` (such as `--Xhelp`) travels in the topic, name or first-token slot, and the
-renderer recognises it by its shape. The renderer is fetched per wrapper release and
-digest-verified against that release's `SHA256SUMS`, so the two halves ship together; they
-can still differ under `FLIXW_ASSET_SOURCE` or a source launch.
+Stage 0 hands the renderer (`flixw-cli.java`) one temporary context file and fixed
+positional fields: `<context-file> <topic> <name> <help-flag> [<jvm-token>...]`.
+Missing topic, name and help flag each occupy an empty-string slot. Validated JVM tokens
+start after those three fields, including tokens that are empty or resemble help flags.
+The producer places extended help flags such as `--Xhelp` in the help-flag slot; the
+renderer does not infer request fields from token shapes.
 
-The context file's first line is `contract=<n>`. This renderer reads contract 1.
+The context file's first line is `contract=<n>`. This renderer reads contracts 0, 1 and 2.
+The renderer is fetched per wrapper release and digest-verified against that release's
+`SHA256SUMS`; the halves can differ under `FLIXW_ASSET_SOURCE` or a source launch.
 
 | contract | meaning |
 |---|---|
-| absent, or `0` (also `-0`) | the layout before versioning: values raw, `fallbackVerbs` comma-separated; still read |
-| `1` (also `+1` and `01`, as Java parses integers) | values escaped as in the tab rows (`\\`, `\t`, `\n`, `\r`); every verb list space-separated |
-| anything else (higher, negative, non-numeric, empty, or with a leading or trailing space such as `" 1"`) | refused: a diagnostic on stderr and exit 87 (the status `FLIXW008` also uses), nothing on stdout |
+| absent, or `0` (also `-0`) | the layout before versioning: values raw, `fallbackVerbs` comma-separated; legacy positional argv and help-flag recognition |
+| `1` (also `+1` and `01`, as Java parses integers) | escaped values (`\\`, `\t`, `\n`, `\r`), space-separated verb lists; legacy positional argv and help-flag recognition |
+| `2` (also `+2` and `02`) | the same context encoding as 1, with fixed topic, name and help-flag argv slots |
+| anything else (higher, negative, non-numeric, empty, or with leading or trailing space) | refused: a diagnostic on stderr and exit 87, nothing on stdout |
+
+A new renderer still reads old stage-0 requests with their legacy argv interpretation.
+An old renderer refuses a contract-2 request with the contract diagnostic rather than
+interpreting its fixed fields as the old layout. This argv change requires version 2:
+an additive context key could be ignored, but positional fields cannot.
 
 A refused request ends differently by caller, and the diagnostic is printed on stderr in
 every case. `help ...` and `completion <shell>` exit 87. `<wrapper-verb> --help` (such as
@@ -816,12 +824,6 @@ added without moving the number; changing what an existing key means moves it. `
 such a key: it is additive, so the contract stays `1`. A renderer that finds no `owners`
 (a stage 0 from before it) derives the same map from `compilerVerbs`, `wrapperVerbs` and the
 plugin rows. An older renderer ignores the key and keeps its own grouping.
-
-**Known limit.** The positional arguments keep each token whole, but they are not
-slot-separated: when the topic or the name is absent, the first validated `FLIX_JVM_OPTS`
-token moves into that slot (`FLIX_JVM_OPTS=-Xmx512m ./flixw help` answers `no help topic
-'-Xmx512m'`, exit 89). Moving topic, name, help flag and JVM tokens into the context file
-would remove this and is not done here.
 
 **A broken curated spec degrades help, loudly.** Absent specs fall back to the compiler's own
 `--help` without a word. A spec that is present and unusable (unparsable, or colliding with the

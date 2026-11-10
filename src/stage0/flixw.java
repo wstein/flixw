@@ -5542,9 +5542,8 @@ public final class flixw {
     static String helpContext(Path root, Lock lock, Path jar, Jvm jvm, List<String> compilerVerbs,
                               String identity, boolean override, String backend) {
         if (compilerVerbs == null) compilerVerbs = List.of();
-        // contract=1 is the first line: a reader that does not know it must not guess at the
-        // rest. Values are escaped (see esc); lists are space-separated verb tokens.
-        StringBuilder b = new StringBuilder("contract=1\n");
+        // Contract 2 fixes argv slots; older renderers refuse it rather than guess.
+        StringBuilder b = new StringBuilder("contract=2\n");
         b.append(kv("flixwVersion", WRAPPER_VERSION)).append(kv("projectRoot", root))
          .append(kv("cacheHome", cacheHome()))
          .append(kv("compilerVersion", lock == null ? "" : lock.version()));
@@ -5629,33 +5628,24 @@ public final class flixw {
         Path ctx = Files.createTempFile("flixw-cli-", ".txt");
         try {
             Path asset = ensureAsset(CLI_ASSET), picocli = ensureAsset(PICOCLI_ASSET), specs = null;
-            // Absent degrades to the compiler's --help; a digest mismatch is tampering.
             try { specs = ensureAsset(SPECS_ASSET); }
             catch (Fail f) { if (f.code.equals("FLIXW006")) throw f; tr("specs: " + f.getMessage()); }
             Files.writeString(ctx, helpContext(root, lock, jar, jvm, compilerVerbs, identity,
                                                 overridden(root), env("FLIX_BACKEND")),
                               StandardCharsets.UTF_8);
-            List<String> a = new ArrayList<>(List.of(ctx.toString()));
-            a.addAll(rest.subList(0, Math.min(3, rest.size())));
-            // Validated tokens: the asset must not parse FLIX_JVM_OPTS again.
-            a.addAll(jvmOpts);
-            return runAsset(asset, picocli, specs, a);
+            return runAsset(asset, picocli, specs, helpArgs(ctx, rest, jvmOpts));
         } finally {
             try { Files.deleteIfExists(ctx); } catch (IOException ignored) { }
         }
     }
 
-    /** False when rendering fails; caller launches the original argv. */
-    static boolean compilerVerbHelp(String verb, String flag, Path root, Lock lock, Path jar, Jvm jvm,
-                                    List<String> compilerVerbs, String identity,
-                                    List<String> jvmOpts) {
-        try {
-            List<String> a = flag == null ? List.of("flix-direct", verb) : List.of("flix-direct", verb, flag);
-            return renderHelp(a, root, lock, jar, jvm, compilerVerbs, identity, jvmOpts) == 0;
-        } catch (IOException | RuntimeException e) {
-            tr("cannot render compiler help for " + verb + ": " + why(e));
-            return false;
+    static List<String> helpArgs(Path ctx, List<String> rest, List<String> opts) {
+        List<String> a = new ArrayList<>(List.of(ctx.toString(), "", "", ""));
+        for (int i = 0; i < Math.min(3, rest.size()); i++) {
+            String v = rest.get(i);
+            a.set(i < 2 && isHelpFlag(v) && !v.equals("--help") && !v.equals("-h") ? 3 : i + 1, v);
         }
+        a.addAll(opts); return a;
     }
 
     static void renderWrapperHelp(String verb, String fallback, Path root, Lock lock, Path jar,
@@ -6107,7 +6097,12 @@ public final class flixw {
         // Only exact help is presentation-only; all other argv remains the compiler's.
         if (toCompiler && !forcedCompiler && first != null && compilerVerbs.contains(first)
             && exactCompilerHelp(forward)) {
-            if (compilerVerbHelp(first, forward.get(1), root, lock, jar, jvm, compilerVerbs, verbId, opts)) return;
+            try {
+                if (renderHelp(List.of("flix-direct", first, forward.get(1)),
+                               root, lock, jar, jvm, compilerVerbs, verbId, opts) == 0) return;
+            } catch (IOException | RuntimeException e) {
+                tr("cannot render compiler help for " + first + ": " + why(e));
+            }
         }
 
         if (!toCompiler && pluginOwner != null && !WRAPPER_VERBS.contains(first)) {

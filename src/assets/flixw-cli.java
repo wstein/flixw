@@ -28,7 +28,7 @@ import cliwerk.spec.CommandSpecDsl;
  * Renders {@code ./flixw help} and generates {@code ./flixw completion <shell>}, from one
  * shared command-tree model: a wrapper-owned companion asset, not a plugin.
  *
- * <p>{@code java -cp picocli.jar flixw-cli.java <context-file> <topic> [<name>]}
+ * <p>{@code java -cp picocli.jar flixw-cli.java <context-file> <topic> <name> <help-flag> [<jvm-token>...]}
  *
  * <p>It re-gathers nothing. Stage 0 hands it a context file holding what it already computed
  * on the way here -- the compiler's captured help text, the verb sets it dispatches on, the
@@ -97,18 +97,18 @@ final class flixwcli {
     }
 
     /**
-     * The version of the context file this renderer reads; stage 0 writes {@code contract=1}
+     * The version of the context file this renderer reads; stage 0 writes {@code contract=2}
      * as its first line. Absent means contract 0, the unversioned layout: comma-separated
      * {@code fallbackVerbs} and unescaped values. A higher number is refused (see {@link #body}).
      * Adding a key that older readers can ignore does not move it; changing what an existing
      * key means does.
      */
-    static final int CONTRACT = 1;
+    static final int CONTRACT = 2;
 
     private static void body(String[] args) throws Exception {
         if (args.length < 1) {
             System.err.println("usage: java -cp picocli.jar flixw-cli.java"
-                             + " <context-file> [<topic> [<name>]]");
+                             + " <context-file> <topic> <name> <help-flag> [<jvm-token>...]");
             throw new Exit(87);
         }
         Ctx c = Ctx.read(Paths.get(args[0]));
@@ -127,21 +127,29 @@ final class flixwcli {
         List<String> jvmOpts = args.length > 3 ? List.of(args).subList(3, args.length) : List.of();
 
         String helpFlag = null;
-        if (isHelpFlag(topic) && !"--help".equals(topic) && !"-h".equals(topic)) {
-            helpFlag = topic;
-            topic = null;
-        } else if (isHelpFlag(name) && !"--help".equals(name) && !"-h".equals(name)) {
-            helpFlag = name;
-            name = null;
-        } else if (!jvmOpts.isEmpty() && isHelpFlag(jvmOpts.get(0))) {
-            // compilerVerbHelp sends the literal flag the user typed (--help/-h) as this
-            // trailing positional, on top of the topic and name it already set -- so it is
-            // not a real JVM option and must not reach probe()'s subprocess. A literal
-            // --help/-h is dropped outright: name is already set, so it is redundant. Only
-            // an --Xhelp-style flag becomes helpFlag, the same as the topic/name cases above.
-            if (!"--help".equals(jvmOpts.get(0)) && !"-h".equals(jvmOpts.get(0)))
-                helpFlag = jvmOpts.get(0);
-            jvmOpts = jvmOpts.subList(1, jvmOpts.size());
+        if (c.contract >= 2) {
+            // Fixed fields precede opaque, already validated JVM tokens. No token heuristics.
+            topic = topic == null || topic.isEmpty() ? null : topic;
+            name = name == null || name.isEmpty() ? null : name;
+            helpFlag = args.length > 3 && !args[3].isEmpty() ? args[3] : null;
+            jvmOpts = args.length > 4 ? List.of(args).subList(4, args.length) : List.of();
+        } else {
+            if (isHelpFlag(topic) && !"--help".equals(topic) && !"-h".equals(topic)) {
+                helpFlag = topic;
+                topic = null;
+            } else if (isHelpFlag(name) && !"--help".equals(name) && !"-h".equals(name)) {
+                helpFlag = name;
+                name = null;
+            } else if (!jvmOpts.isEmpty() && isHelpFlag(jvmOpts.get(0))) {
+                // compilerVerbHelp sends the literal flag the user typed (--help/-h) as this
+                // trailing positional, on top of the topic and name it already set -- so it is
+                // not a real JVM option and must not reach probe()'s subprocess. A literal
+                // --help/-h is dropped outright: name is already set, so it is redundant. Only
+                // an --Xhelp-style flag becomes helpFlag, the same as the topic/name cases above.
+                if (!"--help".equals(jvmOpts.get(0)) && !"-h".equals(jvmOpts.get(0)))
+                    helpFlag = jvmOpts.get(0);
+                jvmOpts = jvmOpts.subList(1, jvmOpts.size());
+            }
         }
 
         if (topic == null) { overview(c, helpFlag); return; }
