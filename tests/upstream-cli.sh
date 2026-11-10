@@ -123,7 +123,19 @@ leftover_enum="${before}(case[[:space:]]+object([^A-Za-z0-9_]|\$)|enum[[:space:]
 strip_comments() { # <in> <out> <label>
   rc=0
   awk '
-    BEGIN { blk = 0; tri = 0 }
+    # A quote inside the ${...} of an interpolation starts a string the scan does not model; a
+    # `//` or `/*` in it would be taken for a comment. Fail closed rather than guess.
+    function bad_interp(line, k,   depth, m, ch) {
+      depth = 0
+      for (m = k + 1; m <= length(line); m++) {
+        ch = substr(line, m, 1)
+        if (ch == "{") depth++
+        else if (ch == "}") { depth--; if (depth == 0) return 0 }
+        else if (ch == "\"") return 1
+      }
+      return 0
+    }
+    BEGIN { blk = 0; tri = 0; bad = 0 }
     {
       out = ""; n = length($0); i = 1; str = 0
       while (i <= n) {
@@ -132,6 +144,7 @@ strip_comments() { # <in> <out> <label>
           if (d == "/*") { blk++; i += 2 } else if (d == "*/") { blk--; i += 2 } else i++
           continue
         }
+        if ((tri || str) && d == "${" && bad_interp($0, i)) { bad = 1; exit 4 }
         if (tri) {
           if (t == "\"\"\"") {
             j = i; while (substr($0, j, 1) == "\"") j++
@@ -157,10 +170,11 @@ strip_comments() { # <in> <out> <label>
       }
       print out
     }
-    END { if (blk > 0 || tri) exit 3 }' "$1" > "$2" || rc=$?
+    END { if (!bad && (blk > 0 || tri)) exit 3 }' "$1" > "$2" || rc=$?
   case $rc in
     0) ;;
     3) unknown "$3 ends inside a comment or string; the rest of the file cannot be read" ;;
+    4) unknown "$3 has a string inside \${...} of an interpolation, which the comment scan cannot read" ;;
     *) unknown "cannot scan $3 for comments (awk status $rc)" ;;
   esac
 }
