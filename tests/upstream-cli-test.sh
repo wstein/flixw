@@ -419,6 +419,9 @@ setup; put '{"name": "flix"}' "$api/.self"; run; expect 2 "a repository record w
 # The default branch's name comes from the API and goes into the same URL.
 setup; put '{"default_branch": "a#b"}' "$api/.self"; run
   expect 2 "a default branch name that is not a valid ref is refused" "not a valid ref"
+# Only a full lowercase SHA is taken at its word; anything else needs a baseline of its own.
+setup; run --to abc1234;  expect 2 "a short SHA as --to without --from is refused" "--from"
+setup; run --to AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; expect 2 "an upper-case SHA as --to without --from is refused" "--from"
 setup; put $sha3 "$api/commits/release/0.79"; run --from release/0.79
   expect 1 "a ref with a slash is valid" "$sha3"
 setup_recorded;           run --from nosuch
