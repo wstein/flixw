@@ -189,6 +189,10 @@ no_zz() { ! printf '%s' "$out" | "$real_grep" -q 'cmd - zz'; }
 check "a builder inside a nested block comment is not counted" no_zz
 setup; export FAKE_BREAK="awk"; run; expect 2 "a failing comment scan is UNKNOWN" "cannot scan"
 unset FAKE_BREAK
+# Messages name the file as upstream's repository does, not the scratch copy.
+no_workpath() { ! printf '%s' "$out" | "$real_grep" -qF "$t/w"; }
+setup; printf '/* never closed\n' >> "$up/$p_main"; run; expect 2 "the scan's message names the upstream path" "$p_main ends inside"
+check "...and not the scratch copy" no_workpath
 setup; printf '// enum Mode { case A }\n' >> "$up/$p_opts"; run; expect 0 "a commented enum is not counted" "unchanged"
 setup; printf 'enum Level { case Hi, Lo }\n' >> "$up/$p_opts"; run
   expect 2 "a Scala 3 enum is UNKNOWN, not ignored" "unsupported syntax"
