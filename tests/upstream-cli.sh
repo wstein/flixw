@@ -226,7 +226,16 @@ default_branch() {
 # offline. Anything that is not a full SHA afterwards -- an error page, a rate-limit body --
 # is UNKNOWN: it would otherwise be used as a path component.
 is_sha() { [ "${#1}" -eq 40 ] && case $1 in *[!0-9a-f]*) return 1 ;; *) return 0 ;; esac; }
+# The ref is also a path component of the API URL, where '#', '?' and '%' would make the
+# request name another ref than the one asked for. Git ref names cannot contain most of what
+# is excluded here anyway; anything outside [A-Za-z0-9._/-] is refused, not encoded.
+valid_ref() { # <ref>
+  case $1 in
+    ''|-*|*[!A-Za-z0-9._/-]*|*..*|*//*|*/) return 1 ;;
+  esac
+}
 resolve() { # <ref> -> $resolved
+  valid_ref "$1" || unknown "'$1' is not a valid ref (allowed: letters, digits, . _ / -)"
   if is_sha "$1"; then resolved=$1; return; fi
   resolved=$(curl -fsSL -H 'Accept: application/vnd.github.sha' "$api/repos/$repo/commits/$1" 2>/dev/null) \
     || unknown "cannot resolve $repo@$1 to a commit"
@@ -291,6 +300,11 @@ check() {
     shift
   done
   [ -z "$from" ] || [ "$update" -eq 0 ] || unknown "--update adopts the --to side as the baseline; it takes no --from"
+
+  # Before any request is made.
+  for ref in "$from" "$to"; do
+    [ -z "$ref" ] || valid_ref "$ref" || unknown "'$ref' is not a valid ref (allowed: letters, digits, . _ / -)"
+  done
 
   if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum
   elif command -v shasum >/dev/null 2>&1; then sum="shasum -a 256"
