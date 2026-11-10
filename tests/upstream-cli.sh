@@ -102,7 +102,9 @@ leftover_builder="$before(cmd|opt|arg)[[:space:]]*[[($bt]"
 # builder call, so that mapping is not what gets watched; the enum it draws from is.
 # The file is read as one line, so `extends` on the next line is still found.
 strict_enum='case[[:space:]]+object[[:space:]]+[A-Za-z0-9_]+[[:space:]]+extends[[:space:]]+[A-Za-z0-9_]+'
-leftover_enum="${before}case[[:space:]]+object([^A-Za-z0-9_]|\$)"
+# Scala 3's `enum X { case A, B }` is another way to write the same value set, and one the
+# strict pattern does not read: seeing the keyword is enough to stop.
+leftover_enum="${before}(case[[:space:]]+object([^A-Za-z0-9_]|\$)|enum[[:space:]]+[A-Za-z_])"
 
 # Extraction coverage. Every builder and every case object must be read by the strict
 # pattern, and each source must yield what it is known to hold: commands and options from
