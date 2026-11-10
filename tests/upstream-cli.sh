@@ -101,6 +101,18 @@ run_grep() { # <extended-regex> <file> <out>
   [ "$rc" -le 1 ] || unknown "grep failed (status $rc) on $2"
 }
 
+has_match() { # <extended-regex> <file>
+  rc=0
+  grep -qE "$1" "$2" || rc=$?
+  [ "$rc" -le 1 ] || unknown "grep failed (status $rc) on $2"
+  [ "$rc" -eq 0 ]
+}
+
+# What may stand in front of a builder or `case`: anything that is not part of an identifier,
+# so `subcmd("x")` is not `cmd("x")`. Spelled as a bracket expression because `\b` is a GNU
+# extension that BSD grep and sed do not share.
+before='(^|[^A-Za-z0-9_])'
+
 # scopt's builders name the whole surface: cmd("check"), opt[Unit]("json"), arg[Int]("port").
 # The type inside the brackets is kept because it is the difference between a flag and an
 # option that takes a value, which is exactly what a completion has to get right. A builder
@@ -108,39 +120,50 @@ run_grep() { # <extended-regex> <file> <out>
 # inner name is what is kept, since that is the type a completion or a curated spec cares
 # about -- "a Subeffecting" is the fact, "a Seq of them" is scopt's own plumbing for `--x a,b`.
 strict_builder='(cmd|opt\[[A-Za-z._]+(\[[A-Za-z._]+\])?\]|arg\[[A-Za-z._]+\])\("[^"]+"\)'
-# The same builders as written, whatever their arguments: a third level of brackets, a name
-# that is not a string literal, an escaped quote. Anything this matches that the strict
-# pattern does not is syntax the extractor cannot read, and the fingerprint would silently
-# lose it.
-loose_builder='\b(cmd|opt|arg)\b(\[[^(]*\])?\('
-extract_surface() {
-  run_grep "$strict_builder" "$1" "$work/surface.raw"
-  sed -E '
-        s/^cmd\("(.*)"\)$/cmd - \1/
-        s/^(opt|arg)\[[A-Za-z._]+\[([A-Za-z._]+)\]\]\("(.*)"\)$/\1 \2 \3/
-        s/^(opt|arg)\[([A-Za-z._]+)\]\("(.*)"\)$/\1 \2 \3/
-      ' "$work/surface.raw"
-}
+# What is left of the source once every entry the extractor reads has been cut out. A call
+# that still starts like a builder there -- a third level of brackets, a name that is not a
+# string literal, whitespace or a line break before the parenthesis -- is syntax the
+# extractor cannot read, and the fingerprint would silently lose it. Judging each call, not
+# totals, means one unreadable call cannot be hidden by a look-alike that happens to match.
+leftover_builder="$before(cmd|opt|arg)[[:space:]]*[[(]"
 
 # The complementary half: a sealed trait's case objects are the value set behind a custom
 # scopt type -- LibLevel's Nix/Min/All, Subeffecting's ModDefs/InsDefs/Lambdas. Main.scala
 # maps user-facing strings onto these ("nix" => LibLevel.Nix) as bare match arms, not a
 # builder call, so that mapping is not what gets watched; the enum it draws from is.
+# The file is read as one line, so `extends` on the next line is still found.
+strict_enum='case[[:space:]]+object[[:space:]]+[A-Za-z0-9_]+[[:space:]]+extends[[:space:]]+[A-Za-z0-9_]+'
+leftover_enum="${before}case[[:space:]]+object([^A-Za-z0-9_]|\$)"
+
+# Extraction coverage. Every builder and every case object must be read by the strict
+# pattern, and each source must yield what it is known to hold: commands and options from
+# Main.scala, enum members from Options.scala. A parser that stopped matching would otherwise
+# produce an empty set, and an empty set compared with an empty set is "unchanged".
+extract() { # <file> <flat> <strict> <leftover> <out.raw> <label>
+  tr '\n' ' ' < "$1" > "$2"
+  run_grep "$before$3" "$2" "$5"
+  sed -E "s/$before$3/\\1 /g" "$2" > "$2.rest"
+  if has_match "$4" "$2.rest"; then
+    unknown "$6 has a call the extractor cannot read (unsupported syntax)"
+  fi
+  sed -E 's/^[^A-Za-z0-9_]//' "$5" > "$5.trim"
+}
+extract_surface() {
+  extract "$1" "$work/main.flat" "$strict_builder" "$leftover_builder" "$work/surface.raw" "$path_main"
+  sed -E '
+        s/^cmd\("(.*)"\)$/cmd - \1/
+        s/^(opt|arg)\[[A-Za-z._]+\[([A-Za-z._]+)\]\]\("(.*)"\)$/\1 \2 \3/
+        s/^(opt|arg)\[([A-Za-z._]+)\]\("(.*)"\)$/\1 \2 \3/
+      ' "$work/surface.raw.trim"
+}
 extract_enums() {
-  run_grep 'case object [A-Za-z0-9_]+ extends [A-Za-z0-9_]+' "$1" "$work/enums.raw"
-  sed -E 's/^case object ([A-Za-z0-9_]+) extends ([A-Za-z0-9_]+)$/enum \2 \1/' "$work/enums.raw"
+  extract "$1" "$work/options.flat" "$strict_enum" "$leftover_enum" "$work/enums.raw" "$path_options"
+  sed -E 's/^case[[:space:]]+object[[:space:]]+([A-Za-z0-9_]+)[[:space:]]+extends[[:space:]]+([A-Za-z0-9_]+)$/enum \2 \1/' \
+    "$work/enums.raw.trim"
 }
 
-# Extraction coverage. Every builder the loose pattern sees must have been extracted, and
-# each source must yield what it is known to hold: commands and options from Main.scala,
-# enum members from Options.scala. A parser that stopped matching would otherwise produce
-# an empty set, and an empty set compared with an empty set is "unchanged".
-run_grep "$loose_builder" "$main_src" "$work/loose.raw"
+
 extract_surface "$main_src" > "$work/surface"
-seen=$(wc -l < "$work/loose.raw" | tr -d ' ')
-got=$(wc -l < "$work/surface" | tr -d ' ')
-[ "$seen" = "$got" ] \
-  || unknown "$path_main has $seen builder calls but only $got were extracted (unsupported builder syntax)"
 grep -q '^cmd ' "$work/surface" || unknown "no command extracted from $path_main"
 grep -q '^opt ' "$work/surface" || unknown "no option extracted from $path_main"
 extract_enums "$options_src" > "$work/enums"
