@@ -229,7 +229,10 @@ default_branch() { # -> $dflt
   curl -fsSL -o "$work/repo.json" "$api/repos/$repo" \
     || unknown "cannot read the repository record of $repo to find its default branch"
   sed -n 's/.*"default_branch": *"\([^"]*\)".*/\1/p' "$work/repo.json" > "$work/default_branch"
-  read -r dflt < "$work/default_branch" || dflt=
+  # `read` returns 1 at end-of-file even when it has read a last line that lacks its newline;
+  # an empty file leaves the variable empty, which is judged next.
+  dflt=
+  read -r dflt < "$work/default_branch" || :
   [ -n "$dflt" ] || unknown "the repository record of $repo names no default branch"
 }
 
@@ -377,7 +380,8 @@ check() {
     # Into a file and read back: in `$(a | b)` a failing `a` is invisible, an empty revision
     # would skip the digest comparison below, and a tampered cache would pass as drift.
     sed -n 's/^# Revision: //p' "$fingerprint" > "$work/revision"
-    read -r rev < "$work/revision" || rev=
+    rev=
+    read -r rev < "$work/revision" || :
     base="the committed fingerprint (${rev:-revision not recorded})"
     # The cache vouches for itself with its own digests, which whoever altered a source can
     # rewrite. When the revision is the one the fingerprint was made from, the fingerprint's
@@ -432,7 +436,7 @@ vfile=$(mktemp "$work/verdict.XXXXXX") || { echo "upstream-cli: UNKNOWN -- canno
 ( set -e; check "$@" )
 rc=$?
 verdict=
-read -r verdict < "$vfile" || verdict=
+read -r verdict < "$vfile" || :
 rm "$vfile" || { echo "upstream-cli: UNKNOWN -- cannot remove $vfile" >&2; exit 2; }
 case "$rc:$verdict" in
   0:clean|0:updated|1:drift|2:unknown) exit "$rc" ;;
