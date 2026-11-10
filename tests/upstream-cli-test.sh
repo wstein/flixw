@@ -135,6 +135,29 @@ setup; printf 'case object Mid\n' >> "$up/$p_opts"; run; expect 2 "a case object
 setup; printf 'case  object   Mid   extends   Mode\n' >> "$up/$p_opts"; run
   expect 1 "case object spelled with extra spaces is extracted" "enum Mode Mid"
 
+setup; printf '`cmd`("x")\n' >> "$up/$p_main";      run; expect 2 "a backticked builder name is UNKNOWN" "unsupported syntax"
+# Comments are not source: a commented-out builder is not in the surface, and a comment that
+# mentions one cannot make up for, or hide, a real call.
+setup; printf '// cmd("gone")\n' >> "$up/$p_main";   run; expect 0 "a line-commented builder is not counted" "unchanged"
+setup; printf '/* cmd("gone")\n   opt[Unit]("gone") */\n' >> "$up/$p_main"; run
+  expect 0 "a block-commented builder is not counted" "unchanged"
+setup; printf 'cmd("kept") // note: cmd(name)\n' >> "$up/$p_main"; run
+  expect 1 "a trailing comment does not hide the call before it" "cmd - kept"
+setup; printf '/* http://x */ cmd("kept")\n' >> "$up/$p_main"; run
+  expect 1 "// inside a block comment does not swallow what follows" "cmd - kept"
+setup; printf 'opt[Unit]("a//b")\n' >> "$up/$p_main"; run
+  expect 1 "// inside a string is not a comment" "opt Unit a//b"
+setup; printf "val q = '\"'; cmd(\"kept\")\n" >> "$up/$p_main"; run
+  expect 1 "a quote character literal does not open a string" "cmd - kept"
+setup; cat >> "$up/$p_main" <<'X'
+val q = '"'; cmd("kept") // cmd(name)
+X
+run; expect 1 "a quote literal does not leave the trailing comment unstripped" "cmd - kept"
+setup; cat >> "$up/$p_main" <<'X'
+val s = "x\" // y"; cmd("kept") // cmd(name)
+X
+run; expect 1 "an escaped quote does not end a string" "cmd - kept"
+setup; printf '// enum Mode { case A }\n' >> "$up/$p_opts"; run; expect 0 "a commented enum is not counted" "unchanged"
 setup; export FAKE_BREAK=grep; run; expect 2 "an extractor that fails is UNKNOWN" "grep failed"
 setup; export FAKE_BREAK="sed";          run; expect 2 "an unexpected failure is UNKNOWN, not drift (exit 1)" "UNKNOWN"
 setup; export FAKE_BREAK="diff"; run; expect 2 "diff failing with a code other than 1 is UNKNOWN" "diff failed"
