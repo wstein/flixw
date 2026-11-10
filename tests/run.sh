@@ -1961,6 +1961,7 @@ g 0 'Usage: ./flixw doc' "compiler verb --help renders the focused flixw view" \
                  ./flixw doc --help
 g 0 'Usage: ./flixw doc' "compiler verb -h renders the focused flixw view" \
                  ./flixw doc -h
+sh "$root/tests/help-routing.sh" "$proj"
 t 0 "focused compiler help omits its implementation rationale" sh -c '
   ! ./flixw run --help | grep -F "publishes only a top-level"'
 g 0 'Usage: flix' "forced compiler verb help remains raw"       ./flixw -- doc --help

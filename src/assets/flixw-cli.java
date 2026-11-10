@@ -132,6 +132,8 @@ final class flixwcli {
             topic = topic == null || topic.isEmpty() ? null : topic;
             name = name == null || name.isEmpty() ? null : name;
             helpFlag = args.length > 3 && !args[3].isEmpty() ? args[3] : null;
+            // Plain help requests the ordinary screen; only section flags select a section.
+            if ("--help".equals(helpFlag) || "-h".equals(helpFlag)) helpFlag = null;
             jvmOpts = args.length > 4 ? List.of(args).subList(4, args.length) : List.of();
         } else {
             if (isHelpFlag(topic) && !"--help".equals(topic) && !"-h".equals(topic)) {
