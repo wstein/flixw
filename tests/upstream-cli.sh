@@ -365,7 +365,10 @@ check() {
     fi
     grep -v '^#' "$fingerprint" > "$work/known" || true
     [ -s "$work/known" ] || unknown "the committed fingerprint $fingerprint has no entries"
-    rev=$(sed -n 's/^# Revision: //p' "$fingerprint" | head -1)
+    # Into a file and read back: in `$(a | b)` a failing `a` is invisible, an empty revision
+    # would skip the digest comparison below, and a tampered cache would pass as drift.
+    sed -n 's/^# Revision: //p' "$fingerprint" > "$work/revision"
+    read -r rev < "$work/revision" || rev=
     base="the committed fingerprint (${rev:-revision not recorded})"
     # The cache vouches for itself with its own digests, which whoever altered a source can
     # rewrite. When the revision is the one the fingerprint was made from, the fingerprint's
