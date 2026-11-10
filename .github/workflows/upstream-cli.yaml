@@ -46,13 +46,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           printf '%s\n' "$out" >> "$GITHUB_STEP_SUMMARY"
 
-      # rc=2 is "could not tell" -- a fetch failure, a moved path, a rate limit. That is not
-      # drift and must not open an issue claiming it is; it fails the run so the schedule's
-      # own failure notice is what shows up.
+      # Only 0 (clean) and 1 (drift) are results. rc=2 is "could not tell" -- a fetch failure,
+      # a moved path, an empty or unreadable source, a rate limit -- and any other value is a
+      # script that did not run as designed. Neither is drift, and neither may close the drift
+      # issue; the run fails so the schedule's own failure notice is what shows up.
       - name: Could not determine upstream state
-        if: steps.check.outputs.rc == '2'
+        if: steps.check.outputs.rc != '0' && steps.check.outputs.rc != '1'
         run: |
-          echo "upstream-cli could not read Flix's CLI definition; not reporting drift." >&2
+          echo "upstream-cli could not determine Flix's CLI surface (UNKNOWN, rc=${{ steps.check.outputs.rc }}); not reporting drift." >&2
           exit 1
 
       - name: Close the resolved drift issue

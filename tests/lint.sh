@@ -238,7 +238,16 @@ else
   bad "upstream-cli must close its open drift issue only after rc=0"
 fi
 
-# --- 3c1a. the upstream check never reports what it could not determine -----
+# --- 3c1a. only 0 and 1 are results of the upstream check -------------------
+# The check returns 0 clean, 1 drift, 2 unknown. The workflow's "could not determine" step
+# must run for every other value too (a status of 3, or none at all, is a script that broke),
+# or that run ends green without having looked at anything.
+if grep -Fq "if: steps.check.outputs.rc != '0' && steps.check.outputs.rc != '1'" "$upstream_cli"; then
+  say "ok    upstream-cli fails the run for any status other than 0 or 1"
+else
+  bad "upstream-cli must fail the run when the check's status is neither 0 nor 1"
+fi
+
 # The check itself maps incomplete extraction onto UNKNOWN; offline, a few seconds.
 if sh "$root/tests/upstream-cli-test.sh" >"$work/upstream-cli-test.log" 2>&1; then
   say "ok    upstream-cli reports incomplete extraction as UNKNOWN ($(tail -1 "$work/upstream-cli-test.log"))"
