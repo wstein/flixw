@@ -416,6 +416,14 @@ setup; run --to 'a#b'; expect 2 "--to takes the same validation" "not a valid re
 # watched is not known, and a stale `master` could be watched in place of the renamed default.
 setup; rm "$api/.self"; run; expect 2 "an unreadable repository record is UNKNOWN, not master" "default branch"
 setup; put '{"name": "flix"}' "$api/.self"; run; expect 2 "a repository record without a default branch is UNKNOWN" "default branch"
+# `read` reports end-of-file for a last line without a newline, though it has read the line.
+setup; printf '{"default_branch": "master"}' > "$api/.self"; run
+  expect 0 "a repository record without a trailing newline is read" "unchanged"
+setup_recorded; run; printf 'case object Evil extends Mode\n' >> "$t/w/cache/$sha1/Options.scala"
+  (cd "$t/w/cache/$sha1" && $sum Main.scala Options.scala > SHA256SUMS)
+  { "$real_grep" -v '^# Revision: ' "$t/fp"; printf '# Revision: %s' $sha1; } > "$t/fp.nonl"; mv "$t/fp.nonl" "$t/fp"
+  offline=1 run --to $sha1
+  expect 2 "a revision on the last line of the fingerprint, without a newline, is read" "recorded"
 # The default branch's name comes from the API and goes into the same URL.
 setup; put '{"default_branch": "a#b"}' "$api/.self"; run
   expect 2 "a default branch name that is not a valid ref is refused" "not a valid ref"
