@@ -57,6 +57,8 @@ for tool in sed diff cat wc sort mv rm mktemp awk; do
   cat > "$t/bin/$tool" <<STUB
 #!/bin/sh
 [ "\${FAKE_BREAK:-}" = $tool ] && exit $bad
+# FAKE_BREAK=<tool>:<text> breaks only the calls whose arguments contain <text>.
+case "\${FAKE_BREAK:-}" in $tool:*) case "\$*" in *"\${FAKE_BREAK#*:}"*) exit $bad ;; esac ;; esac
 [ $tool != mktemp ] || echo "\$*" >> "\$FAKE_ROOT/mktemp.log"
 exec env PATH="\$ORIG_PATH" $tool "\$@"
 STUB
@@ -369,6 +371,12 @@ setup_recorded; run; printf 'tampered\n' > "$t/w/cache/$sha1/Options.scala"
 setup_recorded; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"
   (cd "$t/w/cache/$sha1" && $sum Options.scala Options.scala > SHA256SUMS); offline=1 run --to $sha1
   expect 2 "a SHA256SUMS that names Options.scala twice is not trusted" "cannot fetch"
+# The fingerprint's Revision line is read with a tool that can fail; a failed read must not
+# switch the digest comparison off.
+setup_recorded; run; printf 'case object Evil extends Mode\n' >> "$t/w/cache/$sha1/Options.scala"
+  (cd "$t/w/cache/$sha1" && $sum Main.scala Options.scala > SHA256SUMS)
+  export FAKE_BREAK="sed:Revision"; offline=1 run --to $sha1; unset FAKE_BREAK
+  expect 2 "a failed read of the fingerprint's revision is UNKNOWN, not drift" "UNKNOWN"
 # Sources and digests altered together agree with each other; the fingerprint's record does not.
 setup_recorded; run; printf 'case object Evil extends Mode\n' >> "$t/w/cache/$sha1/Options.scala"
   (cd "$t/w/cache/$sha1" && $sum Main.scala Options.scala > SHA256SUMS); offline=1 run --to $sha1
