@@ -377,6 +377,10 @@ setup_recorded; run; printf 'case object Evil extends Mode\n' >> "$t/w/cache/$sh
   (cd "$t/w/cache/$sha1" && $sum Main.scala Options.scala > SHA256SUMS)
   export FAKE_BREAK="sed:Revision"; offline=1 run --to $sha1; unset FAKE_BREAK
   expect 2 "a failed read of the fingerprint's revision is UNKNOWN, not drift" "UNKNOWN"
+# A revision without digests is a record with nothing to compare against, not a pass.
+setup_recorded; run; "$real_grep" -v '^#   [0-9a-f]\{64\}  ' "$t/fp" > "$t/fp.nodigests"; mv "$t/fp.nodigests" "$t/fp"
+  offline=1 run --to $sha1
+  expect 2 "a fingerprint with a revision and no digests is UNKNOWN" "recorded"
 # Sources and digests altered together agree with each other; the fingerprint's record does not.
 setup_recorded; run; printf 'case object Evil extends Mode\n' >> "$t/w/cache/$sha1/Options.scala"
   (cd "$t/w/cache/$sha1" && $sum Main.scala Options.scala > SHA256SUMS); offline=1 run --to $sha1
