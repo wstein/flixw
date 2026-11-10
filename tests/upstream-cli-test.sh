@@ -37,7 +37,7 @@ exec $real_grep "\$@"
 GREP
 # Every other tool the check relies on can be broken by name (FAKE_BREAK=<tool>); diff breaks
 # with a status other than 1 on purpose, since 1 is its way of saying "different".
-for tool in sed diff cat wc sort mv rm mktemp; do
+for tool in sed diff cat wc sort mv rm mktemp awk; do
   case $tool in diff) bad=3 ;; *) bad=1 ;; esac
   cat > "$t/bin/$tool" <<STUB
 #!/bin/sh
@@ -187,6 +187,8 @@ X
 run; expect 1 "after a nested block comment the call that follows is read" "cmd - kept"
 no_zz() { ! printf '%s' "$out" | "$real_grep" -q 'cmd - zz'; }
 check "a builder inside a nested block comment is not counted" no_zz
+setup; export FAKE_BREAK="awk"; run; expect 2 "a failing comment scan is UNKNOWN" "cannot scan"
+unset FAKE_BREAK
 setup; printf '// enum Mode { case A }\n' >> "$up/$p_opts"; run; expect 0 "a commented enum is not counted" "unchanged"
 setup; printf 'enum Level { case Hi, Lo }\n' >> "$up/$p_opts"; run
   expect 2 "a Scala 3 enum is UNKNOWN, not ignored" "unsupported syntax"
@@ -210,7 +212,6 @@ setup; run; check "the verdict file is made with mktemp" test -s "$t/up/mktemp.l
 setup; export FAKE_BREAK="mktemp"; run; expect 2 "a verdict file that cannot be made is UNKNOWN" "verdict file"
 setup; export FAKE_BREAK="rm"; run; expect 2 "a verdict file that cannot be removed is UNKNOWN" "cannot remove"
 unset FAKE_BREAK
-# A variable another process left in the environment is not a way past the verdict check.
 # The exit code counts only with the verdict the check recorded for it. Each variant of the
 # script changes one verdict, so that code and verdict disagree or the verdict is missing.
 vrun() { # <sed-expr> <args...>
@@ -235,6 +236,7 @@ setup; rm "$up/$p_main"; vrun 's/record unknown/record clean/'
 setup; rm "$up/$p_main"; run
   expect 2 "exit 2 with its own verdict is a plain UNKNOWN" "cannot fetch"
 check "...and says nothing about a missing verdict" test -z "$(printf '%s' "$out" | "$real_grep" 'not a result' || true)"
+# A variable another process left in the environment is not a way past the verdict check.
 setup; export FAKE_BREAK="sed" FLIX_UPSTREAM_INNER=1; run
   expect 2 "FLIX_UPSTREAM_INNER in the environment does not skip the verdict check" "UNKNOWN"
 unset FAKE_BREAK FLIX_UPSTREAM_INNER
