@@ -406,7 +406,7 @@ setup_recorded;           run --to $sha1
 setup_recorded; put $sha3 "$api/commits/abc1234"; run --from abc1234
   expect 1 "a short hex ref is resolved through the API" "$sha3"
 # The ref goes into a URL path: '#', '%', '?' or a space would make the API answer for another ref.
-for badref in 'a#b' 'a%2Fb' 'a?b' 'a b' 'a..b' '-x' 'a/' 'a//b'; do
+for badref in 'a#b' 'a%2Fb' 'a?b' 'a b' 'a..b' '-x' 'a/' 'a//b' '.' './v0.79.0' 'a/./b' 'a/.'; do
   setup; run --from "$badref"
   expect 2 "a ref spelled '$badref' is refused" "not a valid ref"
   check "no request was made for '$badref'" test ! -s "$t/up/requests.log"
