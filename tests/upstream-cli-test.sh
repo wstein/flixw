@@ -27,7 +27,7 @@ while [ $# -gt 0 ]; do
 done
 f=$FAKE_ROOT/${url#https://}
 [ -f "$f" ] || exit 22
-if [ -n "$out" ]; then cp "$f" "$out"; else cat "$f"; fi
+if [ -n "$out" ]; then cp "$f" "$out"; else /bin/cat "$f"; fi
 CURL
 # A tool that fails the way a broken machine does: grep (extractor), sed (extractor), diff.
 cat > "$t/bin/grep" <<GREP
@@ -35,17 +35,19 @@ cat > "$t/bin/grep" <<GREP
 case "\${FAKE_BREAK:-}:\$*" in grep:*-oE*) exit 2 ;; esac
 exec $real_grep "\$@"
 GREP
-cat > "$t/bin/sed" <<'SED'
+# Every other tool the check relies on can be broken by name (FAKE_BREAK=<tool>); diff breaks
+# with a status other than 1 on purpose, since 1 is its way of saying "different".
+for tool in sed diff cat wc sort mv rm mktemp; do
+  case $tool in diff) bad=3 ;; *) bad=1 ;; esac
+  cat > "$t/bin/$tool" <<STUB
 #!/bin/sh
-[ "${FAKE_BREAK:-}" = sed ] && exit 1
-exec /usr/bin/env -i PATH="$ORIG_PATH" sed "$@"
-SED
-cat > "$t/bin/diff" <<'DIFF'
-#!/bin/sh
-[ "${FAKE_BREAK:-}" = diff ] && exit 3
-exec /usr/bin/env -i PATH="$ORIG_PATH" diff "$@"
-DIFF
-chmod +x "$t/bin/curl" "$t/bin/grep" "$t/bin/sed" "$t/bin/diff"
+[ "\${FAKE_BREAK:-}" = $tool ] && exit $bad
+[ $tool != mktemp ] || echo "\$*" >> "\$FAKE_ROOT/mktemp.log"
+exec env PATH="\$ORIG_PATH" $tool "\$@"
+STUB
+  chmod +x "$t/bin/$tool"
+done
+chmod +x "$t/bin/curl" "$t/bin/grep"
 ORIG_PATH=$PATH
 export ORIG_PATH
 
@@ -94,6 +96,11 @@ expect() { # <rc> <label> [substring]
   fi
 }
 
+check() { # <label> <command...>: a plain assertion
+  label=$1; shift
+  if "$@"; then pass=$((pass + 1)); echo "ok    $label"; else failed=$((failed + 1)); echo "FAIL  $label"; fi
+}
+
 setup;                                              run; expect 0 "unchanged upstream is clean" "unchanged"
 setup; echo 'cmd("build")' >> "$up/$p_main";        run; expect 1 "a new command is drift" "has changed"
 setup; echo 'case object Mid extends Mode' >> "$up/$p_opts"; run; expect 1 "a new enum member is drift"
@@ -131,6 +138,36 @@ setup; printf 'case  object   Mid   extends   Mode\n' >> "$up/$p_opts"; run
 setup; export FAKE_BREAK=grep; run; expect 2 "an extractor that fails is UNKNOWN" "grep failed"
 setup; export FAKE_BREAK="sed";          run; expect 2 "an unexpected failure is UNKNOWN, not drift (exit 1)" "UNKNOWN"
 setup; export FAKE_BREAK="diff"; run; expect 2 "diff failing with a code other than 1 is UNKNOWN" "diff failed"
+unset FAKE_BREAK
+
+setup; export FAKE_BREAK="cat"; run; expect 0 "a failing cat does not make a clean check drift" "unchanged"
+setup; export FAKE_BREAK="wc";  run; expect 2 "a failing wc is UNKNOWN, not an empty count" "UNKNOWN"
+setup; export FAKE_BREAK="sort"; run; expect 2 "a failing sort is UNKNOWN" "UNKNOWN"
+unset FAKE_BREAK
+
+# The verdict file belongs to one run: made by mktemp, gone afterwards, never ignored on removal.
+leftovers() { [ -z "$(find "$t/w" -name 'verdict*')" ]; }
+setup; run; check "no verdict file is left behind" leftovers
+setup; run; check "the verdict file is made with mktemp" test -s "$t/up/mktemp.log"
+setup; export FAKE_BREAK="mktemp"; run; expect 2 "a verdict file that cannot be made is UNKNOWN" "verdict file"
+setup; export FAKE_BREAK="rm"; run; expect 2 "a verdict file that cannot be removed is UNKNOWN" "cannot remove"
+unset FAKE_BREAK
+# A variable another process left in the environment is not a way past the verdict check.
+setup; export FAKE_BREAK="sed" FLIX_UPSTREAM_INNER=1; run
+  expect 2 "FLIX_UPSTREAM_INNER in the environment does not skip the verdict check" "UNKNOWN"
+unset FAKE_BREAK FLIX_UPSTREAM_INNER
+
+# An update that fails part-way leaves the committed baseline as it was; without `set -e`
+# the failed rename would still be reported as "updated".
+fp_unchanged() { cmp -s "$t/fp" "$t/fp.before"; }
+setup; echo 'cmd("build")' >> "$up/$p_main"; cp "$t/fp" "$t/fp.before"
+export FAKE_BREAK="mv"; run --update
+  expect 2 "--update whose rename fails is UNKNOWN, not updated" "UNKNOWN"
+  check "--update whose rename fails leaves the baseline alone" fp_unchanged
+setup; echo 'cmd("build")' >> "$up/$p_main"; cp "$t/fp" "$t/fp.before"
+export FAKE_BREAK="cat"; run --update
+  expect 2 "--update that fails while writing is UNKNOWN" "UNKNOWN"
+  check "--update that fails while writing leaves the baseline alone" fp_unchanged
 unset FAKE_BREAK
 
 setup; rm "$t/fp";                                  run; expect 2 "no committed fingerprint is UNKNOWN" "no committed fingerprint"
