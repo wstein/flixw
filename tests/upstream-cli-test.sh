@@ -158,6 +158,8 @@ val s = "x\" // y"; cmd("kept") // cmd(name)
 X
 run; expect 1 "an escaped quote does not end a string" "cmd - kept"
 setup; printf '// enum Mode { case A }\n' >> "$up/$p_opts"; run; expect 0 "a commented enum is not counted" "unchanged"
+setup; printf 'enum Level { case Hi, Lo }\n' >> "$up/$p_opts"; run
+  expect 2 "a Scala 3 enum is UNKNOWN, not ignored" "unsupported syntax"
 setup; export FAKE_BREAK=grep; run; expect 2 "an extractor that fails is UNKNOWN" "grep failed"
 setup; export FAKE_BREAK="sed";          run; expect 2 "an unexpected failure is UNKNOWN, not drift (exit 1)" "UNKNOWN"
 setup; export FAKE_BREAK="diff"; run; expect 2 "diff failing with a code other than 1 is UNKNOWN" "diff failed"
