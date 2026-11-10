@@ -91,7 +91,10 @@ strict_builder='(cmd|opt\[[A-Za-z._]+(\[[A-Za-z._]+\])?\]|arg\[[A-Za-z._]+\])\("
 # string literal, whitespace or a line break before the parenthesis -- is syntax the
 # extractor cannot read, and the fingerprint would silently lose it. Judging each call, not
 # totals, means one unreadable call cannot be hidden by a look-alike that happens to match.
-leftover_builder="$before(cmd|opt|arg)[[:space:]]*[[(]"
+# A backtick is how Scala spells an identifier that is not one (`cmd`("x")); it is as unreadable
+# to the extractor as a space.
+bt='`'
+leftover_builder="$before(cmd|opt|arg)[[:space:]]*[[($bt]"
 
 # The complementary half: a sealed trait's case objects are the value set behind a custom
 # scopt type -- LibLevel's Nix/Min/All, Subeffecting's ModDefs/InsDefs/Lambdas. Main.scala
@@ -105,8 +108,39 @@ leftover_enum="${before}case[[:space:]]+object([^A-Za-z0-9_]|\$)"
 # pattern, and each source must yield what it is known to hold: commands and options from
 # Main.scala, enum members from Options.scala. A parser that stopped matching would otherwise
 # produce an empty set, and an empty set compared with an empty set is "unchanged".
+# Comments are not source: a commented-out builder must not count as present, and a call after
+# a comment on the same line must not be lost with it. A scan, not a regex, because `//` is
+# also inside strings ("a//b") and `/*` can hide `//`; `"` inside a character literal ('"')
+# is skipped so it does not open a string. Strings and literals are taken as one line long.
+strip_comments() { # <in> <out>
+  awk '
+    BEGIN { blk = 0 }
+    {
+      out = ""; n = length($0); i = 1; str = 0
+      while (i <= n) {
+        c = substr($0, i, 1); d = substr($0, i, 2)
+        if (blk) { if (d == "*/") { blk = 0; i += 2 } else i++; continue }
+        if (str) {
+          out = out c
+          if (c == "\\") { out = out substr($0, i + 1, 1); i += 2; continue }
+          if (c == "\"") str = 0
+          i++; continue
+        }
+        if (d == "//") break
+        if (d == "/*") { blk = 1; out = out " "; i += 2; continue }
+        if (c == "\047") {
+          w = (substr($0, i + 1, 1) == "\\") ? 4 : 3
+          if (substr($0, i + w - 1, 1) == "\047") { out = out substr($0, i, w); i += w; continue }
+        }
+        if (c == "\"") str = 1
+        out = out c; i++
+      }
+      print out
+    }' "$1" > "$2"
+}
 extract() { # <file> <flat> <strict> <leftover> <out.raw> <label>
-  tr '\n' ' ' < "$1" > "$2"
+  strip_comments "$1" "$2.nc"
+  tr '\n' ' ' < "$2.nc" > "$2"
   run_grep "$before$3" "$2" "$5"
   sed -E "s/$before$3/\\1 /g" "$2" > "$2.rest"
   if has_match "$4" "$2.rest"; then
