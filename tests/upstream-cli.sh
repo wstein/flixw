@@ -238,10 +238,11 @@ default_branch() { # -> $dflt
 is_sha() { [ "${#1}" -eq 40 ] && case $1 in *[!0-9a-f]*) return 1 ;; *) return 0 ;; esac; }
 # The ref is also a path component of the API URL, where '#', '?' and '%' would make the
 # request name another ref than the one asked for. Git ref names cannot contain most of what
-# is excluded here anyway; anything outside [A-Za-z0-9._/-] is refused, not encoded.
+# is excluded here anyway; anything outside [A-Za-z0-9._/-] is refused, not encoded. So are
+# `.` segments, which curl removes before sending (`./v0.79.0` would ask for `v0.79.0`).
 valid_ref() { # <ref>
   case $1 in
-    ''|-*|*[!A-Za-z0-9._/-]*|*..*|*//*|*/) return 1 ;;
+    ''|-*|*[!A-Za-z0-9._/-]*|*..*|*//*|*/|.|./*|*/.|*/./*) return 1 ;;
   esac
 }
 resolve() { # <ref> -> $resolved
