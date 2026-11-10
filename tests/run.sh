@@ -2,12 +2,13 @@
 # flixw regression suite.
 #
 #   sh tests/run.sh
+#   FLIXW_TEST_TIMINGS=/absolute/path/report.tsv sh tests/run.sh (optional; 1s resolution)
 #
 # Builds every fixture it needs under tests/.work/ and exercises the installed wrapper
 # exactly as a user would: through ./flixw, against an unmodified stock flix.jar.
 #
-# The suite downloads one real compiler on first run (~34 MB) and reuses the cache
-# afterwards. Set FLIXW_TEST_VERSION to pin a different release -- 0.78.0 or later: the
+# The suite resets its compiler cache, downloads one real compiler (~34 MB), and reuses
+# it for later cases in that run. Set FLIXW_TEST_VERSION to pin a different release -- 0.78.0 or later: the
 # fixtures carry only the [package] keys those compilers accept (version, repository, flix),
 # and 0.76 and older still require name, description and authors.
 #
@@ -21,6 +22,16 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 # shellcheck source=tests/deps.sh
 . "$root/tests/deps.sh"
+# shellcheck source=tests/timing.sh
+. "$root/tests/timing.sh"
+if [ -n "${FLIXW_TEST_TIMINGS:-}" ]; then
+  # One version query per measured suite, rather than one JVM per boundary.
+  FLIXW_TEST_JDK=$(java -version 2>&1 | head -1)
+fi
+timing_init
+# Keep the suite status even if reporting fails during an early exit.
+trap 'timing_status=$?; timing_finish "$timing_status" || :; exit "$timing_status"' 0
+
 work=$root/tests/.work/run
 version=${FLIXW_TEST_VERSION:-0.79.0}
 # This checkout's own wrapper version, read rather than written down. The upgrade
@@ -187,6 +198,7 @@ t 0 "make lint delegates to the canonical lint script" sh -c '
   command -v make >/dev/null 2>&1 || exit 0
   make -C "$1" -n lint | grep -Fx "sh tests/lint.sh"' sh "$root"
 
+timing_group "fixtures"
 # --- fixtures --------------------------------------------------------------
 
 realjava=$(command -v java)
@@ -507,9 +519,12 @@ g 87 'no checked-in flixw wrapper' "global launcher is not fooled by a directory
     cd "$d" && "$2" wrapper --version' sh "$work" "$cache_native/bin/flixw"
 
 # --- lock lifecycle --------------------------------------------------------
+timing_group "lock lifecycle"
 echo "lock lifecycle"
 g 81 'no .*lock.toml'      "no lock blocks the compiler"        ./flixw check
+timing_phase_start acquisition "./flixw pin"
 t 0  "pin creates the lock"                                     ./flixw pin "$version"
+timing_phase_end
 t 0  "lock is reused"                                           ./flixw wrapper --version
 
 # pin now takes an optional owner/repository. These need no network: the repository is
@@ -629,8 +644,11 @@ t 81 "pin --fetch needs a version"                              ./flixw pin --fe
 t 87 "pin --refresh takes no --fetch"                           ./flixw pin --refresh --fetch
 
 # --- dispatch --------------------------------------------------------------
+timing_group "dispatch"
 echo "dispatch"
+timing_phase_start compiler-invocation "./flixw -- --version (warm compiler cache)"
 t 0  "rule 1  -- pass-through"                                  ./flixw -- --version
+timing_phase_end
 t 0  "rule 2  wrapper --version"                                ./flixw wrapper --version
 t 0  "rule 2  wrapper --help"                                   ./flixw wrapper --help
 # FLIX_JAR worked for years and was findable only by reading one table row in
@@ -941,6 +959,7 @@ t 0  "pin alone -- with no other command run against it -- records its own diges
     && grep -Fq "'"$version"'" "$cache/verbs/$sha.pin"' sh "$work" "$root" "$proj"
 
 # --- version grammar -------------------------------------------------------
+timing_group "version grammar"
 echo "version grammar"
 t 81 "reject 0.75"                                              ./flixw pin 0.75
 # GitHub shows the tag, not the version: the releases page, the tag list and every asset
@@ -1024,6 +1043,7 @@ t 0               "stripped pin still resolves"                  ./flixw check
 # --- manifest reading ------------------------------------------------------
 # A regex over the whole file reads `flix` out of any table, or out of the body of a
 # multi-line string. These cases pin the table-aware behaviour.
+timing_group "manifest reading"
 echo "manifest reading"
 cp flix.toml "$work/flix.toml.good"
 t 0  "a decoy flix key in another table is ignored"              sh -c '
@@ -1102,6 +1122,7 @@ t 0  "the floor reader ignores a flix key inside a description"  sh -c '
 cp "$work/flix.toml.good" flix.toml
 
 # --- the java pin ----------------------------------------------------------
+timing_group "java pin"
 echo "java pin"
 # The lock pins which Java runs the compiler, in the same file and for the same reason as
 # the compiler itself. It is a version, not a path: a path is true on one machine.
@@ -1162,6 +1183,7 @@ g 83 'lock.toml pins java' "an explicit JDK against the pin is refused" sh -c '
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work" "$(dirname "$(dirname "$realjava")")"
 
 # --- ./flix.jar for the VS Code Flix extension ------------------------------
+timing_group "editor jar"
 echo "editor jar"
 ej=$work/editorjar
 rm -rf "$ej" && mkdir -p "$ej"
@@ -1218,6 +1240,7 @@ g 87 "editor-jar" "--editor-jar rejects a value that is not copy or off" sh -c '
   cd "$1" && ./flixw pin --editor-jar=maybe' sh "$ej"
 
 # --- the resolved-JDK note ------------------------------------------------
+timing_group "resolved-JDK note"
 echo "resolved-JDK note"
 # Stage 0 leaves the shim a note naming the JDK this project resolved to, so the next run
 # starts on it rather than starting on PATH and relaunching. It is machine-specific, so it
@@ -1284,6 +1307,7 @@ t 0  "a stale note falls back, then heals"                      sh -c '
   test -x "$(cat .flixw/local/java)"'
 
 # --- lock validation -------------------------------------------------------
+timing_group "lock validation"
 echo "lock validation"
 t 81 "a non-https url in the lock is refused"                    sh -c '
   cp .flixw/lock.toml "$1/lock.keep"
@@ -1307,6 +1331,7 @@ g 81 'expected the SHA-256 of that JAR' "a bad digest names the key and what it 
 # The schema is rendered from the list stage 0 validates against, so the two cannot
 # disagree; what the shell can still show is that the render is reachable offline and that
 # the file every generated lock points an editor at is the one the wrapper serves.
+timing_group "lock schema"
 echo "lock schema"
 g 0 '"\$id": "https://wstein.github.io/flixw/schema/lock-v1.schema.json"' \
      "wrapper --schema renders the published schema"          ./flixw wrapper --schema
@@ -1401,6 +1426,7 @@ g 0 'newer than this one' "pin --refresh leaves a newer wrapper's lock alone"  s
 # parse and complete. A completion script is the one thing flixw emits that runs somewhere
 # else entirely -- in a shell startup, days later, with no channel to report a FLIXWnnn --
 # so a quoting slip in a text block has to fail here or it fails in someone's terminal.
+timing_group "completion"
 echo "completion"
 # The generator is fetched on first use rather than embedded, so every case below needs a
 # source to fetch it from -- and must not depend on a real GitHub release existing for
@@ -1596,6 +1622,7 @@ t 1  "stage 0 never prompts for a download"                     grep -q "FLIXW_I
 # artifact, and the project builds with the compiler it used to pin. Nothing else catches
 # it -- the digest guard is switched off by the override, and the version check passes
 # because two builds of one release share a canonical version.
+timing_group "FLIX_JAR override"
 echo "FLIX_JAR override"
 # The real compiler, copied out of the cache: identical bytes, so only the location differs
 # and the case tests the containment rule rather than the contents.
@@ -1624,6 +1651,7 @@ g 0 'override digest' "info prints the digest of the overridden jar"  sh -c '
 # Unlike FLIX_JAR, this is per-checkout state: selecting a developer-built JAR preserves
 # the release lock, keeps VS Code's root flix.jar on the same bytes, and is still outranked
 # by an explicit environment override for bisection and CI.
+timing_group "local compiler"
 echo "local compiler"
 t 0 "a local compiler selection persists and syncs the editor jar" sh -c '
   jar=$(./flixw info 2>/dev/null | awk "/^jar /{print \$2}") || exit 1
@@ -1668,6 +1696,7 @@ t 0 "--editor-jar=copy follows an active local compiler"       sh -c '
 # re-upload -- was pinned, verified and run without a word. The compiler's own answer is
 # the second opinion, and `pin` now asks for it once and records it in the lock beside the
 # digest that vouches for it on every later run.
+timing_group "reported version"
 echo "reported version"
 # Recorded at pin time, so it is in the committed lock and a fresh clone inherits the
 # answer rather than having to re-derive it.
@@ -1727,6 +1756,7 @@ t 0  "build metadata is a note, not a mismatch"                sh -c '
   cp "$1/lock.keep" .flixw/lock.toml; exit $rc' sh "$work"
 
 # --- drift -----------------------------------------------------------------
+timing_group "drift"
 echo "drift"
 cp flix.toml "$work/flix.toml.bak"
 sed 's/^flix .*/flix        = "0.99.0"/' flix.toml > "$work/drifted" && cp "$work/drifted" flix.toml
@@ -1737,6 +1767,7 @@ t 88 "drift does not block validate (which reports it)"         ./flixw validate
 cp "$work/flix.toml.bak" flix.toml
 
 # --- integrity -------------------------------------------------------------
+timing_group "integrity"
 echo "integrity"
 t 85 "truncated cache entry is refused"                         sh -c '
   jar=$(ls "$FLIX_CACHE_HOME"/compilers/*.jar | head -1)
@@ -1757,6 +1788,7 @@ t 87 "FLIX_DIST_URL without a host is a diagnostic, not a crash" env FLIX_DIST_U
 t 87 "FLIX_DIST_URL with traversal is refused"                  env FLIX_DIST_URL='https://m.example/../x' ./flixw -- --version
 
 # --- java selection --------------------------------------------------------
+timing_group "java selection"
 echo "java selection"
 t 126 "broken FLIX_JAVA_HOME is caught by the shim"             env FLIX_JAVA_HOME=/nonexistent ./flixw -- --version
 # The three cases below drive a fake JDK: a lying release file over a bin/java that
@@ -1846,6 +1878,7 @@ else
 fi
 
 # --- jvm options -----------------------------------------------------------
+timing_group "jvm options"
 echo "jvm options"
 t 0  "safe options are passed through"                          env FLIX_JVM_OPTS="-Xmx512m -Dfoo=bar" ./flixw -- --version
 t 87 "an agent needs the unsafe opt-in"                         env FLIX_JVM_OPTS="-javaagent:/x" ./flixw -- --version
@@ -1854,6 +1887,7 @@ t 87 "an unterminated quote is refused"                         env FLIX_JVM_OPT
 t 0  "the unsafe opt-in works"                                  env FLIX_JVM_OPTS="-XX:OnError=true" FLIXW_UNSAFE_JVM_OPTS=1 ./flixw -- --version
 
 # --- project root ----------------------------------------------------------
+timing_group "project root"
 echo "project root"
 t 0  "invocation from a subdirectory"                           sh -c 'cd src && ../flixw -- --version'
 t 80 "invocation from outside the anchored tree is refused"     sh -c 'cd / && "'"$proj"'/flixw" -- --version'
@@ -1873,6 +1907,7 @@ cp "$proj/.flixw/lock.toml" "$proj/nested/.flixw/lock.toml"
 t 0  "a nested project runs once it has its own lock"           sh -c 'cd nested && ../flixw -- --version'
 
 # --- help ------------------------------------------------------------------
+timing_group "help"
 echo "help"
 g 0 'Compiler commands:' "help renders the merged command tree" ./flixw help
 g 0 'checks the current project for errors' \
@@ -2339,6 +2374,7 @@ t 0  "help degrades to wrapper table plus cached compiler help" sh -c '
   case "$out" in *"Usage: flix"*) ;; *) exit 1 ;; esac'
 
 # --- degradation -----------------------------------------------------------
+timing_group "degradation"
 echo "degradation"
 g 0 'FLIXW010' "unparseable --help falls back, does not brick"  env FLIX_JAR="$work/impostor/impostor.jar" ./flixw check
 # The raw text is kept even though the parse failed, which is the case it exists for: a
@@ -2374,6 +2410,7 @@ for spelling in --help -h help; do
 done
 
 # --- verb capture across help renderers ------------------------------------
+timing_group "verb capture"
 echo "verb capture"
 # Neither renderer is a contract, so both are read. The unit checks assert the parse
 # itself against both layouts; these two prove the whole capture path -- subprocess,
@@ -2386,6 +2423,7 @@ t 0 "picocli help does not degrade to the built-in table"       sh -c '
 g 0 'check run test' "scopt usage line is still captured"       env FLIX_JAR="$work/sleeper/sleeper.jar" ./flixw info
 
 # --- process behaviour -----------------------------------------------------
+timing_group "process behaviour"
 echo "process behaviour"
 t 42 "the child exit status is propagated"                      sh -c 'cd nested && ../flixw run'
 # A bare trailing word with no -- used to reach Flix's own "does not support file
@@ -2407,6 +2445,7 @@ g 0 '^ran:run,foo$' "root: a FLIX_JAR override is never eligible for auto --" sh
 if [ "$posix" != yes ]; then
   s "SIGTERM to stage 0 does not orphan the compiler"           "MSYS cannot signal a native JVM"
 else
+timing_phase_start intentional-wait "SIGTERM reaper probe"
 t 0  "SIGTERM to stage 0 does not orphan the compiler"          sh -c '
   FLIX_JAR="$1/sleeper/sleeper.jar" ./flixw check >/dev/null 2>&1 &
   outer=$!
@@ -2446,6 +2485,7 @@ t 0  "SIGTERM to stage 0 does not orphan the compiler"          sh -c '
   echo "the compiler child $inner outlived stage 0"
   ps -o pid,ppid,stat,args -p "$inner" 2>/dev/null || true
   exit 1' sh "$work"
+timing_phase_end
 fi
 t 0  "stdout carries only compiler output"                      sh -c '
   ./flixw run > "$1/out.txt" 2>/dev/null
@@ -2455,19 +2495,25 @@ t 0  "stdout carries only compiler output"                      sh -c '
 # Compiled against stage 0 itself, so it can reach the manifest scanner and the bounded
 # capture directly. Its output is shown rather than swallowed: the corpus size and the
 # per-group counts are the interesting part, and one shell case cannot express them.
+timing_group "unit checks"
 echo "unit checks"
 # flixw-cli.java links against picocli, so the unit checks compile against the same jar the
 # release publishes -- staged into tests/.work above, beside the release fixture.
+timing_phase_start fixture-compilation "javac UnitCheck and wrapper assets"
 javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/src/assets/flixw-cli.java" \
   "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-examples.java" \
   "$root/src/assets/flixw-local.java" "$root/tests/UnitCheck.java"
+timing_phase_end
+timing_phase_start unit-runner "java UnitCheck (includes bounded timeout probes)"
 set +e
 java -Dflixw.specs.dir="$root/src/assets/picocli" -cp "$work/unit:$picocli_jar" UnitCheck "$root/tests/corpus" "$root/tests/schema"
 unit_rc=$?
 set -e
+timing_phase_end
 t 0  "manifest corpus, pin rewrite and capture bounds"          test "$unit_rc" = 0
 
 # --- diagnostics -----------------------------------------------------------
+timing_group "diagnostics"
 echo "diagnostics"
 # doctor output is meant to be pasted into bug reports, so it must not carry the password
 # out of a proxy URL. Java's HttpClient ignores these variables; only doctor reads them.
@@ -2490,6 +2536,7 @@ t 0  "the cached stage 0 targets the Java floor"                sh -c '
   [ "$major" = "65" ] || { echo "classfile major $major, want 65"; exit 1; }'
 
 # --- maintenance verbs -----------------------------------------------------
+timing_group "maintenance verbs"
 echo "maintenance verbs"
 t 0  "validate passes on a healthy project"                     ./flixw validate
 g 88 'differs from flixw' "validate detects an edited shim"     sh -c '
@@ -2792,6 +2839,7 @@ g 0 "newer than the newest release ($wrapper_version). Nothing to do" \
 t 0 "...and the stage 0 is untouched" sh -c 'cmp "$1/.flixw/flixw.java" "$2"' sh "$proj" "$work/same-before.java"
 
 # --- what install says afterwards -----------------------------------------
+timing_group "install advice"
 echo "install advice"
 # `install` is reached two ways. First contact has nothing pinned and the next step is
 # pinning. `wrapper --upgrade` arrives here with a lock already in place, and telling that
@@ -2806,6 +2854,7 @@ g 0 'pin is untouched' "installing over a pinned project does not"  sh -c '
   java "$2/src/assets/flixw-setup.java" setup "$d" 2>&1' sh "$work" "$root" "$proj"
 
 # --- git integration -------------------------------------------------------
+timing_group "git integration"
 echo "git integration"
 t 0  "validate warns when generated files are untracked"        sh -c 'git init -q . 2>/dev/null; ./flixw validate'
 # Every shipped file is reported, .sccignore included: it is committed like the rest, and
@@ -2824,6 +2873,7 @@ g 88 'gitignore' "validate fails when the lock is ignored"      sh -c '
 # true if what comes out of them is exactly what `install` writes -- an archive that is one
 # CRLF or one permission bit off produces a project that fails in a way nobody will connect
 # back to the tarball. So both are unpacked and diffed against a fresh install.
+timing_group "release archives"
 echo "release archives"
 if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
   pk="$work/pack"
@@ -2880,6 +2930,7 @@ fi
 # A machine-wide, digest-verified, opt-in extension mechanism, entirely separate from the
 # main fixture project above: its own scratch project, so a latent bug here (a stray
 # `rm -rf`, a corrupted lock) cannot leave any earlier section's assumptions one step off.
+timing_group "plugins"
 echo "plugins"
 pp=$work/pluginproj
 rm -rf "$pp" && mkdir -p "$pp"
@@ -3151,6 +3202,7 @@ g 0  'running plugin echoer 2.0.0' \
 # A companion asset, not a plugin: examples/<name>/ is a real, separate Flix package run
 # against this project's already-selected, already-verified compiler and Java. Its own
 # scratch project, same isolation reasoning as plugins above.
+timing_group "examples"
 echo "examples"
 ep=$work/examplesproj
 rm -rf "$ep" && mkdir -p "$ep"
@@ -3388,6 +3440,7 @@ mv "$ep/examples.real" "$ep/examples"
 # proved the resolver reads that hierarchy with zero network access and zero manifest
 # edits, for a coordinate that need not even exist on GitHub -- both coordinates below
 # are make-believe, and no case in this section reaches the network for either.
+timing_group "local"
 echo "local"
 lpkg=$work/localpkg
 rm -rf "$lpkg" && mkdir -p "$lpkg/src"
@@ -3671,6 +3724,7 @@ g 88 "<name> is required before '--'" "examples local names the missing <name>, 
 # --- tasks ---------------------------------------------------------------
 # npm's `scripts`, not a new verb per task: .flixw/tasks.toml is hand-edited, never
 # fetched, never installed -- a shell string in a file the project already trusts.
+timing_group "tasks"
 echo "tasks"
 t 0  "task with no tasks.toml lists nothing, offline"              sh -c '
   cd "$1" && ./flixw task' sh "$pp3"
@@ -3706,6 +3760,7 @@ if command -v sha256sum >/dev/null 2>&1
 then h=$(sha256sum "$proj/.flixw/flixw.java" | cut -d' ' -f1)
 else h=$(shasum -a 256 "$proj/.flixw/flixw.java" | cut -d' ' -f1); fi
 touch "$FLIX_CACHE_HOME/stage0/$h/flixw.class"
+timing_group "global launcher (no project)"
 echo "global launcher (no project)"
 g 0  'Wrapper commands:' "global launcher answers help with no project"    \
   sh -c 'cd "$1" && "$2" help' sh "$work" "$cache_native/bin/flixw"
