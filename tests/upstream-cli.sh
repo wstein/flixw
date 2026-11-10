@@ -3,7 +3,10 @@
 #
 #   sh tests/upstream-cli.sh                      compare master's head with the committed fingerprint
 #   sh tests/upstream-cli.sh --update             adopt what master's head currently has
-#   sh tests/upstream-cli.sh --to <ref|sha>       the same for another master revision, by SHA or branch
+#   sh tests/upstream-cli.sh --to <branch|sha>    the same for another master revision: the default branch
+#                                                 by name, or a full lowercase 40-hex SHA (taken at its word,
+#                                                 no request); a short or upper-case SHA, a tag or another
+#                                                 branch is refused without --from
 #   sh tests/upstream-cli.sh --from <ref|sha> [--to <ref|sha>]
 #                                                 compare two refs (a release tag against master, say)
 #                                                 without reading the committed fingerprint
