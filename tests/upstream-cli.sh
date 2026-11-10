@@ -10,6 +10,11 @@
 #
 # Every ref is resolved once to a full SHA and every source is fetched through that SHA, so a
 # branch that moves between two downloads cannot give one comparison files from two commits.
+# The release guard covers names only. Without --from, a branch or tag name other than the
+# default branch is refused, but a SHA is taken at its word: a release's SHA given as --to is
+# compared with the master baseline (reported as drift), and `--update --to <sha>` replaces
+# that baseline with whatever the SHA holds. Nothing checks that a SHA is on the default
+# branch; do not adopt a release's SHA into the committed fingerprint.
 # The sources and their digests are kept under tests/.work/upstream/cache/<sha>/ and reused
 # without the network when the ref given is a SHA that is already cached.
 #
