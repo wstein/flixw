@@ -239,8 +239,12 @@ resolve() { # <ref> -> $resolved
 # The pair lands in the cache as one unit (written aside, then renamed), with the digests of
 # both beside them: a half-written or later-modified cache entry fails its digests and is not
 # used, and the digests are what a comparison can later be checked against.
+# SHA256SUMS must name both sources: `sum -c` checks only what a file lists, so a list that
+# dropped a name (or named another one twice) would leave that file unchecked.
 cache_ok() { # <dir>
   [ -s "$1/Main.scala" ] && [ -s "$1/Options.scala" ] && [ -s "$1/SHA256SUMS" ] \
+    && grep -Eq '^[0-9a-f]{64}  Main\.scala$' "$1/SHA256SUMS" \
+    && grep -Eq '^[0-9a-f]{64}  Options\.scala$' "$1/SHA256SUMS" \
     && (cd "$1" && $sum -c SHA256SUMS >/dev/null 2>&1)
 }
 acquire() { # <sha> -> $srcdir
@@ -344,6 +348,17 @@ check() {
     [ -s "$work/known" ] || unknown "the committed fingerprint $fingerprint has no entries"
     rev=$(sed -n 's/^# Revision: //p' "$fingerprint" | head -1)
     base="the committed fingerprint (${rev:-revision not recorded})"
+    # The cache vouches for itself with its own digests, which whoever altered a source can
+    # rewrite. When the revision is the one the fingerprint was made from, the fingerprint's
+    # record of the digests is the independent witness.
+    if [ "$rev" = "$to_sha" ]; then
+      sed -n 's/^#   \([0-9a-f]\{64\}  [A-Za-z.]*\)$/\1/p' "$fingerprint" > "$work/recorded.unsorted"
+      LC_ALL=C sort "$work/recorded.unsorted" > "$work/recorded"
+      LC_ALL=C sort "$to_dir/SHA256SUMS" > "$work/cached"
+      if [ -s "$work/recorded" ] && ! cmp -s "$work/recorded" "$work/cached"; then
+        unknown "the sources of $to_sha differ from the digests recorded in the fingerprint; remove $to_dir"
+      fi
+    fi
   fi
   here="$repo@$to $to_sha"
 
