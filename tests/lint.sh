@@ -238,6 +238,15 @@ else
   bad "upstream-cli must close its open drift issue only after rc=0"
 fi
 
+# --- 3c1a. the upstream check never reports what it could not determine -----
+# The check itself maps incomplete extraction onto UNKNOWN; offline, a few seconds.
+if sh "$root/tests/upstream-cli-test.sh" >"$work/upstream-cli-test.log" 2>&1; then
+  say "ok    upstream-cli reports incomplete extraction as UNKNOWN ($(tail -1 "$work/upstream-cli-test.log"))"
+else
+  bad "tests/upstream-cli-test.sh"
+  cat "$work/upstream-cli-test.log"
+fi
+
 # --- 3c2. the workflows name files that still exist -------------------------
 # 3c catches a *verb* that moved.  The src/ split moved the *files* instead, and the
 # Windows job went on naming `src\flixw-setup.java` -- caught by CI rather than here,

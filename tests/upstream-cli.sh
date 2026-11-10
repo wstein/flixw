@@ -4,7 +4,9 @@
 #   sh tests/upstream-cli.sh            compare upstream against the committed fingerprint
 #   sh tests/upstream-cli.sh --update   adopt what upstream currently has
 #
-# Exit 0 unchanged, 1 drifted, 2 could not tell.
+# Exit 0 unchanged, 1 drifted, 2 could not tell (UNKNOWN). Nothing else is ever returned: an
+# unexpected failure inside the script, an empty or moved source, or an extractor that no
+# longer understands the builder syntax is reported as UNKNOWN (2) and never as clean or drift.
 #
 # Why this exists. flixw parses `flix --help` to learn which verbs the pinned compiler
 # implements, because dispatch is compiler-first and a verb the compiler owns must reach the
@@ -31,32 +33,72 @@
 #
 # **It never gates ordinary CI.** flixw's build must not go red because somebody else merged
 # something. The workflow that runs this opens an issue instead.
-set -eu
+set -u
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only, as in the other scripts
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-fingerprint=$root/tests/upstream/flix-cli.fingerprint
+work=${FLIX_UPSTREAM_WORK:-$root/tests/.work/upstream}
+
+# Why the script runs itself. Under `set -e` any unexpected failure (a full disk, a missing
+# `sed`) exits 1, which is this script's code for *drift*; the workflow would then open a
+# drift issue for a machine problem. The inner run records a verdict file only where it
+# genuinely decided; the outer run accepts an exit code only together with its verdict, and
+# turns everything else into UNKNOWN.
+if [ -z "${FLIX_UPSTREAM_INNER:-}" ]; then
+  mkdir -p "$work" 2>/dev/null || { echo "upstream-cli: UNKNOWN -- cannot create $work" >&2; exit 2; }
+  rm -f "$work/verdict"
+  FLIX_UPSTREAM_INNER=1 sh "$0" "$@"
+  rc=$?
+  verdict=$(cat "$work/verdict" 2>/dev/null || true)
+  case "$rc:$verdict" in
+    0:clean|0:updated|1:drift|2:unknown) exit "$rc" ;;
+  esac
+  echo "upstream-cli: UNKNOWN -- the check ended with status $rc and verdict '${verdict:-none}'; that is not a result" >&2
+  exit 2
+fi
+
+set -e
+verdict() { printf '%s\n' "$1" > "$work/verdict"; }
+unknown() {
+  echo "upstream-cli: UNKNOWN -- $1" >&2
+  verdict unknown
+  exit 2
+}
+
+fingerprint=${FLIX_UPSTREAM_FINGERPRINT:-$root/tests/upstream/flix-cli.fingerprint}
 repo=${FLIX_UPSTREAM_REPO:-flix/flix}
+api=${FLIX_UPSTREAM_API:-https://api.github.com}
+raw=${FLIX_UPSTREAM_RAW:-https://raw.githubusercontent.com}
 path_main=main/src/ca/uwaterloo/flix/Main.scala
 path_options=main/src/ca/uwaterloo/flix/util/Options.scala
-work=$root/tests/.work/upstream
 mkdir -p "$work" "$(dirname "$fingerprint")"
 
 # Resolved, not hardcoded. flix/flix is on `master`; the obvious guess is `main`, which 404s,
 # and a project that renames its default branch would otherwise silently stop being watched.
-branch=$(curl -fsSL "https://api.github.com/repos/$repo" 2>/dev/null \
-         | sed -n 's/.*"default_branch": *"\([^"]*\)".*/\1/p' | head -1)
+branch=$(curl -fsSL "$api/repos/$repo" 2>/dev/null \
+         | sed -n 's/.*"default_branch": *"\([^"]*\)".*/\1/p' | head -1) || branch=
 [ -n "$branch" ] || branch=master
 
+# The required source inventory: every file the extractors read. A fetch that succeeds is
+# still not a source -- an error page, an empty body or a truncated file arrives with status
+# 200 -- so each file must also be non-empty. Missing one is UNKNOWN, never "no entries".
 main_src=$work/Main.scala
 options_src=$work/Options.scala
-curl -fsSL -o "$main_src" "https://raw.githubusercontent.com/$repo/$branch/$path_main" || {
-  echo "upstream-cli: cannot fetch $repo@$branch/$path_main" >&2
-  exit 2
+rm -f "$main_src" "$options_src"
+fetch() {
+  curl -fsSL -o "$2" "$raw/$repo/$branch/$1" || unknown "cannot fetch $repo@$branch/$1"
+  [ -s "$2" ] || unknown "$repo@$branch/$1 is empty"
 }
-curl -fsSL -o "$options_src" "https://raw.githubusercontent.com/$repo/$branch/$path_options" || {
-  echo "upstream-cli: cannot fetch $repo@$branch/$path_options" >&2
-  exit 2
+fetch "$path_main" "$main_src"
+fetch "$path_options" "$options_src"
+
+# Each extractor writes to a file and its exit status is read. In a pipeline the status is
+# the last stage's, so a grep that fails (2: unreadable) would look like "found nothing".
+# grep 1 means no match, which the coverage checks below judge; 2 or more is a failure.
+run_grep() { # <extended-regex> <file> <out>
+  rc=0
+  grep -oE "$1" "$2" > "$3" || rc=$?
+  [ "$rc" -le 1 ] || unknown "grep failed (status $rc) on $2"
 }
 
 # scopt's builders name the whole surface: cmd("check"), opt[Unit]("json"), arg[Int]("port").
@@ -65,13 +107,19 @@ curl -fsSL -o "$options_src" "https://raw.githubusercontent.com/$repo/$branch/$p
 # may also wrap its type once more, as `opt[Seq[Subeffecting]]("Xsubeffecting")` does; the
 # inner name is what is kept, since that is the type a completion or a curated spec cares
 # about -- "a Subeffecting" is the fact, "a Seq of them" is scopt's own plumbing for `--x a,b`.
+strict_builder='(cmd|opt\[[A-Za-z._]+(\[[A-Za-z._]+\])?\]|arg\[[A-Za-z._]+\])\("[^"]+"\)'
+# The same builders as written, whatever their arguments: a third level of brackets, a name
+# that is not a string literal, an escaped quote. Anything this matches that the strict
+# pattern does not is syntax the extractor cannot read, and the fingerprint would silently
+# lose it.
+loose_builder='\b(cmd|opt|arg)\b(\[[^(]*\])?\('
 extract_surface() {
-  grep -oE '(cmd|opt\[[A-Za-z._]+(\[[A-Za-z._]+\])?\]|arg\[[A-Za-z._]+\])\("[^"]+"\)' "$1" \
-    | sed -E '
+  run_grep "$strict_builder" "$1" "$work/surface.raw"
+  sed -E '
         s/^cmd\("(.*)"\)$/cmd - \1/
         s/^(opt|arg)\[[A-Za-z._]+\[([A-Za-z._]+)\]\]\("(.*)"\)$/\1 \2 \3/
         s/^(opt|arg)\[([A-Za-z._]+)\]\("(.*)"\)$/\1 \2 \3/
-      '
+      ' "$work/surface.raw"
 }
 
 # The complementary half: a sealed trait's case objects are the value set behind a custom
@@ -79,11 +127,26 @@ extract_surface() {
 # maps user-facing strings onto these ("nix" => LibLevel.Nix) as bare match arms, not a
 # builder call, so that mapping is not what gets watched; the enum it draws from is.
 extract_enums() {
-  grep -oE 'case object [A-Za-z0-9_]+ extends [A-Za-z0-9_]+' "$1" \
-    | sed -E 's/^case object ([A-Za-z0-9_]+) extends ([A-Za-z0-9_]+)$/enum \2 \1/'
+  run_grep 'case object [A-Za-z0-9_]+ extends [A-Za-z0-9_]+' "$1" "$work/enums.raw"
+  sed -E 's/^case object ([A-Za-z0-9_]+) extends ([A-Za-z0-9_]+)$/enum \2 \1/' "$work/enums.raw"
 }
 
-{ extract_surface "$main_src"; extract_enums "$options_src"; } | LC_ALL=C sort -u > "$work/current"
+# Extraction coverage. Every builder the loose pattern sees must have been extracted, and
+# each source must yield what it is known to hold: commands and options from Main.scala,
+# enum members from Options.scala. A parser that stopped matching would otherwise produce
+# an empty set, and an empty set compared with an empty set is "unchanged".
+run_grep "$loose_builder" "$main_src" "$work/loose.raw"
+extract_surface "$main_src" > "$work/surface"
+seen=$(wc -l < "$work/loose.raw" | tr -d ' ')
+got=$(wc -l < "$work/surface" | tr -d ' ')
+[ "$seen" = "$got" ] \
+  || unknown "$path_main has $seen builder calls but only $got were extracted (unsupported builder syntax)"
+grep -q '^cmd ' "$work/surface" || unknown "no command extracted from $path_main"
+grep -q '^opt ' "$work/surface" || unknown "no option extracted from $path_main"
+extract_enums "$options_src" > "$work/enums"
+[ -s "$work/enums" ] || unknown "no enum member extracted from $path_options"
+
+cat "$work/surface" "$work/enums" | LC_ALL=C sort -u > "$work/current"
 
 if [ "${1:-}" = "--update" ]; then
   {
@@ -93,23 +156,32 @@ if [ "${1:-}" = "--update" ]; then
     echo "# Regenerate with: sh tests/upstream-cli.sh --update"
     echo "# Prose is excluded on purpose -- see the header of that script."
     cat "$work/current"
-  } > "$fingerprint"
+  } > "$fingerprint.new"
+  mv "$fingerprint.new" "$fingerprint"
   echo "upstream-cli: fingerprint updated from $repo@$branch ($(grep -cv '^#' "$fingerprint") entries)"
+  verdict updated
   exit 0
 fi
 
 if [ ! -f "$fingerprint" ]; then
   echo "upstream-cli: no committed fingerprint at $fingerprint" >&2
   echo "              run: sh tests/upstream-cli.sh --update" >&2
+  verdict unknown
   exit 2
 fi
 
-grep -v '^#' "$fingerprint" > "$work/known"
+grep -v '^#' "$fingerprint" > "$work/known" || true
+[ -s "$work/known" ] || unknown "the committed fingerprint $fingerprint has no entries"
 
-if diff -u "$work/known" "$work/current" > "$work/diff" 2>&1; then
+# diff's own failure (status 2) is not a difference (status 1).
+drc=0
+diff -u "$work/known" "$work/current" > "$work/diff" 2>&1 || drc=$?
+if [ "$drc" -eq 0 ]; then
   echo "upstream-cli: unchanged -- $(wc -l < "$work/known" | tr -d ' ') entries, $repo@$branch"
+  verdict clean
   exit 0
 fi
+[ "$drc" -eq 1 ] || unknown "diff failed (status $drc)"
 
 echo "upstream-cli: Flix's CLI surface has changed at $repo@$branch"
 echo
@@ -123,4 +195,5 @@ echo "  3. src/assets/flixw-cli.java -- a new option *kind* changes what a compl
 echo "  4. src/assets/picocli/*.picocli -- an \`enum\` line changes the value set an option's"
 echo "     curated help text names by hand (e.g. Xlib's \"(nix, min, all)\")."
 echo "  5. Adopt with: sh tests/upstream-cli.sh --update"
+verdict drift
 exit 1
