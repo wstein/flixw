@@ -104,9 +104,17 @@ setup() { # fresh upstream: master at sha1, a release at sha3, a fingerprint mad
   saved=${FAKE_BREAK:-}; unset FAKE_BREAK
   run --update >/dev/null 2>&1
   rm -rf "$t/w"   # the cache of that run is not part of the scenario
+  if [ -z "${recorded:-}" ]; then
+    # Like the committed fingerprint, which predates the record: no revision, no digests. The
+    # scenarios that edit sources at sha1 would otherwise contradict the record, as they
+    # should; the ones about the record use setup_recorded.
+    "$real_grep" -v -e '^# Revision: ' -e '^#   [0-9a-f]\{64\}  ' "$t/fp" > "$t/fp.legacy"
+    mv "$t/fp.legacy" "$t/fp"
+  fi
   [ -z "$saved" ] || { FAKE_BREAK=$saved; export FAKE_BREAK; }
   rm -f "$t/up/requests.log" "$t/up/raw.count"
 }
+setup_recorded() { recorded=1; setup; recorded=; }
 # Upstream's branch moves to sha2 as soon as the first source has been downloaded.
 move_master() {
   mkdir -p "$t/up/moved/api.github.com/repos/flix/flix/commits"
@@ -332,7 +340,7 @@ requests_not_pinned() { # raw requests whose path is not the revision $1
 no_unpinned() { [ -s "$t/up/requests.log" ] && [ -z "$(requests_not_pinned "$sha1")" ]; }
 only_sha1_cached() { [ "$(ls "$t/w/cache")" = "$sha1" ]; }
 
-setup; move_master; run
+setup_recorded; move_master; run
   expect 0 "branch movement between downloads: every source stays at the recorded revision" "$sha1"
   check "no source request names a branch" no_unpinned
   check "only the recorded revision is cached" only_sha1_cached
@@ -342,42 +350,56 @@ digests_match() { (cd "$t/w/cache/$sha1" && $sum -c SHA256SUMS >/dev/null 2>&1) 
   && [ "$("$real_grep" -c . "$t/w/cache/$sha1/SHA256SUMS")" = 2 ] \
   && "$real_grep" -q "$($sum "$t/w/cache/$sha1/Main.scala" | cut -d' ' -f1)" "$t/fp"; }
 if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
-setup; run
+setup_recorded; run
   check "source digests are recorded beside the sources and in the fingerprint" digests_match
   check "the fingerprint names the revision" "$real_grep" -q "Revision: $sha1" "$t/fp"
 
-setup; run; rm -f "$t/up/requests.log"; offline=1 run --to $sha1
+setup_recorded; run; rm -f "$t/up/requests.log"; offline=1 run --to $sha1
   expect 0 "a pinned revision is reused offline from the cache" "unchanged"
   check "offline reuse makes no request" test ! -s "$t/up/requests.log"
-setup; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"; offline=1 run --to $sha1
+setup_recorded; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"; offline=1 run --to $sha1
   expect 2 "a cached source that fails its digest is not used offline" "cannot fetch"
-setup; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"; run --to $sha1
+# A cache entry whose SHA256SUMS names only one file leaves the other unchecked.
+setup_recorded; run; printf 'tampered\n' > "$t/w/cache/$sha1/Options.scala"
+  (cd "$t/w/cache/$sha1" && $sum Main.scala > SHA256SUMS); offline=1 run --to $sha1
+  expect 2 "a SHA256SUMS that names one file only is not trusted" "cannot fetch"
+setup_recorded; run; printf 'tampered\n' > "$t/w/cache/$sha1/Options.scala"
+  (cd "$t/w/cache/$sha1" && $sum Main.scala Main.scala > SHA256SUMS); offline=1 run --to $sha1
+  expect 2 "a SHA256SUMS that names Main.scala twice is not trusted" "cannot fetch"
+setup_recorded; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"
+  (cd "$t/w/cache/$sha1" && $sum Options.scala Options.scala > SHA256SUMS); offline=1 run --to $sha1
+  expect 2 "a SHA256SUMS that names Options.scala twice is not trusted" "cannot fetch"
+# Sources and digests altered together agree with each other; the fingerprint's record does not.
+setup_recorded; run; printf 'case object Evil extends Mode\n' >> "$t/w/cache/$sha1/Options.scala"
+  (cd "$t/w/cache/$sha1" && $sum Main.scala Options.scala > SHA256SUMS); offline=1 run --to $sha1
+  expect 2 "cached sources that differ from the digests the fingerprint recorded are UNKNOWN" "recorded"
+setup_recorded; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"; run --to $sha1
   expect 0 "a cached source that fails its digest is fetched again online" "unchanged"
-setup; offline=1 run --to $sha1
+setup_recorded; offline=1 run --to $sha1
   expect 2 "a pinned revision that was never cached is UNKNOWN offline" "cannot fetch"
 unset offline
 
-setup;           run --from v0.79.0
+setup_recorded;           run --from v0.79.0
   expect 1 "release baseline against master head is drift" "v0.79.0"
   check "the compared revisions are both named" sh -c 'printf "%s" "$1" | grep -q "$2" && printf "%s" "$1" | grep -q "$3"' _ "$out" "$sha1" "$sha3"
-setup; rm "$t/fp"; run --from v0.79.0 --to master
+setup_recorded; rm "$t/fp"; run --from v0.79.0 --to master
   expect 1 "explicit from/to refs do not read the committed fingerprint" "Old"
-setup;           run --from $sha1 --to master
+setup_recorded;           run --from $sha1 --to master
   expect 0 "explicit from/to naming the same revision is clean" "unchanged"
-setup;           run --to v0.79.0
+setup_recorded;           run --to v0.79.0
   expect 2 "a release is not compared with the master baseline" "--from"
-setup;           run --to $sha1
+setup_recorded;           run --to $sha1
   expect 0 "a master revision by SHA is compared with the master baseline" "unchanged"
 # A short hex string is a name until the API says otherwise; it is not a revision to fetch by.
-setup; put $sha3 "$api/commits/abc1234"; run --from abc1234
+setup_recorded; put $sha3 "$api/commits/abc1234"; run --from abc1234
   expect 1 "a short hex ref is resolved through the API" "$sha3"
-setup;           run --from nosuch
+setup_recorded;           run --from nosuch
   expect 2 "an unresolvable ref is UNKNOWN" "cannot resolve"
-setup; put '<html>rate limited</html>' "$api/commits/master"; run
+setup_recorded; put '<html>rate limited</html>' "$api/commits/master"; run
   expect 2 "a ref that does not resolve to a full SHA is UNKNOWN" "full SHA"
-setup;           run --update --from v0.79.0
+setup_recorded;           run --update --from v0.79.0
   expect 2 "--update takes no --from" "--from"
-setup;           run --bogus
+setup_recorded;           run --bogus
   expect 2 "an unknown argument is UNKNOWN" "unknown argument"
 
 echo
