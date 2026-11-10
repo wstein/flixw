@@ -65,4 +65,4 @@ FLIXW_TEST_TIMINGS="$work/io-failed.tsv" sh -c '
 rc=$?
 set -e
 [ "$rc" -eq 19 ]
-printf 'timing-check: 10 assertions passed\n' 
+printf 'timing-check: 10 assertions passed\n'
