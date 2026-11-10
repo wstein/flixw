@@ -113,15 +113,32 @@ leftover_enum="${before}(case[[:space:]]+object([^A-Za-z0-9_]|\$)|enum[[:space:]
 # Comments are not source: a commented-out builder must not count as present, and a call after
 # a comment on the same line must not be lost with it. A scan, not a regex, because `//` is
 # also inside strings ("a//b") and `/*` can hide `//`; `"` inside a character literal ('"')
-# is skipped so it does not open a string. Strings and literals are taken as one line long.
+# is skipped so it does not open a string. The scan carries what Scala lets span lines across
+# them: block comments, which nest, and """ strings, whose text (`src/*.flix` in a usage
+# message) is not a comment. Single-quoted strings and literals end at the line.
+# A scan that discards text silently is the failure this guards against, so one that cannot
+# say where every discarded character came from fails: a comment or string still open at the
+# end of the file (the rest of the file would be gone) is status 3, and any non-zero status
+# of awk is UNKNOWN.
 strip_comments() { # <in> <out>
+  rc=0
   awk '
-    BEGIN { blk = 0 }
+    BEGIN { blk = 0; tri = 0 }
     {
       out = ""; n = length($0); i = 1; str = 0
       while (i <= n) {
-        c = substr($0, i, 1); d = substr($0, i, 2)
-        if (blk) { if (d == "*/") { blk = 0; i += 2 } else i++; continue }
+        c = substr($0, i, 1); d = substr($0, i, 2); t = substr($0, i, 3)
+        if (blk > 0) {
+          if (d == "/*") { blk++; i += 2 } else if (d == "*/") { blk--; i += 2 } else i++
+          continue
+        }
+        if (tri) {
+          if (t == "\"\"\"") {
+            j = i; while (substr($0, j, 1) == "\"") j++
+            out = out substr($0, i, j - i); tri = 0; i = j
+          } else { out = out c; i++ }
+          continue
+        }
         if (str) {
           out = out c
           if (c == "\\") { out = out substr($0, i + 1, 1); i += 2; continue }
@@ -130,6 +147,7 @@ strip_comments() { # <in> <out>
         }
         if (d == "//") break
         if (d == "/*") { blk = 1; out = out " "; i += 2; continue }
+        if (t == "\"\"\"") { tri = 1; out = out t; i += 3; continue }
         if (c == "\047") {
           w = (substr($0, i + 1, 1) == "\\") ? 4 : 3
           if (substr($0, i + w - 1, 1) == "\047") { out = out substr($0, i, w); i += w; continue }
@@ -138,7 +156,13 @@ strip_comments() { # <in> <out>
         out = out c; i++
       }
       print out
-    }' "$1" > "$2"
+    }
+    END { if (blk > 0 || tri) exit 3 }' "$1" > "$2" || rc=$?
+  case $rc in
+    0) ;;
+    3) unknown "$1 ends inside a comment or string; the rest of the file cannot be read" ;;
+    *) unknown "cannot scan $1 for comments (awk status $rc)" ;;
+  esac
 }
 extract() { # <file> <flat> <strict> <leftover> <out.raw> <label>
   strip_comments "$1" "$2.nc"

@@ -157,6 +157,36 @@ setup; cat >> "$up/$p_main" <<'X'
 val s = "x\" // y"; cmd("kept") // cmd(name)
 X
 run; expect 1 "an escaped quote does not end a string" "cmd - kept"
+# Strings can span lines, and a `/*` inside one is not a comment: the usage text of the real
+# Main.scala has `flix check src/*.flix` on the line after an opening """.
+setup; cat >> "$up/$p_main" <<'X'
+val usage =
+  """usage
+    |  flix check src/*.flix
+    |""".stripMargin
+cmd("kept")
+/** doc */
+X
+run; expect 1 "a /* inside a multi-line string does not open a comment" "cmd - kept"
+setup; cat >> "$up/$p_main" <<'X'
+val q = """a "quoted" // not a comment"""; cmd("kept") // cmd(name)
+X
+run; expect 1 "quotes and // inside a triple-quoted string are text" "cmd - kept"
+setup; cat >> "$up/$p_main" <<'X'
+val q = """a""""; cmd("kept") // cmd(name)
+X
+run; expect 1 "a run of quotes closes a triple-quoted string once" "cmd - kept"
+setup; printf 'cmd("kept")\n/* never closed\ncmd("hidden")\n' >> "$up/$p_main"; run
+  expect 2 "a block comment open at the end of the file is UNKNOWN" "inside a comment or string"
+setup; printf 'cmd("kept")\nval s = """never closed\ncmd("hidden")\n' >> "$up/$p_main"; run
+  expect 2 "a triple-quoted string open at the end of the file is UNKNOWN" "inside a comment or string"
+# Scala nests block comments.
+setup; cat >> "$up/$p_main" <<'X'
+/* a /* b */ cmd("zz") */ cmd("kept")
+X
+run; expect 1 "after a nested block comment the call that follows is read" "cmd - kept"
+no_zz() { ! printf '%s' "$out" | "$real_grep" -q 'cmd - zz'; }
+check "a builder inside a nested block comment is not counted" no_zz
 setup; printf '// enum Mode { case A }\n' >> "$up/$p_opts"; run; expect 0 "a commented enum is not counted" "unchanged"
 setup; printf 'enum Level { case Hi, Lo }\n' >> "$up/$p_opts"; run
   expect 2 "a Scala 3 enum is UNKNOWN, not ignored" "unsupported syntax"
