@@ -120,7 +120,7 @@ leftover_enum="${before}(case[[:space:]]+object([^A-Za-z0-9_]|\$)|enum[[:space:]
 # say where every discarded character came from fails: a comment or string still open at the
 # end of the file (the rest of the file would be gone) is status 3, and any non-zero status
 # of awk is UNKNOWN.
-strip_comments() { # <in> <out>
+strip_comments() { # <in> <out> <label>
   rc=0
   awk '
     BEGIN { blk = 0; tri = 0 }
@@ -160,12 +160,12 @@ strip_comments() { # <in> <out>
     END { if (blk > 0 || tri) exit 3 }' "$1" > "$2" || rc=$?
   case $rc in
     0) ;;
-    3) unknown "$1 ends inside a comment or string; the rest of the file cannot be read" ;;
-    *) unknown "cannot scan $1 for comments (awk status $rc)" ;;
+    3) unknown "$3 ends inside a comment or string; the rest of the file cannot be read" ;;
+    *) unknown "cannot scan $3 for comments (awk status $rc)" ;;
   esac
 }
 extract() { # <file> <flat> <strict> <leftover> <out.raw> <label>
-  strip_comments "$1" "$2.nc"
+  strip_comments "$1" "$2.nc" "$6"
   tr '\n' ' ' < "$2.nc" > "$2"
   run_grep "$before$3" "$2" "$5"
   sed -E "s/$before$3/\\1 /g" "$2" > "$2.rest"
