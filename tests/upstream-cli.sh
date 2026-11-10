@@ -218,11 +218,16 @@ extract_enums() {
 
 # Resolved, not hardcoded. flix/flix is on `master`; the obvious guess is `main`, which 404s,
 # and a project that renames its default branch would otherwise silently stop being watched.
-default_branch() {
-  b=$(curl -fsSL "$api/repos/$repo" 2>/dev/null \
-      | sed -n 's/.*"default_branch": *"\([^"]*\)".*/\1/p' | head -1) || b=
-  [ -n "$b" ] || b=master
-  printf '%s\n' "$b"
+# No fallback to `master` when the record cannot be read: the branch being watched would then
+# be a guess, and a stale `master` left behind by a rename would be watched in place of the
+# real one. The next request (the commit lookup) needs the same API, so this costs nothing
+# the run would not have lost anyway. Written to files so that no failing stage is hidden.
+default_branch() { # -> $dflt
+  curl -fsSL -o "$work/repo.json" "$api/repos/$repo" \
+    || unknown "cannot read the repository record of $repo to find its default branch"
+  sed -n 's/.*"default_branch": *"\([^"]*\)".*/\1/p' "$work/repo.json" > "$work/default_branch"
+  read -r dflt < "$work/default_branch" || dflt=
+  [ -n "$dflt" ] || unknown "the repository record of $repo names no default branch"
 }
 
 # A ref is resolved once, here, to the 40-hex commit it names right now; nothing later looks
@@ -321,7 +326,7 @@ check() {
   # as drift. So without --from the target must be the default branch (or one of its commits,
   # named by SHA); a release is compared with --from.
   if [ -z "$to" ] || { [ -z "$from" ] && ! is_sha "$to"; }; then
-    dflt=$(default_branch)
+    default_branch
     if [ -z "$to" ]; then to=$dflt
     elif [ "$to" != "$dflt" ]; then
       unknown "--to $to is not $repo's default branch ($dflt); compare it with a baseline of its own: --from <ref> --to $to"

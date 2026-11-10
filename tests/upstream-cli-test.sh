@@ -412,6 +412,10 @@ for badref in 'a#b' 'a%2Fb' 'a?b' 'a b' 'a..b' '-x' 'a/' 'a//b'; do
   check "no request was made for '$badref'" test ! -s "$t/up/requests.log"
 done
 setup; run --to 'a#b'; expect 2 "--to takes the same validation" "not a valid ref"
+# No silent fallback to `master`: if the repository record cannot be read, the branch being
+# watched is not known, and a stale `master` could be watched in place of the renamed default.
+setup; rm "$api/.self"; run; expect 2 "an unreadable repository record is UNKNOWN, not master" "default branch"
+setup; put '{"name": "flix"}' "$api/.self"; run; expect 2 "a repository record without a default branch is UNKNOWN" "default branch"
 # The default branch's name comes from the API and goes into the same URL.
 setup; put '{"default_branch": "a#b"}' "$api/.self"; run
   expect 2 "a default branch name that is not a valid ref is refused" "not a valid ref"
