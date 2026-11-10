@@ -393,6 +393,18 @@ setup_recorded;           run --to $sha1
 # A short hex string is a name until the API says otherwise; it is not a revision to fetch by.
 setup_recorded; put $sha3 "$api/commits/abc1234"; run --from abc1234
   expect 1 "a short hex ref is resolved through the API" "$sha3"
+# The ref goes into a URL path: '#', '%', '?' or a space would make the API answer for another ref.
+for badref in 'a#b' 'a%2Fb' 'a?b' 'a b' 'a..b' '-x' 'a/' 'a//b'; do
+  setup; run --from "$badref"
+  expect 2 "a ref spelled '$badref' is refused" "not a valid ref"
+  check "no request was made for '$badref'" test ! -s "$t/up/requests.log"
+done
+setup; run --to 'a#b'; expect 2 "--to takes the same validation" "not a valid ref"
+# The default branch's name comes from the API and goes into the same URL.
+setup; put '{"default_branch": "a#b"}' "$api/.self"; run
+  expect 2 "a default branch name that is not a valid ref is refused" "not a valid ref"
+setup; put $sha3 "$api/commits/release/0.79"; run --from release/0.79
+  expect 1 "a ref with a slash is valid" "$sha3"
 setup_recorded;           run --from nosuch
   expect 2 "an unresolvable ref is UNKNOWN" "cannot resolve"
 setup_recorded; put '<html>rate limited</html>' "$api/commits/master"; run
