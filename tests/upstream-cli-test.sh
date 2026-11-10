@@ -12,8 +12,13 @@ set -eu
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only, as in the other scripts
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 script=${UPSTREAM_CLI_SCRIPT:-$root/tests/upstream-cli.sh}
-t=$root/tests/.work/upstream-cli-test
-rm -rf "$t"
+# One scratch directory per run: a fixed name was shared by a parallel run of this script (or
+# of tests/lint.sh, which calls it), and each one's cleanup removed the other's fixtures.
+mkdir -p "$root/tests/.work"
+t=$(mktemp -d "$root/tests/.work/upstream-cli-test.XXXXXX") || { echo "cannot create a scratch directory" >&2; exit 2; }
+trap 'rm -rf "$t"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 mkdir -p "$t/bin"
 real_grep=$(command -v grep)
 
