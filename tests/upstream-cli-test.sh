@@ -368,6 +368,9 @@ setup;           run --to v0.79.0
   expect 2 "a release is not compared with the master baseline" "--from"
 setup;           run --to $sha1
   expect 0 "a master revision by SHA is compared with the master baseline" "unchanged"
+# A short hex string is a name until the API says otherwise; it is not a revision to fetch by.
+setup; put $sha3 "$api/commits/abc1234"; run --from abc1234
+  expect 1 "a short hex ref is resolved through the API" "$sha3"
 setup;           run --from nosuch
   expect 2 "an unresolvable ref is UNKNOWN" "cannot resolve"
 setup; put '<html>rate limited</html>' "$api/commits/master"; run
