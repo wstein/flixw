@@ -104,7 +104,7 @@ setup() { # fresh upstream: master at sha1, a release at sha3, a fingerprint mad
   saved=${FAKE_BREAK:-}; unset FAKE_BREAK
   run --update >/dev/null 2>&1
   rm -rf "$t/w"   # the cache of that run is not part of the scenario
-  if [ -z "${recorded:-}" ]; then
+  if [ -z "${recorded:-}" ] && [ -f "$t/fp" ]; then
     # Like the committed fingerprint, which predates the record: no revision, no digests. The
     # scenarios that edit sources at sha1 would otherwise contradict the record, as they
     # should; the ones about the record use setup_recorded.
