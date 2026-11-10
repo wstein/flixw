@@ -27,11 +27,21 @@ cat > "$t/bin/curl" <<'CURL'
 #!/bin/sh
 out=; url=
 while [ $# -gt 0 ]; do
-  case $1 in -o) out=$2; shift ;; -*) ;; *) url=$1 ;; esac
+  case $1 in -o|-H) [ "$1" = -o ] && out=$2; shift ;; -*) ;; *) url=$1 ;; esac
   shift
 done
+echo "$url" >> "$FAKE_ROOT/requests.log"
+[ -z "${FAKE_OFFLINE:-}" ] || exit 6
 f=$FAKE_ROOT/${url#https://}
+[ -d "$f" ] && f=$f/.self
 [ -f "$f" ] || exit 22
+# The branch moves while the sources are being fetched: after the first raw download, the
+# name resolves to, and serves, the second revision.
+case $url in
+  */raw.githubusercontent.com/*) n=$(cat "$FAKE_ROOT/raw.count" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "$FAKE_ROOT/raw.count"
+    if [ "$n" = 0 ] && [ -d "$FAKE_ROOT/moved" ]; then cp -R "$FAKE_ROOT/moved/." "$FAKE_ROOT/"; fi ;;
+esac
 if [ -n "$out" ]; then cp "$f" "$out"; else /bin/cat "$f"; fi
 CURL
 # A tool that fails the way a broken machine does: grep (extractor), sed (extractor), diff.
@@ -58,7 +68,12 @@ export ORIG_PATH
 
 p_main=main/src/ca/uwaterloo/flix/Main.scala
 p_opts=main/src/ca/uwaterloo/flix/util/Options.scala
-up=$t/up/raw.githubusercontent.com/flix/flix/master
+sha1=1111111111111111111111111111111111111111   # master when the check starts
+sha2=2222222222222222222222222222222222222222   # master after it moves
+sha3=3333333333333333333333333333333333333333   # the release tag v0.79.0
+raw=$t/up/raw.githubusercontent.com/flix/flix
+api=$t/up/api.github.com/repos/flix/flix
+up=$raw/$sha1
 
 good_main() {
   cat <<'M'
@@ -71,22 +86,38 @@ M
 }
 good_opts() { printf 'case object Fast extends Mode\ncase object Slow extends Mode\n'; }
 
-setup() { # fresh upstream with the good sources and a fingerprint made from them
-  rm -rf "$t/up" "$t/w"
-  mkdir -p "$up/$(dirname "$p_main")" "$up/$(dirname "$p_opts")" "$t/up/api.github.com/repos/flix"
-  printf '{"default_branch": "master"}\n' > "$t/up/api.github.com/repos/flix/flix"
-  good_main > "$up/$p_main"
-  good_opts > "$up/$p_opts"
-  rm -f "$t/fp"
+put() { mkdir -p "$(dirname "$2")"; printf '%s\n' "$1" > "$2"; }
+tree() { # <dir> <extra Main.scala line> <extra Options.scala line>
+  mkdir -p "$1/$(dirname "$p_main")" "$1/$(dirname "$p_opts")"
+  { good_main; [ -z "$2" ] || echo "$2"; } > "$1/$p_main"
+  { good_opts; [ -z "$3" ] || echo "$3"; } > "$1/$p_opts"
+}
+setup() { # fresh upstream: master at sha1, a release at sha3, a fingerprint made from sha1
+  rm -rf "$t/up" "$t/w" "$t/fp"
+  put '{"default_branch": "master"}' "$api/.self"
+  put $sha1 "$api/commits/master"
+  put $sha3 "$api/commits/v0.79.0"
+  tree "$raw/$sha1" "" ""
+  tree "$raw/$sha2" 'cmd("build")' 'case object Mid extends Mode'
+  tree "$raw/$sha3" "" 'case object Old extends Mode'
+  tree "$raw/master" "" ""   # what a download through the branch name would see
   saved=${FAKE_BREAK:-}; unset FAKE_BREAK
   run --update >/dev/null 2>&1
+  rm -rf "$t/w"   # the cache of that run is not part of the scenario
   [ -z "$saved" ] || { FAKE_BREAK=$saved; export FAKE_BREAK; }
+  rm -f "$t/up/requests.log" "$t/up/raw.count"
+}
+# Upstream's branch moves to sha2 as soon as the first source has been downloaded.
+move_master() {
+  mkdir -p "$t/up/moved/api.github.com/repos/flix/flix/commits"
+  tree "$t/up/moved/raw.githubusercontent.com/flix/flix/master" 'cmd("build")' 'case object Mid extends Mode'
+  printf '%s\n' "$sha2" > "$t/up/moved/api.github.com/repos/flix/flix/commits/master"
 }
 
 # run <args>: the exit status and combined output of one check against the fixture.
 run() {
   rc=0
-  out=$(PATH=$t/bin:$PATH FAKE_ROOT=$t/up FLIX_UPSTREAM_WORK=$t/w \
+  out=$(PATH=$t/bin:$PATH FAKE_OFFLINE=${offline:-} FAKE_ROOT=$t/up FLIX_UPSTREAM_WORK=$t/w \
         FLIX_UPSTREAM_FINGERPRINT=$t/fp sh "$script" "$@" 2>&1) || rc=$?
 }
 
@@ -275,11 +306,12 @@ unset FAKE_BREAK FLIX_UPSTREAM_INNER
 # An update that fails part-way leaves the committed baseline as it was; without `set -e`
 # the failed rename would still be reported as "updated".
 fp_unchanged() { cmp -s "$t/fp" "$t/fp.before"; }
-setup; echo 'cmd("build")' >> "$up/$p_main"; cp "$t/fp" "$t/fp.before"
+# (the first run fills the cache, so that mv fails at the rename of the baseline and nowhere earlier)
+setup; echo 'cmd("build")' >> "$up/$p_main"; cp "$t/fp" "$t/fp.before"; run
 export FAKE_BREAK="mv"; run --update
   expect 2 "--update whose rename fails is UNKNOWN, not updated" "UNKNOWN"
   check "--update whose rename fails leaves the baseline alone" fp_unchanged
-setup; echo 'cmd("build")' >> "$up/$p_main"; cp "$t/fp" "$t/fp.before"
+setup; echo 'cmd("build")' >> "$up/$p_main"; cp "$t/fp" "$t/fp.before"; run
 export FAKE_BREAK="cat"; run --update
   expect 2 "--update that fails while writing is UNKNOWN" "UNKNOWN"
   check "--update that fails while writing leaves the baseline alone" fp_unchanged
@@ -292,6 +324,58 @@ setup; printf '# nothing\n' > "$t/fp";              run; expect 2 "an empty comm
 setup; cp "$t/fp" "$t/fp.before"; : > "$up/$p_main"; run --update; expect 2 "--update on an empty source is UNKNOWN"
 if cmp -s "$t/fp" "$t/fp.before"; then pass=$((pass + 1)); echo "ok    --update left the fingerprint untouched"
 else failed=$((failed + 1)); echo "FAIL  --update overwrote the fingerprint from an incomplete source"; fi
+
+# --- pinned revision ---------------------------------------------------------
+requests_not_pinned() { # raw requests whose path is not the revision $1
+  "$real_grep" 'raw.githubusercontent.com' "$t/up/requests.log" | "$real_grep" -v "/flix/flix/$1/" || true
+}
+no_unpinned() { [ -s "$t/up/requests.log" ] && [ -z "$(requests_not_pinned "$sha1")" ]; }
+only_sha1_cached() { [ "$(ls "$t/w/cache")" = "$sha1" ]; }
+
+setup; move_master; run
+  expect 0 "branch movement between downloads: every source stays at the recorded revision" "$sha1"
+  check "no source request names a branch" no_unpinned
+  check "only the recorded revision is cached" only_sha1_cached
+  check "the moved revision was never requested" test -z "$("$real_grep" "$sha2" "$t/up/requests.log" || true)"
+
+digests_match() { (cd "$t/w/cache/$sha1" && $sum -c SHA256SUMS >/dev/null 2>&1) \
+  && [ "$("$real_grep" -c . "$t/w/cache/$sha1/SHA256SUMS")" = 2 ] \
+  && "$real_grep" -q "$($sum "$t/w/cache/$sha1/Main.scala" | cut -d' ' -f1)" "$t/fp"; }
+if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum; else sum="shasum -a 256"; fi
+setup; run
+  check "source digests are recorded beside the sources and in the fingerprint" digests_match
+  check "the fingerprint names the revision" "$real_grep" -q "Revision: $sha1" "$t/fp"
+
+setup; run; rm -f "$t/up/requests.log"; offline=1 run --to $sha1
+  expect 0 "a pinned revision is reused offline from the cache" "unchanged"
+  check "offline reuse makes no request" test ! -s "$t/up/requests.log"
+setup; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"; offline=1 run --to $sha1
+  expect 2 "a cached source that fails its digest is not used offline" "cannot fetch"
+setup; run; printf 'tampered\n' > "$t/w/cache/$sha1/Main.scala"; run --to $sha1
+  expect 0 "a cached source that fails its digest is fetched again online" "unchanged"
+setup; offline=1 run --to $sha1
+  expect 2 "a pinned revision that was never cached is UNKNOWN offline" "cannot fetch"
+unset offline
+
+setup;           run --from v0.79.0
+  expect 1 "release baseline against master head is drift" "v0.79.0"
+  check "the compared revisions are both named" sh -c 'printf "%s" "$1" | grep -q "$2" && printf "%s" "$1" | grep -q "$3"' _ "$out" "$sha1" "$sha3"
+setup; rm "$t/fp"; run --from v0.79.0 --to master
+  expect 1 "explicit from/to refs do not read the committed fingerprint" "Old"
+setup;           run --from $sha1 --to master
+  expect 0 "explicit from/to naming the same revision is clean" "unchanged"
+setup;           run --to v0.79.0
+  expect 2 "a release is not compared with the master baseline" "--from"
+setup;           run --to $sha1
+  expect 0 "a master revision by SHA is compared with the master baseline" "unchanged"
+setup;           run --from nosuch
+  expect 2 "an unresolvable ref is UNKNOWN" "cannot resolve"
+setup; put '<html>rate limited</html>' "$api/commits/master"; run
+  expect 2 "a ref that does not resolve to a full SHA is UNKNOWN" "full SHA"
+setup;           run --update --from v0.79.0
+  expect 2 "--update takes no --from" "--from"
+setup;           run --bogus
+  expect 2 "an unknown argument is UNKNOWN" "unknown argument"
 
 echo
 echo "upstream-cli-test: $pass passed, $failed failed"

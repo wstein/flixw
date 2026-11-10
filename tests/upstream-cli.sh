@@ -1,8 +1,17 @@
 #!/bin/sh
 # Watches Flix's CLI definition for changes that would move flixw's ground.
 #
-#   sh tests/upstream-cli.sh            compare upstream against the committed fingerprint
-#   sh tests/upstream-cli.sh --update   adopt what upstream currently has
+#   sh tests/upstream-cli.sh                      compare master's head with the committed fingerprint
+#   sh tests/upstream-cli.sh --update             adopt what master's head currently has
+#   sh tests/upstream-cli.sh --to <ref|sha>       the same for another master revision, by SHA or branch
+#   sh tests/upstream-cli.sh --from <ref|sha> [--to <ref|sha>]
+#                                                 compare two refs (a release tag against master, say)
+#                                                 without reading the committed fingerprint
+#
+# Every ref is resolved once to a full SHA and every source is fetched through that SHA, so a
+# branch that moves between two downloads cannot give one comparison files from two commits.
+# The sources and their digests are kept under tests/.work/upstream/cache/<sha>/ and reused
+# without the network when the ref given is a SHA that is already cached.
 #
 # Exit 0 unchanged, 1 drifted, 2 could not tell (UNKNOWN). Nothing else is ever returned: an
 # unexpected failure inside the script, an empty or moved source, or an extractor that no
@@ -202,40 +211,111 @@ extract_enums() {
     "$work/enums.raw.trim"
 }
 
+# Resolved, not hardcoded. flix/flix is on `master`; the obvious guess is `main`, which 404s,
+# and a project that renames its default branch would otherwise silently stop being watched.
+default_branch() {
+  b=$(curl -fsSL "$api/repos/$repo" 2>/dev/null \
+      | sed -n 's/.*"default_branch": *"\([^"]*\)".*/\1/p' | head -1) || b=
+  [ -n "$b" ] || b=master
+  printf '%s\n' "$b"
+}
+
+# A ref is resolved once, here, to the 40-hex commit it names right now; nothing later looks
+# at the name again. The `sha` media type returns the bare SHA. A SHA given as the ref is
+# already immutable and needs no request, which is what makes a cached revision usable
+# offline. Anything that is not a full SHA afterwards -- an error page, a rate-limit body --
+# is UNKNOWN: it would otherwise be used as a path component.
+is_sha() { [ "${#1}" -eq 40 ] && case $1 in *[!0-9a-f]*) return 1 ;; *) return 0 ;; esac; }
+resolve() { # <ref> -> $resolved
+  if is_sha "$1"; then resolved=$1; return; fi
+  resolved=$(curl -fsSL -H 'Accept: application/vnd.github.sha' "$api/repos/$repo/commits/$1" 2>/dev/null) \
+    || unknown "cannot resolve $repo@$1 to a commit"
+  is_sha "$resolved" || unknown "$repo@$1 did not resolve to a full SHA"
+}
+
+# The required source inventory: every file the extractors read. A fetch that succeeds is
+# still not a source -- an error page, an empty body or a truncated file arrives with status
+# 200 -- so each file must also be non-empty. Missing one is UNKNOWN, never "no entries".
+# The pair lands in the cache as one unit (written aside, then renamed), with the digests of
+# both beside them: a half-written or later-modified cache entry fails its digests and is not
+# used, and the digests are what a comparison can later be checked against.
+cache_ok() { # <dir>
+  [ -s "$1/Main.scala" ] && [ -s "$1/Options.scala" ] && [ -s "$1/SHA256SUMS" ] \
+    && (cd "$1" && $sum -c SHA256SUMS >/dev/null 2>&1)
+}
+acquire() { # <sha> -> $srcdir
+  srcdir=$work/cache/$1
+  if cache_ok "$srcdir"; then return; fi
+  rm -rf "$srcdir.tmp"
+  mkdir -p "$srcdir.tmp"
+  for pair in "$path_main:Main.scala" "$path_options:Options.scala"; do
+    curl -fsSL -o "$srcdir.tmp/${pair#*:}" "$raw/$repo/$1/${pair%%:*}" \
+      || unknown "cannot fetch $repo@$1/${pair%%:*}"
+    [ -s "$srcdir.tmp/${pair#*:}" ] || unknown "$repo@$1/${pair%%:*} is empty"
+  done
+  (cd "$srcdir.tmp" && $sum Main.scala Options.scala > SHA256SUMS) || unknown "cannot digest the sources of $1"
+  rm -rf "$srcdir"
+  mv "$srcdir.tmp" "$srcdir"
+  cache_ok "$srcdir" || unknown "the cached sources of $1 do not match their digests"
+}
+
+# The surface of one revision's sources, sorted, in <out>.
+surface_of() { # <srcdir> <out>
+  [ -s "$1/Main.scala" ] || unknown "$1/Main.scala is missing or empty"
+  [ -s "$1/Options.scala" ] || unknown "$1/Options.scala is missing or empty"
+  extract_surface "$1/Main.scala" > "$work/surface"
+  grep -q '^cmd ' "$work/surface" || unknown "no command extracted from $path_main"
+  grep -q '^opt ' "$work/surface" || unknown "no option extracted from $path_main"
+  extract_enums "$1/Options.scala" > "$work/enums"
+  [ -s "$work/enums" ] || unknown "no enum member extracted from $path_options"
+  LC_ALL=C sort -u "$work/surface" "$work/enums" > "$2"
+}
+
 check() {
   mkdir -p "$work" "$(dirname "$fingerprint")"
 
-  # Resolved, not hardcoded. flix/flix is on `master`; the obvious guess is `main`, which 404s,
-  # and a project that renames its default branch would otherwise silently stop being watched.
-  branch=$(curl -fsSL "$api/repos/$repo" 2>/dev/null \
-           | sed -n 's/.*"default_branch": *"\([^"]*\)".*/\1/p' | head -1) || branch=
-  [ -n "$branch" ] || branch=master
+  update=0; from=; to=
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --update) update=1 ;;
+      --from|--to)
+        [ $# -ge 2 ] || unknown "$1 needs a ref"
+        if [ "$1" = --from ]; then from=$2; else to=$2; fi
+        shift ;;
+      *) unknown "unknown argument $1" ;;
+    esac
+    shift
+  done
+  [ -z "$from" ] || [ "$update" -eq 0 ] || unknown "--update adopts the --to side as the baseline; it takes no --from"
 
-  # The required source inventory: every file the extractors read. A fetch that succeeds is
-  # still not a source -- an error page, an empty body or a truncated file arrives with status
-  # 200 -- so each file must also be non-empty. Missing one is UNKNOWN, never "no entries".
-  main_src=$work/Main.scala
-  options_src=$work/Options.scala
-  rm -f "$main_src" "$options_src"
-  fetch() {
-    curl -fsSL -o "$2" "$raw/$repo/$branch/$1" || unknown "cannot fetch $repo@$branch/$1"
-    [ -s "$2" ] || unknown "$repo@$branch/$1 is empty"
-  }
-  fetch "$path_main" "$main_src"
-  fetch "$path_options" "$options_src"
+  if command -v sha256sum >/dev/null 2>&1; then sum=sha256sum
+  elif command -v shasum >/dev/null 2>&1; then sum="shasum -a 256"
+  else unknown "neither sha256sum nor shasum is installed; source digests cannot be recorded"; fi
 
-  extract_surface "$main_src" > "$work/surface"
-  grep -q '^cmd ' "$work/surface" || unknown "no command extracted from $path_main"
-  grep -q '^opt ' "$work/surface" || unknown "no option extracted from $path_main"
-  extract_enums "$options_src" > "$work/enums"
-  [ -s "$work/enums" ] || unknown "no enum member extracted from $path_options"
+  # The head being checked. Without --from it is compared with the committed fingerprint, which
+  # is the baseline of the repository's default branch; a release tag has its own surface and
+  # comparing it with that baseline would report every difference between a release and master
+  # as drift. So without --from the target must be the default branch (or one of its commits,
+  # named by SHA); a release is compared with --from.
+  if [ -z "$to" ] || { [ -z "$from" ] && ! is_sha "$to"; }; then
+    dflt=$(default_branch)
+    if [ -z "$to" ]; then to=$dflt
+    elif [ "$to" != "$dflt" ]; then
+      unknown "--to $to is not $repo's default branch ($dflt); compare it with a baseline of its own: --from <ref> --to $to"
+    fi
+  fi
+  resolve "$to"; to_sha=$resolved
+  acquire "$to_sha"
+  to_dir=$srcdir
+  surface_of "$to_dir" "$work/current"
 
-  LC_ALL=C sort -u "$work/surface" "$work/enums" > "$work/current"
-
-  if [ "${1:-}" = "--update" ]; then
+  if [ "$update" -eq 1 ]; then
     # Written aside and renamed: a failure part-way leaves the committed baseline as it was.
     {
-      echo "# The CLI surface of $repo@$branch, as flixw last saw it:"
+      echo "# The CLI surface of $repo@$to, as flixw last saw it:"
+      echo "# Revision: $to_sha"
+      echo "# Sources and their sha256:"
+      sed 's/^/#   /' "$to_dir/SHA256SUMS"
       echo "#   $path_main"
       echo "#   $path_options"
       echo "# Regenerate with: sh tests/upstream-cli.sh --update"
@@ -243,33 +323,42 @@ check() {
       cat "$work/current"
     } > "$fingerprint.new"
     mv "$fingerprint.new" "$fingerprint"
-    echo "upstream-cli: fingerprint updated from $repo@$branch ($(grep -cv '^#' "$fingerprint") entries)"
+    echo "upstream-cli: fingerprint updated from $repo@$to $to_sha ($(grep -cv '^#' "$fingerprint") entries)"
     record updated
     exit 0
   fi
 
-  if [ ! -f "$fingerprint" ]; then
-    echo "upstream-cli: no committed fingerprint at $fingerprint" >&2
-    echo "              run: sh tests/upstream-cli.sh --update" >&2
-    record unknown
-    exit 2
+  if [ -n "$from" ]; then
+    resolve "$from"; from_sha=$resolved
+    acquire "$from_sha"
+    surface_of "$srcdir" "$work/known"
+    base="$repo@$from $from_sha"
+  else
+    if [ ! -f "$fingerprint" ]; then
+      echo "upstream-cli: no committed fingerprint at $fingerprint" >&2
+      echo "              run: sh tests/upstream-cli.sh --update" >&2
+      record unknown
+      exit 2
+    fi
+    grep -v '^#' "$fingerprint" > "$work/known" || true
+    [ -s "$work/known" ] || unknown "the committed fingerprint $fingerprint has no entries"
+    rev=$(sed -n 's/^# Revision: //p' "$fingerprint" | head -1)
+    base="the committed fingerprint (${rev:-revision not recorded})"
   fi
-
-  grep -v '^#' "$fingerprint" > "$work/known" || true
-  [ -s "$work/known" ] || unknown "the committed fingerprint $fingerprint has no entries"
+  here="$repo@$to $to_sha"
 
   # diff's own failure (status 2) is not a difference (status 1).
   drc=0
   diff -u "$work/known" "$work/current" > "$work/diff" 2>&1 || drc=$?
   if [ "$drc" -eq 0 ]; then
     known_n=$(count "$work/known")
-    echo "upstream-cli: unchanged -- $known_n entries, $repo@$branch"
+    echo "upstream-cli: unchanged -- $known_n entries, $base -> $here"
     record clean
     exit 0
   fi
   [ "$drc" -eq 1 ] || unknown "diff failed (status $drc)"
 
-  echo "upstream-cli: Flix's CLI surface has changed at $repo@$branch"
+  echo "upstream-cli: Flix's CLI surface has changed: $base -> $here"
   echo
   sed -n '3,$p' "$work/diff"
   echo
