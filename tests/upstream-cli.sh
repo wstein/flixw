@@ -377,7 +377,8 @@ check() {
       sed -n 's/^#   \([0-9a-f]\{64\}  [A-Za-z.]*\)$/\1/p' "$fingerprint" > "$work/recorded.unsorted"
       LC_ALL=C sort "$work/recorded.unsorted" > "$work/recorded"
       LC_ALL=C sort "$to_dir/SHA256SUMS" > "$work/cached"
-      if [ -s "$work/recorded" ] && ! cmp -s "$work/recorded" "$work/cached"; then
+      # An empty record is a mismatch too: a revision without digests has nothing to vouch for the cache.
+      if ! cmp -s "$work/recorded" "$work/cached"; then
         unknown "the sources of $to_sha differ from the digests recorded in the fingerprint; remove $to_dir"
       fi
     fi
