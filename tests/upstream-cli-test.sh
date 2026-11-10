@@ -111,10 +111,22 @@ setup; printf 'opt[Unit]("json")\n' > "$up/$p_main"; run; expect 2 "Main.scala w
 setup; printf 'cmd("init")\n' > "$up/$p_main";       run; expect 2 "Main.scala without options is UNKNOWN" "no option extracted"
 setup; echo 'object X' > "$up/$p_opts";             run; expect 2 "Options.scala without enum members is UNKNOWN" "no enum member"
 setup; echo 'opt[Seq[Map[String]]]("Xdeep")' >> "$up/$p_main"
-                                                    run; expect 2 "a type nested three deep is UNKNOWN" "unsupported builder syntax"
-setup; echo 'cmd(name)' >> "$up/$p_main";           run; expect 2 "a non-literal builder name is UNKNOWN" "unsupported builder syntax"
+                                                    run; expect 2 "a type nested three deep is UNKNOWN" "unsupported syntax"
+setup; echo 'cmd(name)' >> "$up/$p_main";           run; expect 2 "a non-literal builder name is UNKNOWN" "unsupported syntax"
 setup; printf 'opt[Int](\n  "multiline")\n' >> "$up/$p_main"
-                                                    run; expect 2 "a builder name on the next line is UNKNOWN" "unsupported builder syntax"
+                                                    run; expect 2 "a builder name on the next line is UNKNOWN" "unsupported syntax"
+
+setup; echo 'cmd ("spaced")' >> "$up/$p_main";     run; expect 2 "whitespace before the parenthesis is UNKNOWN" "unsupported syntax"
+setup; echo 'opt[Unit] ("spaced")' >> "$up/$p_main"; run; expect 2 "whitespace after the type is UNKNOWN" "unsupported syntax"
+setup; printf 'cmd(\n  "next")\n' >> "$up/$p_main"; run; expect 2 "a line break before the name is UNKNOWN" "unsupported syntax"
+# A look-alike must not pay for an unreadable call: subcmd("x") is not cmd("x").
+setup; printf 'subcmd("x")\ncmd(name)\n' >> "$up/$p_main"; run; expect 2 "subcmd(\"x\") does not make up for cmd(name)" "unsupported syntax"
+setup; printf 'subcmd("x")\n' >> "$up/$p_main";       run; expect 0 "a look-alike helper is not a builder" "unchanged"
+setup; printf 'case object Mid\n  extends Mode\n' >> "$up/$p_opts"; run
+  expect 1 "a case object with extends on the next line is extracted" "enum Mode Mid"
+setup; printf 'case object Mid\n' >> "$up/$p_opts"; run; expect 2 "a case object without extends is UNKNOWN" "unsupported syntax"
+setup; printf 'case  object   Mid   extends   Mode\n' >> "$up/$p_opts"; run
+  expect 1 "case object spelled with extra spaces is extracted" "enum Mode Mid"
 
 setup; export FAKE_BREAK=grep; run; expect 2 "an extractor that fails is UNKNOWN" "grep failed"
 setup; export FAKE_BREAK="sed";          run; expect 2 "an unexpected failure is UNKNOWN, not drift (exit 1)" "UNKNOWN"
