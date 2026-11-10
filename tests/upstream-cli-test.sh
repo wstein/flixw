@@ -171,13 +171,40 @@ setup; export FAKE_BREAK="sort"; run; expect 2 "a failing sort is UNKNOWN" "UNKN
 unset FAKE_BREAK
 
 # The verdict file belongs to one run: made by mktemp, gone afterwards, never ignored on removal.
-leftovers() { [ -z "$(find "$t/w" -name 'verdict*')" ]; }
-setup; run; check "no verdict file is left behind" leftovers
+# A find that fails has not shown that nothing is left.
+leftovers() { l=$(find "$1" -name 'verdict*' 2>/dev/null) || return 1; [ -z "$l" ]; }
+setup; run; check "no verdict file is left behind" leftovers "$t/w"
+find_fails() { ! leftovers "$t/no-such-dir"; }
+check "a find that fails is not 'nothing left'" find_fails
 setup; run; check "the verdict file is made with mktemp" test -s "$t/up/mktemp.log"
 setup; export FAKE_BREAK="mktemp"; run; expect 2 "a verdict file that cannot be made is UNKNOWN" "verdict file"
 setup; export FAKE_BREAK="rm"; run; expect 2 "a verdict file that cannot be removed is UNKNOWN" "cannot remove"
 unset FAKE_BREAK
 # A variable another process left in the environment is not a way past the verdict check.
+# The exit code counts only with the verdict the check recorded for it. Each variant of the
+# script changes one verdict, so that code and verdict disagree or the verdict is missing.
+vrun() { # <sed-expr> <args...>
+  vexpr=$1; shift
+  sed "$vexpr" "$script" > "$t/variant.sh"
+  vsave=$script; script=$t/variant.sh; run "$@"; script=$vsave
+}
+setup; vrun 's/record clean/true/'
+  expect 2 "exit 0 without a verdict is UNKNOWN" "that is not a result"
+setup; vrun 's/record clean/record drift/'
+  expect 2 "exit 0 with the verdict drift is UNKNOWN" "that is not a result"
+setup; vrun 's/record updated/true/' --update
+  expect 2 "exit 0 of an update without a verdict is UNKNOWN" "that is not a result"
+setup; echo 'cmd("build")' >> "$up/$p_main"; vrun 's/record drift/true/'
+  expect 2 "exit 1 without a verdict is UNKNOWN" "that is not a result"
+setup; echo 'cmd("build")' >> "$up/$p_main"; vrun 's/record drift/record clean/'
+  expect 2 "exit 1 with the verdict clean is UNKNOWN" "that is not a result"
+setup; rm "$up/$p_main"; vrun 's/record unknown/true/'
+  expect 2 "exit 2 without a verdict is reported as not a result" "that is not a result"
+setup; rm "$up/$p_main"; vrun 's/record unknown/record clean/'
+  expect 2 "exit 2 with the verdict clean is reported as not a result" "that is not a result"
+setup; rm "$up/$p_main"; run
+  expect 2 "exit 2 with its own verdict is a plain UNKNOWN" "cannot fetch"
+check "...and says nothing about a missing verdict" test -z "$(printf '%s' "$out" | "$real_grep" 'not a result' || true)"
 setup; export FAKE_BREAK="sed" FLIX_UPSTREAM_INNER=1; run
   expect 2 "FLIX_UPSTREAM_INNER in the environment does not skip the verdict check" "UNKNOWN"
 unset FAKE_BREAK FLIX_UPSTREAM_INNER
