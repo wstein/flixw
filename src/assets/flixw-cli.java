@@ -1053,7 +1053,7 @@ final class flixwcli {
         "flix-0.60.0.picocli", "flix-0.67.0.picocli", "flix-0.67.1.picocli",
         "flix-0.68.0.picocli", "flix-0.73.0.picocli", "flix-0.75.2.picocli",
         "flix-0.75.3.picocli", "flix-0.76.0.picocli", "flix-0.76.2.picocli",
-        "flix-0.77.0.picocli", "flix-0.79.0.picocli");
+        "flix-0.77.0.picocli", "flix-0.79.0.picocli", "flix-0.80.0.picocli");
 
     static String specFileForVersion(String version) {
         if (version == null || version.isEmpty()) return null;
