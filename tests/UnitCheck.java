@@ -686,6 +686,17 @@ public final class UnitCheck {
         if (spec080.isPresent()) {
             var check080 = spec080.get().subcommands().get("check").getCommandSpec();
             eq("specs: 0.80.0 exposes Xsve", "true", String.valueOf(check080.findOption("--Xsve") != null));
+            var rootSve080 = spec080.get().findOption("--Xsve");
+            var checkSve080 = check080.findOption("--Xsve");
+            eq("specs: 0.80.0 root exposes Xsve", "true", String.valueOf(rootSve080 != null));
+            if (rootSve080 != null) {
+                eq("specs: 0.80.0 root Xsve takes one value", "1", rootSve080.arity().toString());
+                eq("specs: 0.80.0 root Xsve takes a String", "java.lang.String", rootSve080.type().getName());
+            }
+            if (checkSve080 != null) {
+                eq("specs: 0.80.0 check Xsve takes one value", "1", checkSve080.arity().toString());
+                eq("specs: 0.80.0 check Xsve takes a String", "java.lang.String", checkSve080.type().getName());
+            }
             eq("specs: 0.80.0 removes Xsubeffecting", "true", String.valueOf(check080.findOption("--Xsubeffecting") == null));
             for (String flag : java.util.List.of("--Xbenchmark-code-size", "--Xbenchmark-incremental",
                     "--Xbenchmark-phases", "--Xbenchmark-frontend", "--Xbenchmark-throughput")) {
