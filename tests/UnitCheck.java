@@ -675,6 +675,23 @@ public final class UnitCheck {
            sub079.keySet().toString());
         eq("specs: 0.79.0 eff-check package stays optional", "0..1",
            sub079.get("eff-check").getCommandSpec().positionalParameters().get(0).arity().toString());
+        eq("specs: 0.79.0 retains Xsubeffecting", "true",
+           String.valueOf(sub079.get("check").getCommandSpec().findOption("--Xsubeffecting") != null));
+        eq("specs: 0.79.0 retains benchmark flags", "true",
+           String.valueOf(spec079.get().findOption("--Xbenchmark-code-size") != null));
+        eq("specs: 0.79.0 has no Xsve", "true",
+           String.valueOf(sub079.get("check").getCommandSpec().findOption("--Xsve") == null));
+        var spec080 = flixwcli.loadSpec("0.80.0");
+        eq("specs: 0.80.0 is curated", "true", String.valueOf(spec080.isPresent()));
+        if (spec080.isPresent()) {
+            var check080 = spec080.get().subcommands().get("check").getCommandSpec();
+            eq("specs: 0.80.0 exposes Xsve", "true", String.valueOf(check080.findOption("--Xsve") != null));
+            eq("specs: 0.80.0 removes Xsubeffecting", "true", String.valueOf(check080.findOption("--Xsubeffecting") == null));
+            for (String flag : java.util.List.of("--Xbenchmark-code-size", "--Xbenchmark-incremental",
+                    "--Xbenchmark-phases", "--Xbenchmark-frontend", "--Xbenchmark-throughput")) {
+                eq("specs: 0.80.0 removes " + flag, "true", String.valueOf(spec080.get().findOption(flag) == null));
+            }
+        }
         // BUILTIN_VERBS is what completion offers when no compiler's help could be read, so it
         // must name every command of the newest curated release -- the spec is the one place
         // that already had to be updated by hand when upstream moved.
