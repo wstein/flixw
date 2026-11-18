@@ -380,7 +380,16 @@ sh "$root/tests/license-check.sh" --archives >/dev/null 2>&1 && rc=0 || rc=$?
 chmod 600 "$lc/s/.flixw/LICENSE" && (cd "$lc/s" && tar -czf ../o/flixw-1.0.0.tar.gz .flixw)
 if sh "$root/tests/license-check.sh" --archives "$lc/o" 2>&1 | grep -q 'mode differs'; then :
 else bad "license-check --archives must fail a LICENSE whose mode differs from flixw.java's"; lc_ok=0; fi
-[ "$lc_ok" = 1 ] && say "ok    license-check refuses an empty --archives and a LICENSE with another mode"
+# The text mode accepts the other spellings of the same copy.
+for form in 'cp -- ' 'cp -p ' 'command cp ' '/bin/cp ' 'install -m 644 '; do
+  rm -rf "$lc/t" && mkdir -p "$lc/t/tests" "$lc/t/.github/workflows"
+  cp "$root/LICENSE" "$lc/t/" && cp "$root/.github/workflows/release.yaml" "$lc/t/.github/workflows/"
+  sed "s|^cp \"\$root/LICENSE\" \"\$stage/.flixw/LICENSE\"\$|$form\"\$root/LICENSE\" \"\$stage/.flixw/LICENSE\"|" \
+    "$root/tests/pack.sh" > "$lc/t/tests/pack.sh"
+  sh "$root/tests/license-check.sh" --root "$lc/t" >/dev/null 2>&1 \
+    || { bad "license-check text mode rejects the copy spelled '$form'"; lc_ok=0; }
+done
+[ "$lc_ok" = 1 ] && say "ok    license-check refuses an empty --archives and another mode, accepts cp spellings"
 
 # --- 3c3. the README downloads the release its digest describes --------------
 # The digest check below compares README against local source, which says nothing about
