@@ -10,17 +10,21 @@
 # commit. pack.sh itself needs both (it fetches picocli), so the archive mode is run by
 # hand or after a pack; it compares .flixw/LICENSE in the tarball and in the zip, and the
 # LICENSE asset, with the repository's LICENSE, and wants the asset in SHA256SUMS.
+# shellcheck disable=SC2016  # the patterns are literal script text, not expansions
 set -eu
 
+# shellcheck disable=SC1007  # CDPATH is cleared for this command only
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 archives=
 while [ $# -gt 0 ]; do
   case $1 in
-    --root) root=$(CDPATH= cd -- "$2" && pwd -P); shift 2 ;;
+    --root) root=$2; shift 2 ;;
     --archives) archives=$2; shift 2 ;;
     *) echo "usage: sh tests/license-check.sh [--root <dir>] [--archives <dir>]" >&2; exit 2 ;;
   esac
 done
+# shellcheck disable=SC1007
+root=$(CDPATH= cd -- "$root" && pwd -P)
 
 fail=0
 say() { printf '%s\n' "$*"; }
@@ -86,8 +90,8 @@ if [ -n "$archives" ]; then
     want=$(grep '  LICENSE$' "$archives/SHA256SUMS" | cut -d' ' -f1)
     if command -v sha256sum >/dev/null 2>&1; then got=$(sha256sum "$archives/LICENSE" | cut -d' ' -f1)
     else got=$(shasum -a 256 "$archives/LICENSE" | cut -d' ' -f1); fi
-    [ "$want" = "$got" ] && say "ok    SHA256SUMS covers LICENSE with its digest" \
-      || bad "SHA256SUMS names a different digest for LICENSE"
+    if [ "$want" = "$got" ]; then say "ok    SHA256SUMS covers LICENSE with its digest"
+    else bad "SHA256SUMS names a different digest for LICENSE"; fi
   else
     bad "SHA256SUMS does not list LICENSE"
   fi
