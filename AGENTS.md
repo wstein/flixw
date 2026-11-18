@@ -90,6 +90,29 @@ is a bad moment to discover the docs do not build. `.github/workflows/pages.yaml
 checking the tag against `WRAPPER_VERSION` exactly as the release does: locks in other
 people's repositories already point at the schema URL this serves.
 
+**CI is split into light and heavy jobs.** Durations are from run 43765059941 (PR #61).
+
+| Class | Jobs (workflow) | Starts on | Runner minutes |
+|---|---|---|---|
+| light | `lint`, `schema (taplo)`, `windows smoke` (`ci.yaml`) | every pull request push, push to `main`, dispatch | about 2 |
+| heavy | `test` x3 (ubuntu java 21, macos java 21, ubuntu java 26), `the stage 0 that ships`, `windows suite (Git Bash)`, `suite timing report` (`ci-heavy-jobs.yaml`) | push to `main` and dispatch, via `ci.yaml`; a pull request only via `ci-heavy.yaml` | about 93 |
+
+On a pull request `ci.yaml` shows `heavy` as skipped by its job condition; that is expected.
+`ci-heavy.yaml` starts only when the label `ci-full` is added. The reviewer (or a helper, per
+the owner's standing rule for that one operation) sets it after an independent CLEAR on the
+exact head of the stack tip; no agent sets it otherwise. Its `gate` job refuses the run
+unless a comment of an owner, member or collaborator reads `Review: CLEAR head=<sha>
+patch-id=<hex> pr=<n>` for the current head, the PR number and the patch-id of the PR diff
+(`tests/ci-gate.sh`; a later FINDINGS for the head withdraws it; markdown, CRLF or any other
+shape does not match). A push removes the label and cancels a running heavy run of that PR.
+The matrix is checked out at the reviewed head, not at the merge with the base. The `result`
+job reports `heavy-result:` as passed, failed, skipped (gate refused), deferred (gate did not
+run) or cancelled, and only passed is green; with no label there is no heavy run, which is
+the deferred case. At most one heavy run exists per PR; no repository-wide cap is configured.
+The gate cannot tell author from reviewer, since all comments come from one account.
+`release.yaml` reads `windows suite (Git Bash)` and `windows smoke` from the `ci.yaml` run
+on the tag's commit; the first appears there as `heavy / windows suite (Git Bash)`.
+
 Before a commit, run the fast local gate:
 
 ```sh
