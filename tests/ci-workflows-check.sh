@@ -86,22 +86,26 @@ check() {
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          BEFORE: ${{ github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
           if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
-            if ! gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent; then
-              if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
-                echo "could not remove ci-full from #$PR" >&2; exit 1
-              fi
+            if gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent; then
+              echo "removed ci-full from #$PR"
+            elif gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
+              echo "::warning::could not remove ci-full from #$PR; the gate still refuses a head without its own CLEAR"
+            else
+              echo "ci-full on #$PR was removed meanwhile"
             fi
-            echo "removed ci-full from #$PR"
           fi
-          gh api "repos/$GH_REPO/actions/workflows/ci-heavy.yaml/runs?event=pull_request&head_sha=$BEFORE&per_page=50" \
-            --jq ".workflow_runs[] | select(.status != \"completed\") | select(any(.pull_requests[]; .number == $PR)) | .id" \
-            | while read -r id; do
-                if gh run cancel "$id"; then echo "cancelled run $id"; else echo "could not cancel run $id (finished meanwhile?)"; fi
-              done
+          if ids=$(gh api "repos/$GH_REPO/actions/workflows/ci-heavy.yaml/runs?event=pull_request&per_page=100" \
+            --jq ".workflow_runs[] | select(.status != \"completed\" and .head_sha != \"$HEAD\") | select(any(.pull_requests[]; .number == $PR)) | .id"); then
+            for id in $ids; do
+              if gh run cancel "$id"; then echo "cancelled run $id"; else echo "could not cancel run $id (finished meanwhile?)"; fi
+            done
+          else
+            echo "::warning::could not list the heavy runs of #$PR; older runs are not cancelled"
+          fi
 BLOCK
   exactb ci-heavy.yaml gate <<'BLOCK'
   gate:

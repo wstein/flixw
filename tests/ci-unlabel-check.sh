@@ -35,21 +35,24 @@ case "$1 $2" in
   "api -X") [ "${STUB_DELETE_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
   "run cancel") [ "$3" = "${STUB_CANCEL_FAIL:-none}" ] && exit 1; exit 0 ;;
   api*)
+    [ "${STUB_LIST_FAIL:-0}" = 1 ] && { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
     while [ $# -gt 0 ] && [ "$1" != --jq ]; do shift; done
     jq -r "$2" "$STUB_JSON" ;;
 esac
 STUB
 chmod +x "$work/bin/gh"
 
-# runs: 1 in progress for PR 7, 2 completed for PR 7, 3 in progress with no PR (a fork),
-# 4 queued for PR 99, 5 queued for PR 7
+# the head of the push is "new". Runs: 1 in progress for PR 7 (an older head), 2 completed for
+# PR 7, 3 in progress with no PR (a fork), 4 queued for PR 99, 5 queued for PR 7 (an
+# intermediate head), 6 in progress for PR 7 on the head of the push
 cat > "$work/runs.json" <<'JSON'
 {"workflow_runs":[
- {"id":1,"status":"in_progress","pull_requests":[{"number":7}]},
- {"id":2,"status":"completed","pull_requests":[{"number":7}]},
- {"id":3,"status":"in_progress","pull_requests":[]},
- {"id":4,"status":"queued","pull_requests":[{"number":99}]},
- {"id":5,"status":"queued","pull_requests":[{"number":7}]}]}
+ {"id":1,"status":"in_progress","head_sha":"old1","pull_requests":[{"number":7}]},
+ {"id":2,"status":"completed","head_sha":"old1","pull_requests":[{"number":7}]},
+ {"id":3,"status":"in_progress","head_sha":"old1","pull_requests":[]},
+ {"id":4,"status":"queued","head_sha":"old1","pull_requests":[{"number":99}]},
+ {"id":5,"status":"queued","head_sha":"old2","pull_requests":[{"number":7}]},
+ {"id":6,"status":"in_progress","head_sha":"new","pull_requests":[{"number":7}]}]}
 JSON
 echo '{"workflow_runs":[]}' > "$work/none.json"
 
@@ -60,7 +63,7 @@ run_step() {
   shift 3
   : > "$work/log"
   rc=0
-  PATH="$work/bin:$PATH" STUB_LOG="$work/log" GH_REPO=o/r PR=7 BEFORE=abc \
+  PATH="$work/bin:$PATH" STUB_LOG="$work/log" GH_REPO=o/r PR=7 HEAD=new \
     sh "$script" > "$work/out" 2>&1 || rc=$?
   ok=1
   [ "$rc" = "$want" ] || ok=0
@@ -85,9 +88,9 @@ run_all() {
   export STUB_JSON="$work/runs.json" STUB_LABELS_AFTER=''
   STUB_LABELS='ci-full
 other
-' t run_step "$s" 'label removed, only live runs of this PR cancelled' 0 \
+' t run_step "$s" 'label removed, only unfinished runs of this PR for other heads cancelled' 0 \
     'api -X DELETE repos/o/r/issues/7/labels/ci-full' 'gh run cancel 1' 'gh run cancel 5' \
-    -- 'gh run cancel 2' 'gh run cancel 3' 'gh run cancel 4'
+    -- 'gh run cancel 2' 'gh run cancel 3' 'gh run cancel 4' 'gh run cancel 6'
   STUB_LABELS='other
 ' t run_step "$s" 'no label, no removal, runs still cancelled' 0 'gh run cancel 1' -- 'api -X DELETE'
   STUB_LABELS='' STUB_JSON="$work/none.json" t run_step "$s" 'nothing to cancel' 0 -- 'gh run cancel'
@@ -95,16 +98,19 @@ other
 ' STUB_CANCEL_FAIL=1 t run_step "$s" 'a failed cancel does not fail the step' 0 \
     'could not cancel run 1' 'gh run cancel 5' 'cancelled run 5'
   STUB_LABELS='ci-full
-' STUB_DELETE_FAIL=1 STUB_LABELS_AFTER='' t run_step "$s" 'label gone meanwhile is fine' 0 'removed ci-full'
+' STUB_DELETE_FAIL=1 STUB_LABELS_AFTER='' t run_step "$s" 'label gone meanwhile is fine' 0 'removed meanwhile'
   STUB_LABELS='ci-full
 ' STUB_DELETE_FAIL=1 STUB_LABELS_AFTER='ci-full
-' t run_step "$s" 'a label that cannot be removed fails the step' 1 'could not remove ci-full'
+' t run_step "$s" 'a label that cannot be removed is a warning' 0 '::warning::could not remove ci-full' 'gh run cancel 1'
+  STUB_LABELS='ci-full
+' STUB_LIST_FAIL=1 t run_step "$s" 'a failed listing is a warning' 0 '::warning::could not list the heavy runs' \
+    'removed ci-full' -- 'gh run cancel'
   return "$bad"
 }
 
 extract "$root/.github/workflows/ci.yaml" > "$work/step.sh"
 [ -s "$work/step.sh" ] || { echo "FAIL  ci-unlabel-check: no run block found for job unlabel"; exit 1; }
-total=6
+total=7
 fails=$(run_all "$work/step.sh") && nfail=0 || nfail=$?
 if [ "$nfail" != 0 ]; then
   printf '%s\n' "$fails"
@@ -133,9 +139,13 @@ while IFS='~' read -r label expr; do
 done <<'MUTANTS'
 cancel failure ends the loop with its status~s/; else echo "could not cancel run \$id (finished meanwhile?)"; fi/; fi; false/
 cancel of every listed run, whatever its PR~s/select(any(.pull_requests\[\]; .number == \$PR))/select(true)/
-completed runs cancelled too~s/select(.status != \\"completed\\")/select(true)/
-no label removal~s/gh api -X DELETE/true/
-label that stays is not reported~s/exit 1/true/
+completed runs cancelled too~s/\.status != \\"completed\\" and //
+the run of the pushed head cancelled too~s/ and \.head_sha != \\"\$HEAD\\"//
+no label removal~s/gh api -X DELETE/false/
+label removal failure fails the step~s/without its own CLEAR"/&; exit 1/
+label removal warning dropped~s/::warning::could not remove/could not remove/
+listing failure fails the step~s/older runs are not cancelled"/&; exit 1/
+listing warning dropped~s/::warning::could not list/could not list/
 MUTANTS
 if [ "$survived" != 0 ]; then
   printf 'FAIL  unlabel step: %s of %s mutants not caught\n' "$survived" "$mut"
