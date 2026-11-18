@@ -6,8 +6,9 @@
 #
 # There is no YAML parser here. Each file is read line by line after the same normalisation
 # tests/lint.sh uses for ci.yaml (comment cut, quotes and all whitespace removed), and a job
-# is the run of lines from its `  <id>:` key to the next one. What is pinned is whole lines
-# and whole blocks, so that a changed condition, a dropped argument or a renamed job fails
+# is the run of lines from its `  <id>:` key to the next one. What is pinned is whole lines,
+# the whole block of every job that writes or decides (unlabel, gate, heavy, result), and the
+# list of control keys of every job in the three files, so that a changed condition, a dropped argument or a renamed job fails
 # here rather than in a heavy run nobody was meant to start:
 #   ci.yaml           lint, schema, unlabel, heavy, windows; `heavy` is skipped on a pull request
 #   ci-heavy-jobs.yaml  the suite jobs, on workflow_call only, each checkout at `inputs.ref`
@@ -41,6 +42,11 @@ check() {
     want=$(printf '%s\n' "$3" | norm)
     blk "$d/$1" "$2" | grep -qxF -- "$want" || bad "$1 job $2 lacks the line: $3"
   }
+  # exactb <file> <job>: the job is exactly the block on stdin (comments and spacing aside)
+  exactb() {
+    want=$(grep -v '^[[:space:]]*#' | norm | grep -v '^$')
+    [ "$(blk "$d/$1" "$2")" = "$want" ] || bad "$1 job $2 is not the pinned block"
+  }
   # exact <file> <job> <literal line>...: the job is exactly these lines
   exact() {
     f=$1 j=$2
@@ -62,12 +68,177 @@ check() {
   need ci.yaml unlabel "if: github.event.action == 'synchronize' && github.event.pull_request.head.repo.full_name == github.repository"
   need ci.yaml unlabel 'pull-requests: write'
   need ci.yaml unlabel 'actions: write'
-  need ci.yaml unlabel 'gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent'
   need ci.yaml unlabel "if gh pr view \"\$PR\" --json labels --jq '.labels[].name' | grep -qx ci-full; then"
-  need ci.yaml unlabel 'gh run list -w ci-heavy.yaml -b "$BRANCH" -L 50 --json databaseId,status,headSha \'
-  need ci.yaml unlabel '| while read -r id; do gh run cancel "$id" && echo "cancelled run $id"; done'
-  need ci.yaml unlabel '--jq ".[] | select(.status != \"completed\" and .headSha != \"$HEAD\") | .databaseId" \'
   if grep -Eq '^[[:space:]]*types:' "$d/ci.yaml"; then bad "ci.yaml must keep the default pull_request types"; fi
+
+  # Whole blocks of the jobs that hold a write permission or decide the gate
+  exactb ci.yaml unlabel <<'BLOCK'
+  unlabel:
+    name: revoke ci-full after a push
+    if: github.event.action == 'synchronize' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      actions: write
+    steps:
+      - name: remove the label, cancel older heavy runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
+            if ! gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent; then
+              if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
+                echo "could not remove ci-full from #$PR" >&2; exit 1
+              fi
+            fi
+            echo "removed ci-full from #$PR"
+          fi
+          gh api "repos/$GH_REPO/actions/workflows/ci-heavy.yaml/runs?event=pull_request&head_sha=$BEFORE&per_page=50" \
+            --jq ".workflow_runs[] | select(.status != \"completed\") | select(any(.pull_requests[]; .number == $PR)) | .id" \
+            | while read -r id; do
+                if gh run cancel "$id"; then echo "cancelled run $id"; else echo "could not cancel run $id (finished meanwhile?)"; fi
+              done
+BLOCK
+  exactb ci-heavy.yaml gate <<'BLOCK'
+  gate:
+    name: gate (CLEAR for this head)
+    if: github.event.label.name == 'ci-full'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: tests/ci-gate.sh
+          sparse-checkout-cone-mode: false
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+      - name: the gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          current=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
+          git -C pr fetch --no-tags origin "+refs/heads/$DEFAULT:refs/remotes/origin/$DEFAULT"
+          pid=$(git -C pr diff "origin/$DEFAULT...$HEAD" | sh trusted/tests/ci-gate.sh patch-id)
+          gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
+            --jq '.[] | "\(.author_association) \(.body | split("\n")[0])"' > records
+          echo "tested head $HEAD, current head $current, patch-id $pid"
+          sh trusted/tests/ci-gate.sh gate --head "$HEAD" --pr "$PR" --patch-id "$pid" \
+            --current-head "$current" records
+BLOCK
+  exactb ci-heavy.yaml result <<'BLOCK'
+  result:
+    name: heavy-result
+    if: ${{ !cancelled() && github.event.label.name == 'ci-full' }}
+    needs: [gate, heavy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: tests/ci-gate.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: verdict
+        env:
+          GATE: ${{ needs.gate.result }}
+          HEAVY: ${{ needs.heavy.result }}
+        run: |
+          verdict=$(sh tests/ci-gate.sh result "$GATE" "$HEAVY") && rc=0 || rc=$?
+          echo "$verdict"
+          echo "$verdict (head ${{ github.event.pull_request.head.sha }})" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+BLOCK
+
+  # Every control key of every job: conditions, needs, permissions, actions, runners and
+  # continue-on-error, as `job|line`. A new or changed one fails here, wherever it sits.
+  ctl_inv() { awk '/^  [a-z][a-z-]*:[ \t]*$/ {job=$1} /^[ \t]*(- )?(if|continue-on-error|needs|uses|runs-on|timeout-minutes|permissions|contents|actions|issues|pull-requests|id-token|packages|fail-fast):/ {print job "|" $0}' "$1" | norm; }
+  [ "$(ctl_inv "$d/ci.yaml")" = "$(cat <<'INV'
+push:|permissions:
+push:|contents:read
+lint:|runs-on:ubuntu-latest
+lint:|-uses:actions/checkout@v7
+lint:|-uses:actions/setup-java@v6
+schema:|runs-on:ubuntu-latest
+schema:|-uses:actions/checkout@v7
+unlabel:|if:github.event.action==synchronize&&github.event.pull_request.head.repo.full_name==github.repository
+unlabel:|runs-on:ubuntu-latest
+unlabel:|permissions:
+unlabel:|pull-requests:write
+unlabel:|actions:write
+heavy:|if:github.event_name!=pull_request
+heavy:|uses:./.github/workflows/ci-heavy-jobs.yaml
+windows:|runs-on:windows-latest
+windows:|-uses:actions/checkout@v7
+windows:|-uses:actions/setup-java@v6
+INV
+)" ] || bad "ci.yaml: a control key (if, needs, permissions, uses, runs-on, continue-on-error) differs from the pinned list"
+  [ "$(ctl_inv "$d/ci-heavy-jobs.yaml")" = "$(cat <<'INV'
+|permissions:
+|contents:read
+test:|runs-on:${{matrix.os}}
+test:|fail-fast:false
+test:|-uses:actions/checkout@v7
+test:|-uses:actions/setup-java@v6
+test:|-uses:actions/cache@v6
+test:|-uses:actions/upload-artifact@v7
+test:|if:always()
+shipped:|runs-on:ubuntu-latest
+shipped:|-uses:actions/checkout@v7
+shipped:|-uses:actions/setup-java@v6
+shipped:|-uses:actions/cache@v6
+shipped:|-uses:actions/upload-artifact@v7
+shipped:|if:always()
+windows-suite:|runs-on:windows-latest
+windows-suite:|-uses:actions/checkout@v7
+windows-suite:|-uses:actions/setup-java@v6
+windows-suite:|-uses:actions/upload-artifact@v7
+windows-suite:|if:always()
+suite-timing:|if:always()
+suite-timing:|needs:[test,shipped,windows-suite]
+suite-timing:|runs-on:ubuntu-latest
+suite-timing:|-uses:actions/checkout@v7
+suite-timing:|-uses:actions/download-artifact@v8
+suite-timing:|-uses:actions/upload-artifact@v7
+suite-timing:|if:always()
+INV
+)" ] || bad "ci-heavy-jobs.yaml: a control key (if, needs, permissions, uses, runs-on, continue-on-error) differs from the pinned list"
+  [ "$(ctl_inv "$d/ci-heavy.yaml")" = "$(cat <<'INV'
+|permissions:
+|contents:read
+gate:|if:github.event.label.name==ci-full
+gate:|runs-on:ubuntu-latest
+gate:|permissions:
+gate:|contents:read
+gate:|issues:read
+gate:|pull-requests:read
+gate:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+gate:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+heavy:|needs:gate
+heavy:|uses:./.github/workflows/ci-heavy-jobs.yaml
+result:|if:${{!cancelled()&&github.event.label.name==ci-full}}
+result:|needs:[gate,heavy]
+result:|runs-on:ubuntu-latest
+result:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+INV
+)" ] || bad "ci-heavy.yaml: a control key (if, needs, permissions, uses, runs-on, continue-on-error) differs from the pinned list"
 
   # ci-heavy-jobs.yaml: callable only, at the commit it is given, one test version
   if ! top "$d/ci-heavy-jobs.yaml" on | grep -qx 'workflow_call:' \
@@ -179,12 +350,17 @@ M10 pull_request_target~ci-heavy.yaml~s/^  pull_request:$/  pull_request_target:
 M11 any label cancels the matrix~ci-heavy.yaml~s/ != 'ci-full' \&\& format/ == 'ci-full' \&\& format/~concurrency
 M12 action unpinned~ci-heavy.yaml~s/actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1/actions\/checkout@v7/~not pinned to a commit
 M13 heavy skipped on push to main~ci.yaml~s/github.event_name != 'pull_request'/github.event_name == 'push'/~job heavy is not the pinned block
-M14 unlabel drops the label removal~ci.yaml~s/labels\/ci-full" --silent/labels\/other" --silent/~job unlabel lacks the line
+M14 unlabel drops the label removal~ci.yaml~s/labels\/ci-full" --silent/labels\/other" --silent/~job unlabel is not the pinned block
 M15 ref not passed to a checkout~ci-heavy-jobs.yaml~0,/ref: \${{ inputs.ref }}/s//ref: x/~every checkout
 M16 test version differs~ci-heavy-jobs.yaml~s/FLIXW_TEST_VERSION: "0/FLIXW_TEST_VERSION: "1/~FLIXW_TEST_VERSION
 M17 release prefix strip dropped~release.yaml~s/ | sed 's|^heavy \/ ||'//~cut the 'heavy / ' prefix
 M18 Windows suite renamed~ci-heavy-jobs.yaml~s/name: windows suite (Git Bash)/name: windows suite/~do not agree on the CI job
 M19 heavy jobs gain a push trigger~ci-heavy-jobs.yaml~s/^  workflow_call:/  push:\n  workflow_call:/~workflow_call only
+M20 continue-on-error on the gate step~ci-heavy.yaml~s/^      - name: the gate$/&\n        continue-on-error: true/~is not the pinned block
+M21 extra write permission in unlabel~ci.yaml~s/^      actions: write$/&\n      contents: write/~is not the pinned block
+M22 extra cancel of every run in unlabel~ci.yaml~s/^          set -eu$/&\n          gh run cancel 1/~is not the pinned block
+M23 continue-on-error on a suite job~ci-heavy-jobs.yaml~s/^    name: the stage 0 that ships$/&\n    continue-on-error: true/~a control key
+M24 id-token write on the verdict job~ci-heavy.yaml~s/^    name: heavy-result$/&\n    permissions:\n      id-token: write/~a control key
 MUTANTS
 if [ "$survived" != 0 ]; then
   printf 'FAIL  ci workflows: %s of %s mutants not caught\n' "$survived" "$mut"

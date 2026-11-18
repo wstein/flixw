@@ -312,9 +312,10 @@ fi
 
 # --- 3c2b. the heavy CI matrix runs on a pull request only through the gate -
 # tests/ci-workflows-check.sh pins the light/heavy split of the workflow files and
-# tests/ci-gate-check.sh the fixtures of the gate script; both have opt-in mutation runs.
+# tests/ci-gate-check.sh the fixtures of the gate script, tests/ci-unlabel-check.sh the push
+# step of ci.yaml against a stub gh; each has an opt-in mutation run.
 heavy_ok=1
-for t in ci-workflows-check ci-gate-check; do
+for t in ci-workflows-check ci-gate-check ci-unlabel-check; do
   if sh "$root/tests/$t.sh" > "$work/$t.out" 2>&1; then
     sed 's/^/      /' "$work/$t.out"
   else
