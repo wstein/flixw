@@ -720,5 +720,6 @@ than a test, and needs `gh`, `curl` and python3. See
 Apache-2.0. See [LICENSE](LICENSE). These files are meant to be committed into other
 people's repositories; the license permits that, provided the license text accompanies
 redistributed copies (section 4). Releases up to v0.34.9 were published under MIT.
+Apache-2.0 applies from the first release after v0.34.9.
 Third-party components keep their own licenses; see
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
