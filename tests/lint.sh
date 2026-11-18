@@ -363,6 +363,24 @@ else
   sed 's/^/      /' "$work/license-check.out"
   bad "tests/license-check.sh fails"
 fi
+# The archive mode of that script, against hand-built output: it must refuse a missing or
+# empty --archives value (rc 2, not a silent skip) and a LICENSE whose mode differs from
+# its neighbours' (a chmod after the cp survives every byte comparison).
+lc=$work/license-fixture
+rm -rf "$lc" && mkdir -p "$lc/s/.flixw" "$lc/o"
+cp "$root/LICENSE" "$lc/s/.flixw/LICENSE" && cp "$root/LICENSE" "$lc/o/LICENSE"
+: > "$lc/s/.flixw/flixw.java" && chmod 644 "$lc/s/.flixw/flixw.java" "$lc/s/.flixw/LICENSE"
+(cd "$lc/s" && tar -czf ../o/flixw-1.0.0.tar.gz .flixw)
+(cd "$lc/o" && $sum LICENSE > SHA256SUMS)
+lc_ok=1
+sh "$root/tests/license-check.sh" --archives "" >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 2 ] || { bad "license-check --archives \"\" must exit 2, got $rc"; lc_ok=0; }
+sh "$root/tests/license-check.sh" --archives >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 2 ] || { bad "license-check --archives without a value must exit 2, got $rc"; lc_ok=0; }
+chmod 600 "$lc/s/.flixw/LICENSE" && (cd "$lc/s" && tar -czf ../o/flixw-1.0.0.tar.gz .flixw)
+if sh "$root/tests/license-check.sh" --archives "$lc/o" 2>&1 | grep -q 'mode differs'; then :
+else bad "license-check --archives must fail a LICENSE whose mode differs from flixw.java's"; lc_ok=0; fi
+[ "$lc_ok" = 1 ] && say "ok    license-check refuses an empty --archives and a LICENSE with another mode"
 
 # --- 3c3. the README downloads the release its digest describes --------------
 # The digest check below compares README against local source, which says nothing about
