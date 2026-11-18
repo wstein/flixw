@@ -23,6 +23,11 @@ flixw.cmd                    cmd.exe shim
 flix.jar                     for the VS Code Flix extension; NOT committed, see below
 ```
 
+One more file exists on one route only: the release archives (below) also carry
+`.flixw/LICENSE`, the license of the release, beside `.flixw/flixw.java`. `install` does not
+write it, so a project installed from an archive has a file that an installed one lacks, and
+`git add .flixw` there commits it.
+
 The installer also merges a marked block into `.gitattributes` — the seventh file, and the
 only one flixw shares rather than owns — preserving unrelated rules. The block pins the
 line endings of all six shipped files and marks the three that carry code — `flixw`,
@@ -56,9 +61,11 @@ a compiler, and discards every failure doing so — a note whose absence costs o
 startup optimisation is not worth a diagnostic, still less a failed build.
 
 **Installing from an archive.** A release also ships `flixw-<version>.tar.gz` and
-`flixw-<version>.zip`, whose contents are byte-identical to what `install` writes and are
-extracted at a project root. They carry the five invariant files and nothing else: the lock is yours to
-generate, and `.gitattributes` is omitted because `install` *merges* its block into
+`flixw-<version>.zip`, extracted at a project root. Their contents are byte-identical to what
+`install` writes, plus one file `install` does not write: `.flixw/LICENSE`, the license of
+the release (Apache-2.0 section 4(a)), kept inside `.flixw/` so that extraction does not
+replace the project's own `LICENSE`. They carry the five invariant files, that license and
+nothing else: the lock is yours to generate, and `.gitattributes` is omitted because `install` *merges* its block into
 whatever the project already has, while an archive can only overwrite. `./flixw doctor --fix` performs that merge afterwards, and
 `./flixw validate` reports the block as missing if it was skipped. The executable bit on
 `flixw` is carried by both archive formats.

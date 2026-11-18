@@ -56,8 +56,9 @@ cd /tmp/proj && ./flixw pin 0.75.3         # writes .flixw/lock.toml; downloads 
 ```
 
 A release ships the same three files as two archives plus `flixw.java`; `sh tests/pack.sh
-<dir>` builds them by running `install` into a staging directory and packing the result, so
-the archive route cannot drift from the install route. `.github/workflows/release.yaml`
+<dir>` builds them by running `install` into a staging directory, adding `.flixw/LICENSE`
+(the one file `install` does not write) and packing the result, so the archive route differs
+from the install route by that file only. `.github/workflows/release.yaml`
 runs it on a `v*` tag and refuses to publish if the tag and `WRAPPER_VERSION` disagree.
 
 **Publishing and verifying are two separate jobs, because the regression suite is a ~30
