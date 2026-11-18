@@ -94,24 +94,30 @@ people's repositories already point at the schema URL this serves.
 
 | Class | Jobs (workflow) | Starts on | Runner minutes |
 |---|---|---|---|
-| light | `lint`, `schema (taplo)`, `windows smoke` (`ci.yaml`) | every pull request push, push to `main`, dispatch | about 2 |
-| heavy | `test` x3 (ubuntu java 21, macos java 21, ubuntu java 26), `the stage 0 that ships`, `windows suite (Git Bash)`, `suite timing report` (`ci-heavy-jobs.yaml`) | push to `main` and dispatch, via `ci.yaml`; a pull request only via `ci-heavy.yaml` | about 93 |
+| light | `lint`, `schema (taplo)`, `windows smoke` (workflow `CI`, `ci.yaml`) | every pull request push, push to `main`, dispatch | about 2 |
+| heavy | `test` x3 (ubuntu java 21, macos java 21, ubuntu java 26), `the stage 0 that ships`, `windows suite (Git Bash)`, `suite timing report` (`ci-heavy-jobs.yaml`) | push to `main` and dispatch, via `ci.yaml`; a pull request only via workflow `CI heavy` (`ci-heavy.yaml`) | about 93 |
 
-On a pull request `ci.yaml` shows `heavy` as skipped by its job condition; that is expected.
-`ci-heavy.yaml` starts only when the label `ci-full` is added. The reviewer (or a helper, per
-the owner's standing rule for that one operation) sets it after an independent CLEAR on the
-exact head of the stack tip; no agent sets it otherwise. Its `gate` job refuses the run
-unless a comment of an owner, member or collaborator reads `Review: CLEAR head=<sha>
-patch-id=<hex> pr=<n>` for the current head, the PR number and the patch-id of the PR diff
-(`tests/ci-gate.sh`; a later FINDINGS for the head withdraws it; markdown, CRLF or any other
-shape does not match). A push removes the label and cancels a running heavy run of that PR.
-The matrix is checked out at the reviewed head, not at the merge with the base. The `result`
-job reports `heavy-result:` as passed, failed, skipped (gate refused), deferred (gate did not
-run) or cancelled, and only passed is green; with no label there is no heavy run, which is
-the deferred case. At most one heavy run exists per PR; no repository-wide cap is configured.
-The gate cannot tell author from reviewer, since all comments come from one account.
-`release.yaml` reads `windows suite (Git Bash)` and `windows smoke` from the `ci.yaml` run
-on the tag's commit; the first appears there as `heavy / windows suite (Git Bash)`.
+Light means the workflow `CI`; its `heavy` job is skipped by its condition on a pull request, which
+is expected. `CI heavy` is the heavy lane and is read only through its job `heavy-result`, per
+head: passed, failed, skipped (gate refused), deferred (gate did not run) or cancelled, and only
+passed is green. It starts on a `labeled` event, so every label added to a pull request creates a
+run of it, whose jobs are skipped unless the label is `ci-full`; a push or a draft creates none.
+The reviewer (or a helper, per the owner's standing rule for that one operation) sets `ci-full`
+after an independent CLEAR on the exact head of the stack tip. Its `gate` job refuses the run
+unless the newest `Review:` or `Carried-over:` line of the PR, from an owner, member or
+collaborator, is a CLEAR for the current head and the PR number, carries the patch-id of the
+diff against the default branch (cumulative at a stack tip), and no FINDINGS followed it
+(`tests/ci-gate.sh`; markdown, CRLF or any other shape does not match). The matrix is checked
+out at the reviewed head, not at the merge with the base. A push removes the label and cancels a
+heavy run of an older head (job `unlabel` in `ci.yaml`; for a fork PR the label stays and the
+gate refuses the new head). There is one heavy run per PR at a time and no repository-wide cap.
+The gate cannot tell author from reviewer, since all comments come from one account, and it is
+a process guard: a pull request runs its own copy of the workflow files, so an author with write
+access can change the gate, and the person who sets the label decides.
+`release.yaml` reads `windows suite (Git Bash)` and `windows smoke` from the `ci.yaml` run on the
+tag's commit; the first appears there as `heavy / windows suite (Git Bash)`.
+`sh tests/ci-workflows-check.sh` and `sh tests/ci-gate-check.sh` (run by `tests/lint.sh`) pin
+this; `--mutations` runs their opt-in mutants.
 
 Before a commit, run the fast local gate:
 
