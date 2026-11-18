@@ -121,11 +121,15 @@ jobs:
           if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
             if gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent; then
               echo "removed ci-full from #$PR"
-            elif gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
-              # A stale label authorizes nothing: the gate needs a CLEAR for the new head.
-              echo "::warning::could not remove ci-full from #$PR; the gate still refuses a head without its own CLEAR"
+            elif now=$(gh pr view "$PR" --json labels --jq '.labels[].name'); then
+              if printf '%s\n' "$now" | grep -qx ci-full; then
+                # A stale label authorizes nothing: the gate needs a CLEAR for the new head.
+                echo "::warning::could not remove ci-full from #$PR; the gate still refuses a head without its own CLEAR"
+              else
+                echo "ci-full on #$PR was removed meanwhile"
+              fi
             else
-              echo "ci-full on #$PR was removed meanwhile"
+              echo "::warning::could not remove ci-full from #$PR and could not re-read its labels; the gate still refuses a head without its own CLEAR"
             fi
           fi
           # Every unfinished heavy run of this PR for another head than this one, found by
