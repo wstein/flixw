@@ -77,7 +77,15 @@ matrix() {
     awk -F "$tab" -v l="$1" -v c="$2" '$0 !~ /^#/ && $1 == l { print $c }' "$m_hist/PROVENANCE.tsv"
   }
 
-  labels=$(awk -F "$tab" '$0 !~ /^#/ { print $1 }' "$m_hist/PROVENANCE.tsv")
+  labels=$(awk -F "$tab" '$0 !~ /^#/ && $1 != "LICENSE.md" { print $1 }' "$m_hist/PROVENANCE.tsv")
+
+  # 0. The licence text that travels with the third-party files (Apache-2.0 section 4(a)).
+  lic=$m_hist/LICENSE.md
+  if [ -f "$lic" ] && [ "$($sum "$lic" | cut -d' ' -f1)" = "$(field LICENSE.md 5)" ]; then
+    mok "LICENSE.md matches PROVENANCE"
+  else
+    mbad "LICENSE.md is missing or differs from PROVENANCE"
+  fi
 
   # 1. The inputs are what PROVENANCE says they are, and the issue's counts are the ones recorded.
   seq=
@@ -116,9 +124,10 @@ matrix() {
   done
 
   # 3. Neighbouring revisions: exit code, exact changes, and the class of the pair.
-  while IFS="$tab" read -r from to want_rc class changes; do
+  while IFS="$tab" read -r from to want_rc class changes marker; do
     case $from in '#'*|'') continue ;; esac
     fc=$(field "$from" 2); tc=$(field "$to" 2)
+    if [ -z "$fc" ] || [ -z "$tc" ]; then mbad "$from -> $to: a label is not in PROVENANCE.tsv"; continue; fi
     mrun "$m_w/fp.none" --from "$fc" --to "$tc"
     got=$(printf '%s\n' "$mout" | "$m_grep" -E '^[-+]' | LC_ALL=C sort | paste -sd'|' -)
     [ -n "$got" ] || got=-
@@ -132,7 +141,14 @@ matrix() {
     same_opts=no; [ "$fo" != "$to_" ] || same_opts=yes
     case $class in
       identical) [ "$same_main:$same_opts" = yes:yes ] || why="$why sources differ" ;;
-      blind)     [ "$same_main:$same_opts" != yes:yes ] || why="$why sources are identical" ;;
+      blind)     [ "$same_main:$same_opts" != yes:yes ] || why="$why sources are identical"
+                 # The change that makes the pair blind, quoted from the fixture diff: present in
+                 # the newer Main.scala, absent from the older one.
+                 if [ "$marker" = - ] || [ -z "$marker" ]; then why="$why no marker"
+                 elif ! "$m_grep" -Fq -- "$marker" "$m_hist/$tc/Main.scala" \
+                      || "$m_grep" -Fq -- "$marker" "$m_hist/$fc/Main.scala"; then
+                   why="$why marker '$marker' is not what separates the sources"
+                 fi ;;
       detected)  [ "$want_rc" = 1 ] || why="$why class detected without exit 1" ;;
       *)         why="$why unknown class $class" ;;
     esac
@@ -250,6 +266,35 @@ sabotage "master declared blind" "v0.79.0 -> master-preview" "$script" "$d"
 d=$(mutant_hist)
 sed "s/^\(v0.76.1${tab}[0-9a-f]*${tab}\)56/\157/" "$d/PROVENANCE.tsv" > "$d/x"; mv "$d/x" "$d/PROVENANCE.tsv"
 sabotage "recorded count of 0.76.1 is 57" "recorded entry counts" "$script" "$d"
+
+cof() { "$m_grep" -E "^$1$tab" "$hist/PROVENANCE.tsv" | cut -f2; }
+# A fixture changed in a way the detector cannot see (a comment): only the digest check can fail.
+d=$(mutant_hist); c=$(cof v0.75.0)
+printf '// edited\n' >> "$d/$c/Main.scala"; redigest "$d/$c"
+sabotage "0.75.0 fixture edited, surface unchanged" "v0.75.0 fixture digests differ" "$script" "$d"
+# A second eff-check entry in 0.77.0, and a second Xperf entry in master.
+d=$(mutant_hist); c=$(cof v0.77.0)
+printf 'cmd("eff-check-more")\n' >> "$d/$c/Main.scala"; redigest "$d/$c"
+sabotage "0.77.0 fixture with a second eff-check entry" "v0.77.0: eff-check has" "$script" "$d"
+d=$(mutant_hist); c=$(cof master-preview)
+printf 'opt[Unit]("Xperfx")\n' >> "$d/$c/Main.scala"; redigest "$d/$c"
+sabotage "master fixture with a second Xperf entry" "master: Xperf should be one entry" "$script" "$d"
+# A SveMode enum member in Options.scala: the enum would no longer live outside it.
+d=$(mutant_hist); c=$(cof master-preview)
+printf 'case object PerEquation extends SveMode\n' >> "$d/$c/Options.scala"; redigest "$d/$c"
+sabotage "master fixture with a SveMode enum entry" "master: expected opt SveMode" "$script" "$d"
+# 0.79.0 without the text that tells it from 0.78.0 (bytes still differ).
+d=$(mutant_hist); c=$(cof v0.79.0)
+sed 's/Defaults to every dependency of the project/Defaults to all/' "$d/$c/Main.scala" > "$d/x"; mv "$d/x" "$d/$c/Main.scala"; redigest "$d/$c"
+sabotage "0.79.0 fixture without its marker text" "v0.78.0 -> v0.79.0 (blind)" "$script" "$d"
+# A transition naming a revision that is not recorded.
+d=$(mutant_hist)
+printf 'v0.75.0\tv9.9.9\t0\tblind\t-\tx\n' >> "$d/transitions.tsv"
+sabotage "transition with an unknown label" "v0.75.0 -> v9.9.9: a label is not in PROVENANCE.tsv" "$script" "$d"
+# The licence text is altered.
+d=$(mutant_hist)
+printf 'x\n' >> "$d/LICENSE.md"
+sabotage "LICENSE.md altered" "LICENSE.md is missing or differs" "$script" "$d"
 
 echo
 echo "upstream-cli-matrix: $pass passed, $failed failed"
