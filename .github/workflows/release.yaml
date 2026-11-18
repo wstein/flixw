@@ -227,7 +227,9 @@ jobs:
           [ "$conclusion" = success ] || {
             echo "CI run $id for $sha concluded $conclusion; not promoting" >&2; exit 1; }
           jobs=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json jobs \
-                   --jq '.jobs[] | "\(.name)=\(.conclusion)"')
+                   --jq '.jobs[] | "\(.name)=\(.conclusion)"' | sed 's|^heavy / ||')
+          # The suite jobs are called from ci.yaml as `heavy`, and Actions names a called
+          # job `heavy / <name>`; the prefix is cut so the names below stay the jobs' own.
           for job in "windows suite (Git Bash)" "windows smoke"; do
             printf '%s\n' "$jobs" | grep -qxF "$job=success" || {
               echo "CI run $id has no successful '$job' job; not promoting" >&2; exit 1; }
