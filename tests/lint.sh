@@ -18,6 +18,8 @@
 # 10. the size ratchet         stage 0 is shrinking to a verified launcher; the code-line
 #                              ceiling and the comment-density floor hold that, pulling
 #                              against each other so neither is met at the other's cost
+# 11. the corpus notices        THIRD_PARTY_NOTICES.md has the tests/corpus section, and its
+#                              license table matches the license values in tests/corpus
 set -eu
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
@@ -90,7 +92,9 @@ fi
 # The third-party corpus: THIRD_PARTY_NOTICES.md has a tests/corpus section that names the
 # provenance file and lists the `license` values of the source manifests with their counts.
 # The counts are recomputed here from the flix.toml files, so a corpus refresh that changes
-# them fails until the section is updated. A table row reads `| <value> | <count> |`.
+# them fails until the section is updated. A table row reads `| <value> | <count> |`, and
+# every row must name a value that occurs in the tree. Only a license value in double quotes
+# is read; a value in single quotes would count as no license field (the tree has none).
 corpus=$root/tests/corpus
 nman=0
 tab=$work/corpus-licenses
@@ -100,7 +104,10 @@ for f in "$corpus"/*flix.toml; do
   sed -n 's/^[[:space:]]*license[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | sed -n 1p >> "$tab"
 done
 nrepo=$(grep -v '^#' "$corpus/PROVENANCE.tsv" | cut -f2 | sort -u | wc -l | tr -d ' ')
-if ! grep -Fq 'tests/corpus/PROVENANCE.tsv' "$notices"; then
+corpus_head='## Third-party flix.toml manifests (test corpus)'
+if ! grep -Fxq "$corpus_head" "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md has no section headed '$corpus_head'"
+elif ! grep -Fq 'tests/corpus/PROVENANCE.tsv' "$notices"; then
   bad "THIRD_PARTY_NOTICES.md has no tests/corpus section naming tests/corpus/PROVENANCE.tsv"
 elif ! grep -Fq "$nman manifests from $nrepo repositories" "$notices"; then
   bad "THIRD_PARTY_NOTICES.md does not state '$nman manifests from $nrepo repositories' for tests/corpus"
@@ -111,6 +118,23 @@ else
     bad "THIRD_PARTY_NOTICES.md does not state '(no license field)' for $((nman - nlic)) corpus manifests"
     corpus_ok=0
   }
+  # Rows of the section's table, to catch a value that no manifest carries any more.
+  awk -v h="$corpus_head" '$0 == h { on = 1; next } /^## / { on = 0 } on' "$notices" |
+    sed -n 's/^| \(.*\) | [0-9][0-9]* |$/\1/p' |
+    while IFS= read -r v; do
+      [ "$v" = "License field" ] && continue
+      if [ "$v" = "(no license field)" ]; then
+        [ "$((nman - nlic))" -gt 0 ] && continue
+      elif grep -Fxq -- "$v" "$tab"; then
+        continue
+      fi
+      printf 'FAIL  THIRD_PARTY_NOTICES.md lists corpus license '"'"'%s'"'"', which no tests/corpus manifest carries\n' "$v"
+    done > "$work/corpus-stale"
+  if [ -s "$work/corpus-stale" ]; then
+    cat "$work/corpus-stale"
+    fail=$((fail + $(wc -l < "$work/corpus-stale")))
+    corpus_ok=0
+  fi
   while read -r n v; do
     grep -Fq "| $v | $n |" "$notices" || {
       bad "THIRD_PARTY_NOTICES.md does not list corpus license '$v' with count $n"
