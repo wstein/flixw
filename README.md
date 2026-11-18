@@ -1,7 +1,7 @@
 # flixw
 
 [![CI](https://github.com/wstein/flixw/actions/workflows/ci.yaml/badge.svg)](https://github.com/wstein/flixw/actions/workflows/ci.yaml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![bootstraps on Java 16+](https://img.shields.io/badge/bootstrap-java%2016%2B-orange.svg)](https://openjdk.org/projects/jdk/16/)
 [![Flix needs Java 21+](https://img.shields.io/badge/flix-java%2021%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/stage0/flixw.java)
@@ -717,5 +717,8 @@ than a test, and needs `gh`, `curl` and python3. See
 
 ## License
 
-MIT. These files are meant to be committed into other people's repositories; the license
-permits that without conditions beyond attribution.
+Apache-2.0. See [LICENSE](LICENSE). These files are meant to be committed into other
+people's repositories; the license permits that, provided the license text accompanies
+redistributed copies (section 4). Releases up to v0.34.9 were published under MIT.
+Third-party components keep their own licenses; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
