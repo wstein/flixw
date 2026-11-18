@@ -79,3 +79,40 @@ the unmodified fork artifact is what ships — flixw does not repackage, shade o
 The files are unmodified copies, used as input to the upstream CLI detector's regression tests.
 They are not part of any release asset and nothing at run time reads them. Upstream has no
 `NOTICE` file at those commits. This entry is a notice, not legal advice.
+
+## Third-party flix.toml manifests (test corpus)
+
+|  |  |
+|---|---|
+| **Origin** | public repositories on GitHub, 95 manifests from 76 repositories |
+| **Files** | `tests/corpus/*flix.toml`, one per source file |
+| **Provenance** | `tests/corpus/PROVENANCE.tsv` names repository, path and commit for each file; `tests/fetch-corpus.sh` re-fetches them |
+| **Used by** | the regression tests only, as test input |
+
+Each file is someone else's work, copied unmodified; none is a work of this project. The
+files are not part of any release asset. Files are deduplicated by content, so where several
+projects publish an identical manifest, only the first is kept.
+
+The `license` fields of the source projects differ. The table counts the first `license`
+field in each manifest as written there (three Apache-2.0 manifests carry the comment "see
+also LICENSE.md" on that line). It records what each manifest states and is not a license file
+of this repository.
+
+| License field | Manifests |
+|---|---|
+| Apache-2.0 | 27 |
+| MIT | 3 |
+| AGPL-3.0-only | 1 |
+| AGPL-3.0-or-later | 1 |
+| BSD-3-Clause | 1 |
+| MPL-2.0 | 1 |
+| (no license field) | 61 |
+
+The counts are checked by `sh tests/lint.sh`, which recomputes them from the files. To list
+them by hand:
+
+```sh
+for f in tests/corpus/*flix.toml; do
+  sed -n 's/^[[:space:]]*license[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | sed -n 1p
+done | sort | uniq -c
+```
