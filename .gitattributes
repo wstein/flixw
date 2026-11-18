@@ -5,3 +5,5 @@
 /src/flix.java   text eol=lf
 /src/flix.cmd    text eol=crlf
 /tests/*.sh      text eol=lf
+# Third-party fixtures are compared by digest against upstream's bytes; no conversion on any platform.
+/tests/upstream/history/**  -text
