@@ -264,6 +264,26 @@ else
   cat "$work/upstream-cli-matrix.log"
 fi
 
+# The history fixtures are compared by digest with upstream's bytes: a checkout that converts line
+# endings (core.autocrlf on Windows) would fail every digest, so the directory must be -text.
+if command -v git >/dev/null 2>&1 && git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+  attr_bad=
+  for f in tests/upstream/history/LICENSE.md tests/upstream/history/PROVENANCE.tsv; do
+    git -C "$root" check-attr text -- "$f" > "$work/attr.out" 2>/dev/null || :
+    grep -Fq ': text: unset' "$work/attr.out" || attr_bad="$attr_bad $f"
+  done
+  for d in "$root"/tests/upstream/history/*/; do
+    f=tests/upstream/history/$(basename "$d")/Main.scala
+    git -C "$root" check-attr text -- "$f" > "$work/attr.out" 2>/dev/null || :
+    grep -Fq ': text: unset' "$work/attr.out" || attr_bad="$attr_bad $f"
+  done
+  if [ -z "$attr_bad" ]; then
+    say "ok    tests/upstream/history/ is -text (no line-ending conversion of the fixtures)"
+  else
+    bad "tests/upstream/history/ must be -text in .gitattributes; not for:$attr_bad"
+  fi
+fi
+
 # --- 3c2. the workflows name files that still exist -------------------------
 # 3c catches a *verb* that moved.  The src/ split moved the *files* instead, and the
 # Windows job went on naming `src\flixw-setup.java` -- caught by CI rather than here,
