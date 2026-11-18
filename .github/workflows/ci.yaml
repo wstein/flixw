@@ -115,17 +115,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          BRANCH: ${{ github.event.pull_request.head.ref }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -eu
           if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
-            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent
+            if ! gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent; then
+              # gone meanwhile is fine; still there is not
+              if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
+                echo "could not remove ci-full from #$PR" >&2; exit 1
+              fi
+            fi
             echo "removed ci-full from #$PR"
           fi
-          gh run list -w ci-heavy.yaml -b "$BRANCH" -L 50 --json databaseId,status,headSha \
-            --jq ".[] | select(.status != \"completed\" and .headSha != \"$HEAD\") | .databaseId" \
-            | while read -r id; do gh run cancel "$id" && echo "cancelled run $id"; done
+          # Runs of this PR for the head before the push. A run that finished meanwhile is
+          # reported, not an error: this job must not turn the light CI red for a race.
+          gh api "repos/$GH_REPO/actions/workflows/ci-heavy.yaml/runs?event=pull_request&head_sha=$BEFORE&per_page=50" \
+            --jq ".workflow_runs[] | select(.status != \"completed\") | select(any(.pull_requests[]; .number == $PR)) | .id" \
+            | while read -r id; do
+                if gh run cancel "$id"; then echo "cancelled run $id"; else echo "could not cancel run $id (finished meanwhile?)"; fi
+              done
 
   # The heavy jobs live in ci-heavy-jobs.yaml. A pull request does not start them here:
   # ci-heavy.yaml runs them once the label `ci-full` is set and the exact head has a CLEAR
