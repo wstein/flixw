@@ -327,7 +327,8 @@ hello/
 `flixw`, `flixw.cmd`, `flixw.java`, `.gitignore` and `.sccignore` are byte-identical in
 every project on the same flixw release, so one published digest validates all five.
 `lock.toml` is yours, `.gitattributes` is yours with a block of ours in it, and
-`local/java` belongs to this machine alone.
+`local/java` belongs to this machine alone. The release archives add `.flixw/LICENSE`, which
+`install` does not write; after extracting one, `git add .flixw` commits it too.
 
 That block also marks the three files that carry code `linguist-vendored`, so GitHub's
 language graph reports your Flix rather than our Shell and Java. Vendored and not
@@ -383,7 +384,7 @@ not serve:
 base=https://github.com/wstein/flixw/releases/download/v0.34.9
 curl -fsSLO $base/flixw-0.34.9.tar.gz
 curl -fsSL  $base/SHA256SUMS | grep flixw-0.34.9.tar.gz | sha256sum -c -
-tar -xzf flixw-0.34.9.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
+tar -xzf flixw-0.34.9.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java, .flixw/LICENSE
 rm flixw-0.34.9.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
                                     # 0.75.3 or v0.75.3 -- the release tag works too

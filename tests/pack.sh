@@ -17,10 +17,11 @@
 #   SHA256SUMS                digests of all of the above
 #
 # The archives are not assembled by hand. `install` is run into a staging directory and
-# whatever it wrote is what gets packed, so the archive route and the install route cannot
-# diverge -- an archive built from a hand-written file list would have to repeat install's
-# rules about CRLF and the executable bit, and would silently stop matching the day one of
-# them changed. tests/run.sh proves the two are identical by extracting and diffing.
+# whatever it wrote is what gets packed (plus .flixw/LICENSE, the one file added below), so
+# the archive route and the install route cannot diverge -- an archive built from a
+# hand-written file list would have to repeat install's rules about CRLF and the executable
+# bit, and would silently stop matching the day one of them changed. tests/run.sh proves the
+# two are identical, LICENSE aside, by extracting and diffing.
 #
 # This is a maintenance and release tool rather than a test. CI calls it on a tag; run it
 # by hand to reproduce a published digest.
