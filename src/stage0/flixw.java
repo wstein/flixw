@@ -3807,9 +3807,12 @@ public final class flixw {
      * documents. Tabs separate columns, so no value here may contain one -- versions,
      * digests and paths do not.
      */
-    static String inspectContext(Lock lock, Jvm jvm) {
+    static String inspectContext(Lock lock, Jvm jvm) { return inspectContext(lock, jvm, cacheHome(), knownInstalls()); }
+
+    /** The same, with the cache root and the JDK search result given, so a test can vary them. */
+    static String inspectContext(Lock lock, Jvm jvm, Path cacheRoot, List<Path> installs) {
         StringBuilder b = new StringBuilder();
-        b.append("cacheRoot=").append(cacheHome()).append('\n');
+        b.append("cacheRoot=").append(cacheRoot).append('\n');
         b.append("wrapperVersion=").append(canonical(WRAPPER_VERSION)).append('\n');
         b.append("upstreamRepo=").append(UPSTREAM_REPO).append('\n');
         b.append("lockSha256=").append(lock == null ? "" : lock.sha256()).append('\n');
@@ -3832,7 +3835,7 @@ public final class flixw {
         // Not flixw's to manage, only to find: the same search selectJava uses, reported
         // once so the listing cannot disagree with the selection.
         b.append('\n').append("systemJdks:").append('\n');
-        for (Path exe : knownInstalls()) {
+        for (Path exe : installs) {
             String v = probeVersion(exe);
             int f = probe(exe);
             b.append(v == null ? "(unknown)" : v).append('\t').append(exe).append('\t')
