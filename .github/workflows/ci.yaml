@@ -97,6 +97,36 @@ jobs:
           done
           exit $fail
 
+  # A push invalidates the authorization to run the heavy matrix: the label `ci-full` comes
+  # off and a heavy run still going for an older head of the PR is cancelled. The job has no
+  # condition on the label, so this workflow does not read it; the label is looked up in the
+  # step. Skipped for a fork PR, whose token cannot write: its label stays, and the gate of
+  # ci-heavy.yaml refuses the new head for want of a CLEAR in any case.
+  unlabel:
+    name: revoke ci-full after a push
+    if: github.event.action == 'synchronize' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      actions: write
+    steps:
+      - name: remove the label, cancel older heavy runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
+            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent
+            echo "removed ci-full from #$PR"
+          fi
+          gh run list -w ci-heavy.yaml -b "$BRANCH" -L 50 --json databaseId,status,headSha \
+            --jq ".[] | select(.status != \"completed\" and .headSha != \"$HEAD\") | .databaseId" \
+            | while read -r id; do gh run cancel "$id" && echo "cancelled run $id"; done
+
   # The heavy jobs live in ci-heavy-jobs.yaml. A pull request does not start them here:
   # ci-heavy.yaml runs them once the label `ci-full` is set and the exact head has a CLEAR
   # review. Every other event keeps the full matrix: a push to main is the full validation,
