@@ -837,6 +837,43 @@ public final class UnitCheck {
                String.valueOf(r.err().contains("context contract")));
             eq("inspect context: contract=" + q(bad) + " prints nothing on stdout", "", r.out());
         }
+        // The layouts it does know are read, not refused: nothing on stderr, status 0.
+        Files.writeString(ctxFile, text, StandardCharsets.UTF_8);
+        Ran good = runInspect(ctxFile);
+        eq("inspect context: contract=1 is read", "0", String.valueOf(good.rc()));
+        eq("inspect context: contract=1 is silent on stderr", "", good.err());
+        Files.writeString(ctxFile, "cacheRoot=/uc-inspect/x\n", StandardCharsets.UTF_8);
+        Ran none = runInspect(ctxFile);
+        eq("inspect context: contract absent is read", "0", String.valueOf(none.rc()));
+        eq("inspect context: contract absent is silent on stderr", "", none.err());
+        // A negative number is reported as itself, not as a non-number.
+        Files.writeString(ctxFile, "contract=-1\n", StandardCharsets.UTF_8);
+        eq("inspect context: contract=-1 is named", "true",
+           String.valueOf(runInspect(ctxFile).err().contains("contract -1;")));
+        Files.writeString(ctxFile, "contract=x\n", StandardCharsets.UTF_8);
+        eq("inspect context: contract=x is named", "true",
+           String.valueOf(runInspect(ctxFile).err().contains("contract x;")));
+        // The two tables that systemJdks is not: lockPlugins through the real producer, with a
+        // plugin whose name and version hold the awkward characters; cachedJdks through the
+        // reader, because the producer lists the machine's own cache.
+        String awk = "a\\b\tc\nd=e:";
+        flixw.Lock plugged = new flixw.Lock("0.75.3", "https://x/f.jar", "a".repeat(64), "flix/flix", null, null,
+            java.util.Map.of(awk, new flixw.PluginDep("1.0\t" + awk, "b".repeat(64), null, null, null)));
+        Files.writeString(ctxFile, flixw.inspectContext(plugged, null, Paths.get("/uc-inspect/x"), List.of()),
+                          StandardCharsets.UTF_8);
+        flixwinspect.Ctx pc = flixwinspect.read(ctxFile);
+        eq("inspect context: lockPlugins name round trip", awk, pc.lockPlugins.keySet().iterator().next());
+        eq("inspect context: lockPlugins version round trip", "1.0\t" + awk + "-" + "b".repeat(64),
+           pc.lockPlugins.values().iterator().next());
+        Files.writeString(ctxFile, "contract=1\n\ncachedJdks:\n21.0.1\\t\\\\x\td\\nir\tdefault\n", StandardCharsets.UTF_8);
+        flixwinspect.Ctx cc = flixwinspect.read(ctxFile);
+        eq("inspect context: cachedJdks version unescaped", "21.0.1\t\\x", cc.cachedJdks.get(0)[0]);
+        eq("inspect context: cachedJdks name unescaped", "d\nir", cc.cachedJdks.get(0)[1]);
+        eq("inspect context: cachedJdks columns", "3", String.valueOf(cc.cachedJdks.get(0).length));
+        // A row that ends in a colon is a row, not a table head.
+        Files.writeString(ctxFile, "contract=1\n\nsystemJdks:\n21.0.1\t/p:\n21.0.2\t/q\n", StandardCharsets.UTF_8);
+        flixwinspect.Ctx colon = flixwinspect.read(ctxFile);
+        eq("inspect context: a row ending in a colon stays a row", "2", String.valueOf(colon.systemJdks.size()));
         // A stage 0 from before the field wrote raw values; this reader still reads them raw.
         Files.writeString(ctxFile, "cacheRoot=C:\\cache\\flixw\nwrapperVersion=1.0.0\n\nsystemJdks:\n"
             + "21.0.1\tC:\\jdk\\bin\\java.exe\t\n", StandardCharsets.UTF_8);
