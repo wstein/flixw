@@ -414,6 +414,17 @@ for t in ci-workflows-check ci-gate-check ci-unlabel-check; do
 done
 [ "$heavy_ok" = 1 ] && say "ok    the heavy CI jobs run on a pull request only through ci-heavy.yaml's gate"
 
+# --- 3c2c. the release carries the LICENSE -----------------------------------
+# tests/license-check.sh pins that pack.sh puts LICENSE into both archives and publishes it
+# in SHA256SUMS, and that release.yaml uploads it (Apache-2.0 section 4(a)).
+if sh "$root/tests/license-check.sh" > "$work/license-check.out" 2>&1; then
+  sed 's/^/      /' "$work/license-check.out"
+  say "ok    the release archives and assets carry LICENSE"
+else
+  sed 's/^/      /' "$work/license-check.out"
+  bad "tests/license-check.sh fails"
+fi
+
 # --- 3c3. the README downloads the release its digest describes --------------
 # The digest check below compares README against local source, which says nothing about
 # which release the reader is told to fetch. Those drifted: the page carried a digest for
