@@ -256,6 +256,14 @@ else
   cat "$work/upstream-cli-test.log"
 fi
 
+# The detector over 0.75.0-0.79.0 and a pinned master, from committed sources; offline.
+if sh "$root/tests/upstream-cli-matrix.sh" >"$work/upstream-cli-matrix.log" 2>&1; then
+  say "ok    upstream-cli historical matrix ($(tail -1 "$work/upstream-cli-matrix.log"))"
+else
+  bad "tests/upstream-cli-matrix.sh"
+  cat "$work/upstream-cli-matrix.log"
+fi
+
 # --- 3c2. the workflows name files that still exist -------------------------
 # 3c catches a *verb* that moved.  The src/ split moved the *files* instead, and the
 # Windows job went on naming `src\flixw-setup.java` -- caught by CI rather than here,
