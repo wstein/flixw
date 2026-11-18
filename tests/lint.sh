@@ -87,6 +87,43 @@ else
   say "ok    THIRD_PARTY_NOTICES.md agrees with the pinned picocli version and digest"
 fi
 
+# The third-party corpus: THIRD_PARTY_NOTICES.md has a tests/corpus section that names the
+# provenance file and lists the `license` values of the source manifests with their counts.
+# The counts are recomputed here from the flix.toml files, so a corpus refresh that changes
+# them fails until the section is updated. A table row reads `| <value> | <count> |`.
+corpus=$root/tests/corpus
+nman=0
+tab=$work/corpus-licenses
+: > "$tab"
+for f in "$corpus"/*flix.toml; do
+  nman=$((nman + 1))
+  sed -n 's/^[[:space:]]*license[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | sed -n 1p >> "$tab"
+done
+nrepo=$(grep -v '^#' "$corpus/PROVENANCE.tsv" | cut -f2 | sort -u | wc -l | tr -d ' ')
+if ! grep -Fq 'tests/corpus/PROVENANCE.tsv' "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md has no tests/corpus section naming tests/corpus/PROVENANCE.tsv"
+elif ! grep -Fq "$nman manifests from $nrepo repositories" "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md does not state '$nman manifests from $nrepo repositories' for tests/corpus"
+else
+  corpus_ok=1
+  nlic=$(wc -l < "$tab" | tr -d ' ')
+  grep -Fq "| (no license field) | $((nman - nlic)) |" "$notices" || {
+    bad "THIRD_PARTY_NOTICES.md does not state '(no license field)' for $((nman - nlic)) corpus manifests"
+    corpus_ok=0
+  }
+  while read -r n v; do
+    grep -Fq "| $v | $n |" "$notices" || {
+      bad "THIRD_PARTY_NOTICES.md does not list corpus license '$v' with count $n"
+      corpus_ok=0
+    }
+  done <<EOF2
+$(sort "$tab" | uniq -c)
+EOF2
+  if [ "$corpus_ok" = 1 ]; then
+    say "ok    THIRD_PARTY_NOTICES.md lists the corpus license counts ($nman manifests, $nrepo repositories)"
+  fi
+fi
+
 # --- 1. Java ---------------------------------------------------------------
 # auxiliaryclass is off for this one compile, not project-wide: src/assets/flixw-cli.java
 # is deliberately a same-package companion file rather than a class merged into flixw.java
