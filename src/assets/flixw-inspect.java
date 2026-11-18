@@ -84,7 +84,7 @@ final class flixwinspect {
         }
         Ctx c = read(Paths.get(args[0]));
         if (c.contract < 0 || c.contract > CONTRACT) {
-            System.err.println("flixw: stage 0 sent inspection context contract " + (c.contract < 0 ? "(not a number)" : c.contract)
+            System.err.println("flixw: stage 0 sent inspection context contract " + c.contractText
                 + "; this inspector reads contract " + CONTRACT + " and, for contract 0 (no field), the raw layout");
             System.err.println("       stage 0 and its companion assets are from different flixw releases;"
                 + " run: ./flixw wrapper --upgrade");
@@ -131,6 +131,8 @@ final class flixwinspect {
     static final class Ctx {
         /** The {@code contract} field: 0 when absent, -1 when it is not a number. */
         int contract;
+        /** The field as written, for the diagnostic. */
+        String contractText = "";
         String cacheRoot = "", wrapperVersion = "", upstreamRepo = "", lockSha256 = "";
         /** plugin name to {@code version-sha256}, as the lock declares it. */
         Map<String, String> lockPlugins = new LinkedHashMap<>();
@@ -146,7 +148,7 @@ final class flixwinspect {
         String contract = null;
         for (String line : Files.readString(file, StandardCharsets.UTF_8).split("\n")) {
             if (line.isEmpty()) { table = null; continue; }
-            if (line.endsWith(":") && !line.contains("=")) { table = line.substring(0, line.length() - 1); continue; }
+            if (line.endsWith(":") && !line.contains("=") && !line.contains("\t")) { table = line.substring(0, line.length() - 1); continue; }
             if (table != null) {
                 String[] row = line.split("\t", -1);
                 switch (table) {
@@ -169,6 +171,7 @@ final class flixwinspect {
                 default -> { }
             }
         }
+        c.contractText = contract == null ? "" : contract;
         try { c.contract = contract == null ? 0 : Integer.parseInt(contract); }
         catch (NumberFormatException e) { c.contract = -1; }
         if (c.contract < 1) return c;
