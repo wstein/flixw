@@ -785,6 +785,22 @@ command starts reading one it did not before — this curation will not notice o
 `./flixw -- <verb> --help` always reaches the compiler directly for the unedited, current
 answer regardless.
 
+### The request to the inspector
+
+`info --verbose` and `wrapper --purge` hand the inspector (`flixw-inspect.java`) one
+temporary context file. Its first line is `contract=1`: values (`cacheRoot`,
+`wrapperVersion`, `upstreamRepo`, `lockSha256`) and every table column are escaped like the
+help context's (`\\`, `\t`, `\n`, `\r`), because `cacheRoot` and the `systemJdks` paths
+are filesystem paths and may hold any of them. Without the field the layout is the raw one
+older stage 0 releases wrote, and this inspector still reads it raw. Any other value
+(higher, negative, non-numeric, empty, or with a space) is refused with a diagnostic on
+stderr and exit 87, nothing on stdout.
+
+An inspector from before the field cannot refuse: it ignores `contract` and reads every
+value that needs no escape as written, and shows one with a backslash, tab or line break
+escaped. Stage 0 and the inspector are fetched from the same release and digest-verified,
+so the pairing arises only under `FLIXW_ASSET_SOURCE` or a source launch.
+
 ### The request to the renderer
 
 Stage 0 hands the renderer (`flixw-cli.java`) one temporary context file and fixed
