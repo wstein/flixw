@@ -114,9 +114,11 @@ gate refuses the new head). There is one heavy run per PR at a time and no repos
 The gate cannot tell author from reviewer, since all comments come from one account, and it is
 a process guard: a pull request runs its own copy of the workflow files, so an author with write
 access can change the gate, and the person who sets the label decides.
+After a rebase with the same patch-id the gate admits the new head only with an explicit
+`Carried-over:` line, stricter than the review rules, which also accept the same patch-id alone.
 `release.yaml` reads `windows suite (Git Bash)` and `windows smoke` from the `ci.yaml` run on the
 tag's commit; the first appears there as `heavy / windows suite (Git Bash)`.
-`sh tests/ci-workflows-check.sh` and `sh tests/ci-gate-check.sh` (run by `tests/lint.sh`) pin
+`sh tests/ci-workflows-check.sh`, `sh tests/ci-gate-check.sh` and `sh tests/ci-unlabel-check.sh` (run by `tests/lint.sh`) pin
 this; `--mutations` runs their opt-in mutants.
 
 Before a commit, run the fast local gate:
