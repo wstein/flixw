@@ -3804,23 +3804,22 @@ public final class flixw {
      *
      * <p>Line-based rather than JSON: both ends ship in one release, neither has a parser,
      * and a reader for six fields and three tables would cost more than the format
-     * documents. Tabs separate columns, so no value here may contain one -- versions,
-     * digests and paths do not.
+     * documents. Tabs separate columns and line breaks end rows, so every value goes through
+     * {@link #esc}: a path may hold either, and the reader reverses it.
      */
     static String inspectContext(Lock lock, Jvm jvm) { return inspectContext(lock, jvm, cacheHome(), knownInstalls()); }
 
     /** The same, with the cache root and the JDK search result given, so a test can vary them. */
     static String inspectContext(Lock lock, Jvm jvm, Path cacheRoot, List<Path> installs) {
-        StringBuilder b = new StringBuilder();
-        b.append("cacheRoot=").append(cacheRoot).append('\n');
-        b.append("wrapperVersion=").append(canonical(WRAPPER_VERSION)).append('\n');
-        b.append("upstreamRepo=").append(UPSTREAM_REPO).append('\n');
-        b.append("lockSha256=").append(lock == null ? "" : lock.sha256()).append('\n');
+        // contract=1: values escaped like the help context's (see esc); absent is the raw layout.
+        StringBuilder b = new StringBuilder("contract=1\n");
+        b.append(kv("cacheRoot", cacheRoot)).append(kv("wrapperVersion", canonical(WRAPPER_VERSION)))
+         .append(kv("upstreamRepo", UPSTREAM_REPO)).append(kv("lockSha256", lock == null ? "" : lock.sha256()));
         b.append('\n').append("lockPlugins:").append('\n');
         if (lock != null)
             for (Map.Entry<String, PluginDep> e : lock.plugins().entrySet())
-                b.append(e.getKey()).append('\t')
-                 .append(e.getValue().version()).append('-').append(e.getValue().sha256()).append('\n');
+                b.append(esc(e.getKey())).append('\t')
+                 .append(esc(e.getValue().version() + "-" + e.getValue().sha256())).append('\n');
         // JDKs flixw installed, and the one the shims will reach for.
         b.append('\n').append("cachedJdks:").append('\n');
         Path installed = installedJdk();
@@ -3828,8 +3827,8 @@ public final class flixw {
             Path exe = findJavaUnder(dir);
             if (exe == null) continue;                    // a partial or foreign directory
             String v = probeVersion(exe);
-            b.append(v == null ? "(unknown)" : v).append('\t')
-             .append(dir.getFileName()).append('\t')
+            b.append(esc(v == null ? "(unknown)" : v)).append('\t')
+             .append(esc(dir.getFileName().toString())).append('\t')
              .append(exe.equals(installed) ? "default" : "").append('\n');
         }
         // Not flixw's to manage, only to find: the same search selectJava uses, reported
@@ -3838,7 +3837,7 @@ public final class flixw {
         for (Path exe : installs) {
             String v = probeVersion(exe);
             int f = probe(exe);
-            b.append(v == null ? "(unknown)" : v).append('\t').append(exe).append('\t')
+            b.append(esc(v == null ? "(unknown)" : v)).append('\t').append(esc(exe.toString())).append('\t')
              .append(jvm != null && exe.equals(jvm.exe()) ? "  <= selected"
                    : f >= 0 && f < MIN_JAVA ? "  (below Java " + MIN_JAVA + ")" : "").append('\n');
         }
