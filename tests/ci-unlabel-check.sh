@@ -31,6 +31,7 @@ echo "gh $*" >> "$STUB_LOG"
 case "$1 $2" in
   "pr view")
     n=$(grep -c '^gh pr view' "$STUB_LOG")
+    [ "$n" -ge 2 ] && [ "${STUB_REREAD_FAIL:-0}" = 1 ] && exit 1
     if [ "$n" -ge 2 ]; then printf '%s' "$STUB_LABELS_AFTER"; else printf '%s' "$STUB_LABELS"; fi ;;
   "api -X") [ "${STUB_DELETE_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
   "run cancel") [ "$3" = "${STUB_CANCEL_FAIL:-none}" ] && exit 1; exit 0 ;;
@@ -72,7 +73,7 @@ run_step() {
     if [ "$t" = -- ]; then mode=not; continue; fi
     if [ "$mode" = has ]; then
       grep -qF -- "$t" "$work/log" "$work/out" || ok=0
-    elif grep -qF -- "$t" "$work/log"; then
+    elif grep -qF -- "$t" "$work/log" "$work/out"; then
       ok=0
     fi
   done
@@ -103,6 +104,9 @@ other
 ' STUB_DELETE_FAIL=1 STUB_LABELS_AFTER='ci-full
 ' t run_step "$s" 'a label that cannot be removed is a warning' 0 '::warning::could not remove ci-full' 'gh run cancel 1'
   STUB_LABELS='ci-full
+' STUB_DELETE_FAIL=1 STUB_REREAD_FAIL=1 t run_step "$s" 'an unreadable label state is not reported as removed' 0 \
+    '::warning::could not remove ci-full from #7 and could not re-read' -- 'removed meanwhile'
+  STUB_LABELS='ci-full
 ' STUB_LIST_FAIL=1 t run_step "$s" 'a failed listing is a warning' 0 '::warning::could not list the heavy runs' \
     'removed ci-full' -- 'gh run cancel'
   return "$bad"
@@ -110,7 +114,7 @@ other
 
 extract "$root/.github/workflows/ci.yaml" > "$work/step.sh"
 [ -s "$work/step.sh" ] || { echo "FAIL  ci-unlabel-check: no run block found for job unlabel"; exit 1; }
-total=7
+total=8
 fails=$(run_all "$work/step.sh") && nfail=0 || nfail=$?
 if [ "$nfail" != 0 ]; then
   printf '%s\n' "$fails"
@@ -146,6 +150,8 @@ label removal failure fails the step~s/without its own CLEAR"/&; exit 1/
 label removal warning dropped~s/::warning::could not remove/could not remove/
 listing failure fails the step~s/older runs are not cancelled"/&; exit 1/
 listing warning dropped~s/::warning::could not list/could not list/
+unreadable label state reported as removed~s/::warning::could not remove ci-full from #\$PR and could not re-read its labels/ci-full on #$PR was removed meanwhile/
+unreadable label state warning dropped~s/::warning::could not remove ci-full from #\$PR and could not re-read/could not remove ci-full from #$PR and could not re-read/
 MUTANTS
 if [ "$survived" != 0 ]; then
   printf 'FAIL  unlabel step: %s of %s mutants not caught\n' "$survived" "$mut"

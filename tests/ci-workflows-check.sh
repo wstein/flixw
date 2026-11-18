@@ -21,7 +21,10 @@ set -eu
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 
-norm() { sed 's/[[:space:]]#.*$//; s/["'"'"']//g; s/[[:space:]]//g'; }
+# Only quotes and whitespace go. A trailing ` #` is NOT cut: inside a `run:` block it is shell
+# text (`#$PR` in an echo hides a command behind it), and comment-only lines are dropped
+# whole by the callers.
+norm() { sed 's/["'"'"']//g; s/[[:space:]]//g'; }
 # blk <file> <job>: the job's normalised lines, comments and blank lines dropped
 blk() {
   awk -v j="  $2:" '$0 ~ /^  [a-z][a-z-]*:[ \t]*$/ { on = ($0 == j) } on' "$1" \
@@ -92,10 +95,14 @@ check() {
           if gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
             if gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/ci-full" --silent; then
               echo "removed ci-full from #$PR"
-            elif gh pr view "$PR" --json labels --jq '.labels[].name' | grep -qx ci-full; then
-              echo "::warning::could not remove ci-full from #$PR; the gate still refuses a head without its own CLEAR"
+            elif now=$(gh pr view "$PR" --json labels --jq '.labels[].name'); then
+              if printf '%s\n' "$now" | grep -qx ci-full; then
+                echo "::warning::could not remove ci-full from #$PR; the gate still refuses a head without its own CLEAR"
+              else
+                echo "ci-full on #$PR was removed meanwhile"
+              fi
             else
-              echo "ci-full on #$PR was removed meanwhile"
+              echo "::warning::could not remove ci-full from #$PR and could not re-read its labels; the gate still refuses a head without its own CLEAR"
             fi
           fi
           if ids=$(gh api "repos/$GH_REPO/actions/workflows/ci-heavy.yaml/runs?event=pull_request&per_page=100" \
@@ -233,14 +240,14 @@ gate:|permissions:
 gate:|contents:read
 gate:|issues:read
 gate:|pull-requests:read
-gate:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-gate:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+gate:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1#v7.0.1
+gate:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1#v7.0.1
 heavy:|needs:gate
 heavy:|uses:./.github/workflows/ci-heavy-jobs.yaml
 result:|if:${{!cancelled()&&github.event.label.name==ci-full}}
 result:|needs:[gate,heavy]
 result:|runs-on:ubuntu-latest
-result:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+result:|-uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1#v7.0.1
 INV
 )" ] || bad "ci-heavy.yaml: a control key (if, needs, permissions, uses, runs-on, continue-on-error) differs from the pinned list"
 
@@ -365,6 +372,9 @@ M21 extra write permission in unlabel~ci.yaml~s/^      actions: write$/&\n      
 M22 extra cancel of every run in unlabel~ci.yaml~s/^          set -eu$/&\n          gh run cancel 1/~is not the pinned block
 M23 continue-on-error on a suite job~ci-heavy-jobs.yaml~s/^    name: the stage 0 that ships$/&\n    continue-on-error: true/~a control key
 M24 id-token write on the verdict job~ci-heavy.yaml~s/^    name: heavy-result$/&\n    permissions:\n      id-token: write/~a control key
+U6 listing warning becomes a failure~ci.yaml~s@older runs are not cancelled"@&; exit 1@~is not the pinned block
+U8 a second label call behind the echo~ci.yaml~s@echo "removed ci-full from #\$PR"@& ; gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/other"@~is not the pinned block
+U9 failure behind removed meanwhile~ci.yaml~s@was removed meanwhile"@&; exit 1@~is not the pinned block
 MUTANTS
 if [ "$survived" != 0 ]; then
   printf 'FAIL  ci workflows: %s of %s mutants not caught\n' "$survived" "$mut"
