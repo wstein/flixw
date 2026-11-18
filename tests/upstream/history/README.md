@@ -14,7 +14,10 @@ by the commit and has the layout of the detector's own cache (`Main.scala`, `Opt
   revisions, and which pairs the fingerprint cannot tell apart although behaviour changed.
 - The master row is a preview, separate from the releases; its changes belong to no release.
 
-The files carry upstream's own header, which names the Apache 2.0 license. Refresh or extend:
+The files carry upstream's own header, which names the Apache 2.0 license; `LICENSE.md` here is
+upstream's license text (byte for byte, recorded in `PROVENANCE.tsv`) and `THIRD_PARTY_NOTICES.md` lists these files.
+`/.gitattributes` marks the directory `-text` so that no checkout converts line endings and the
+digests stay valid under `core.autocrlf`. Refresh or extend:
 copy the two files at the new commit, run `sh tests/upstream-cli.sh --update --to <commit>` against a
 scratch `FLIX_UPSTREAM_FINGERPRINT` for the count, add the rows, and verify the blob ids against
 the contents API.

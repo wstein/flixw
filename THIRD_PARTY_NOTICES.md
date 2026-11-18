@@ -63,3 +63,19 @@ the unmodified fork artifact is what ships — flixw does not repackage, shade o
   the digest and the compatibility contract; a lock has no say in it.
 - Not on the critical path. If it cannot be fetched, `./flixw help` prints the wrapper's own
   routing table and the compiler's captured help from cache, offline.
+
+## Flix compiler sources (test fixtures)
+
+|  |  |
+|---|---|
+| **Origin** | <https://github.com/flix/flix> |
+| **Revisions** | the commits listed in `tests/upstream/history/PROVENANCE.tsv` (tags v0.75.0 to v0.79.0 and master 7ac485c29d87e0eed5dcac2919decbb379096731) |
+| **Files** | `main/src/ca/uwaterloo/flix/Main.scala` and `main/src/ca/uwaterloo/flix/util/Options.scala` at each revision, under `tests/upstream/history/<commit>/` |
+| **License** | Apache License 2.0 (upstream `LICENSE.md`; the source headers name it) |
+| **Copyright** | Copyright 2019 Magnus Madsen, as stated in the file headers |
+| **License copy** | `tests/upstream/history/LICENSE.md`, byte for byte from flix/flix at 7ac485c29d87e0eed5dcac2919decbb379096731 |
+| **Used by** | `tests/upstream-cli-matrix.sh` only |
+
+The files are unmodified copies, used as input to the upstream CLI detector's regression tests.
+They are not part of any release asset and nothing at run time reads them. Upstream has no
+`NOTICE` file at those commits. This entry is a notice, not legal advice.
