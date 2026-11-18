@@ -13,6 +13,7 @@
 #   picocli-<version>.jar     the one third-party component, republished so it rides one SHA256SUMS
 #   flixw-specs.jar           the curated Flix command specs the help renderer reads (tests/specs.sh)
 #   THIRD_PARTY_NOTICES.md    licence and provenance for picocli
+#   LICENSE                   flixw's own licence, also inside both archives as .flixw/LICENSE
 #   SHA256SUMS                digests of all of the above
 #
 # The archives are not assembled by hand. `install` is run into a staging directory and
@@ -89,6 +90,11 @@ java "$root/tests/strip.java" "$root/src/stage0/flixw.java" "$version" "stage 0"
 javac -d "$work/shipped-classes" "$shipped" || {
   echo "pack: the stripped stage 0 does not compile" >&2; exit 1; }
 cp "$shipped" "$stage/.flixw/flixw.java"
+# Apache-2.0 section 4(a): whoever receives the work gets a copy of the licence. Inside
+# .flixw/, beside the file it covers, because an archive is extracted over a project root and
+# a top-level LICENSE would replace that project's own. `install` does not write it, so the
+# archive route has this one file more than the install route (tests/run.sh accounts for it).
+cp "$root/LICENSE" "$stage/.flixw/LICENSE"
 
 # .gitattributes is deliberately not packed. install *merges* its block into whatever the
 # project already has; an archive can only overwrite, and clobbering a project's own
@@ -172,10 +178,14 @@ sh "$root/tests/specs.sh" "$out/flixw-specs.jar"
 # never an adopting project, so a project has no third party to give notice of.
 cp "$root/THIRD_PARTY_NOTICES.md" "$out/THIRD_PARTY_NOTICES.md"
 
+# The licence of the tag as a bare asset too, for someone who fetches only flixw.java or a
+# companion file. Byte for byte, which tests/license-check.sh --archives compares.
+cp "$root/LICENSE" "$out/LICENSE"
+
 (cd "$out" && sum "flixw-$version.tar.gz" "flixw-$version.zip" flixw.java \
               flixw-jdk.java flixw-setup.java flixw-inspect.java \
               flixw-cli.java flixw-examples.java flixw-local.java \
-              "picocli-$pv.jar" flixw-specs.jar THIRD_PARTY_NOTICES.md \
+              "picocli-$pv.jar" flixw-specs.jar THIRD_PARTY_NOTICES.md LICENSE \
               > SHA256SUMS)
 echo "packed flixw $version into $out"
 cat "$out/SHA256SUMS"

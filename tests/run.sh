@@ -2908,6 +2908,8 @@ if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
     java "$pk/out/flixw-setup.java" setup "$pk/ref" "$pk/out/flixw.java" \
       >/dev/null 2>&1 || true
     rm -f "$pk/ref/.gitattributes"
+    # ... plus the one file the archives add: the licence, beside stage 0 (tests/pack.sh).
+    cp "$root/LICENSE" "$pk/ref/.flixw/LICENSE"
     t 0 "the tarball unpacks to exactly what install writes"     sh -c '
       tar -xzf "$1"/flixw-*.tar.gz -C "$2" && diff -r "$3" "$2"' sh "$pk/out" "$pk/tar" "$pk/ref"
     t 0 "the zip unpacks to exactly what install writes"         sh -c '
@@ -2915,6 +2917,9 @@ if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
     # The shim is useless without this, and an archive is the classic way to lose it.
     t 0 "the shim keeps its executable bit through the tarball"  test -x "$pk/tar/flixw"
     t 0 "the shim keeps its executable bit through the zip"      test -x "$pk/zip/flixw"
+    t 0 "both archives carry .flixw/LICENSE, byte for byte"      sh -c '
+      cmp "$1/.flixw/LICENSE" "$3" && cmp "$2/.flixw/LICENSE" "$3" && cmp "$4/LICENSE" "$3"' \
+      sh "$pk/tar" "$pk/zip" "$root/LICENSE" "$pk/out"
     # Extraction leaves .gitattributes alone; doctor --fix is what merges the block, and
     # the archive route is documented as needing it.
     t 0 "the archives do not carry .gitattributes"               sh -c '
