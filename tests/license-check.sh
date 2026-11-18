@@ -8,8 +8,13 @@
 #
 # The script mode needs neither zip nor the network, so tests/lint.sh can run it on every
 # commit. It reads script text only: a precheck, not the guarantee. The guarantee is the
-# archive mode on a real `tests/pack.sh` output and the cases in tests/run.sh (heavy lane). pack.sh itself needs both (it fetches picocli), so the archive mode is run by
-# hand or after a pack; it compares .flixw/LICENSE in the tarball and in the zip, and the
+# archive mode on a real `tests/pack.sh` output and the cases in tests/run.sh (heavy lane).
+# It recognises the copy as `cp`, `command cp`, /bin/cp, /usr/bin/cp or `install`, each with
+# options (and a mode argument after install's -m) and an optional `--`; comment lines are
+# ignored. Any other spelling fails here and is a reason to extend the pattern.
+#
+# pack.sh itself needs zip and the network (it fetches picocli), so the archive mode is run
+# by hand or after a pack; it compares .flixw/LICENSE in the tarball and in the zip, and the
 # LICENSE asset, with the repository's LICENSE, and wants the asset in SHA256SUMS.
 # shellcheck disable=SC2016  # the patterns are literal script text, not expansions
 set -eu
@@ -41,14 +46,16 @@ rel=$root/.github/workflows/release.yaml
 # LICENSE would replace the adopting project's own.
 # Comment lines do not count, and the stage copy must come before the tar line.
 code=$(sed '/^[[:space:]]*#/d' "$pack")
-stage_line=$(printf '%s\n' "$code" | grep -nF 'cp "$root/LICENSE" "$stage/.flixw/LICENSE"' | head -1 | cut -d: -f1)
+verb='((command[[:space:]]+)?(/usr/bin/|/bin/)?cp|(/usr/bin/)?install)([[:space:]]+-[^[:space:]]+([[:space:]]+[0-9]+)?)*([[:space:]]+--)?[[:space:]]+'
+copy_re="(^|[[:space:];&|])${verb}\"\\\$root/LICENSE\"[[:space:]]+\"\\\$"
+stage_line=$(printf '%s\n' "$code" | grep -nE "${copy_re}stage/\\.flixw/LICENSE\"" | head -1 | cut -d: -f1)
 tar_line=$(printf '%s\n' "$code" | grep -nF 'tar $tar_flags -cf -' | head -1 | cut -d: -f1)
 if [ -n "$stage_line" ] && [ -n "$tar_line" ] && [ "$stage_line" -lt "$tar_line" ]; then
   say "ok    pack.sh stages LICENSE as .flixw/LICENSE before the archives are made"
 else
   bad "tests/pack.sh does not copy LICENSE into the staging tree's .flixw/ before the tar step (neither archive carries it)"
 fi
-if printf '%s\n' "$code" | grep -Fq 'cp "$root/LICENSE" "$out/LICENSE"'; then
+if printf '%s\n' "$code" | grep -Eq "${copy_re}out/LICENSE\""; then
   say "ok    pack.sh publishes LICENSE as a release asset"
 else
   bad "tests/pack.sh does not copy LICENSE into the output directory (no LICENSE asset)"
