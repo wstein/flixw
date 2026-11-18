@@ -2502,7 +2502,7 @@ echo "unit checks"
 timing_phase_start fixture-compilation "javac UnitCheck and wrapper assets"
 javac -cp "$picocli_jar" -d "$work/unit" "$root/src/stage0/flixw.java" "$root/src/assets/flixw-cli.java" \
   "$root/src/assets/flixw-jdk.java" "$root/src/assets/flixw-examples.java" \
-  "$root/src/assets/flixw-local.java" "$root/tests/UnitCheck.java"
+  "$root/src/assets/flixw-inspect.java" "$root/src/assets/flixw-local.java" "$root/tests/UnitCheck.java"
 timing_phase_end
 timing_phase_start unit-runner "java UnitCheck (includes bounded timeout probes)"
 set +e

@@ -792,6 +792,73 @@ public final class UnitCheck {
     }
 
     /**
+     * Stage 0's request to the inspector, produced by the real {@code inspectContext} and read
+     * by the real {@code flixwinspect.read}: values with a backslash, a line break, a tab, an
+     * {@code =} or a trailing {@code :} must come back as they went in, for the one key
+     * ({@code cacheRoot}) and the one table ({@code systemJdks}) that carry filesystem paths.
+     */
+    static void inspectContract() throws Exception {
+        List<String> names = new ArrayList<>();
+        for (String n : new String[]{"plain", "back\\slash", "line\nbreak", "tab\there", "carriage\rreturn",
+                                     "eq=sign", "trailing:", "\\n literal", "a\\\nb"}) {
+            try { Paths.get("/uc-inspect/" + n); names.add(n); }
+            catch (java.nio.file.InvalidPathException e) { /* this platform cannot name it */ }
+        }
+        Path ctxFile = Files.createTempFile("uc-inspect-", ".txt");
+        Path jdks = Files.createTempDirectory("uc-inspect-jdks-");
+        for (String n : names) {
+            Path root = Paths.get("/uc-inspect/" + n);
+            // A JDK that exists, so the version comes from its release file and nothing is run.
+            Path exe = jdks.resolve(n).resolve("bin").resolve("java");
+            Files.createDirectories(exe.getParent());
+            Files.writeString(exe, "");
+            Files.writeString(exe.getParent().getParent().resolve("release"), "JAVA_VERSION=\"21.0.1\"\n");
+            String text = flixw.inspectContext(null, null, root, List.of(exe));
+            Files.writeString(ctxFile, text, StandardCharsets.UTF_8);
+            flixwinspect.Ctx c = flixwinspect.read(ctxFile);
+            String label = "inspect context: " + q(n) + " ";
+            eq(label + "cacheRoot", root.toString(), c.cacheRoot);
+            eq(label + "systemJdks rows", "1", String.valueOf(c.systemJdks.size()));
+            if (c.systemJdks.size() == 1) {
+                eq(label + "systemJdks columns", "3", String.valueOf(c.systemJdks.get(0).length));
+                eq(label + "systemJdks version", "21.0.1", c.systemJdks.get(0)[0]);
+                eq(label + "systemJdks path", exe.toString(), c.systemJdks.get(0)[1]);
+            }
+        }
+        // The version field: stage 0 states the layout it wrote, and the reader refuses one it
+        // does not know rather than reading it as the layout it does.
+        String text = flixw.inspectContext(null, null, Paths.get("/uc-inspect/x"), List.of());
+        eq("inspect context: first line is the version", "contract=1", text.split("\n", 2)[0]);
+        for (String bad : new String[]{"2", "-1", "x", "", " 1"}) {
+            Files.writeString(ctxFile, "contract=" + bad + "\ncacheRoot=/x\n", StandardCharsets.UTF_8);
+            Ran r = runInspect(ctxFile);
+            eq("inspect context: contract=" + q(bad) + " refused", "87", String.valueOf(r.rc()));
+            eq("inspect context: contract=" + q(bad) + " says why", "true",
+               String.valueOf(r.err().contains("context contract")));
+            eq("inspect context: contract=" + q(bad) + " prints nothing on stdout", "", r.out());
+        }
+        // A stage 0 from before the field wrote raw values; this reader still reads them raw.
+        Files.writeString(ctxFile, "cacheRoot=C:\\cache\\flixw\nwrapperVersion=1.0.0\n\nsystemJdks:\n"
+            + "21.0.1\tC:\\jdk\\bin\\java.exe\t\n", StandardCharsets.UTF_8);
+        flixwinspect.Ctx old = flixwinspect.read(ctxFile);
+        eq("inspect context: contract absent reads raw cacheRoot", "C:\\cache\\flixw", old.cacheRoot);
+        eq("inspect context: contract absent reads raw path", "C:\\jdk\\bin\\java.exe", old.systemJdks.get(0)[1]);
+    }
+
+    static Ran runInspect(Path ctx) throws Exception {
+        java.io.PrintStream realOut = System.out, realErr = System.err;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        java.io.ByteArrayOutputStream err = new java.io.ByteArrayOutputStream();
+        System.setOut(new java.io.PrintStream(out, true, StandardCharsets.UTF_8));
+        System.setErr(new java.io.PrintStream(err, true, StandardCharsets.UTF_8));
+        int rc;
+        try { rc = flixwinspect.run(new String[]{ctx.toString()}); }
+        catch (Throwable t) { rc = -1; System.err.println("threw " + t); }
+        finally { System.setOut(realOut); System.setErr(realErr); }
+        return new Ran(rc, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
+    }
+
+    /**
      * A missing curated spec, a broken one and a composition collision are three different
      * situations. Absent is the ordinary case and degrades without a word; broken and colliding
      * are defects in what was shipped, and are said out loud: a completion script is refused
@@ -2642,6 +2709,7 @@ public final class UnitCheck {
         guarded("specRepair", UnitCheck::specRepair);
         unifiedHelpRouting();
         companionContract();
+        guarded("inspectContract", UnitCheck::inspectContract);
         commandOwnership();
         editorJarPrefs();
         localCompilerPrefs();
