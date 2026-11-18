@@ -310,65 +310,18 @@ else
   bad "ci.yaml needs a top-level concurrency group (workflow, event, PR number or run id) with cancel-in-progress limited to pull_request"
 fi
 
-# --- 3c2b. the heavy CI matrix runs on a pull request only through the gate ---
-# ci.yaml keeps the light jobs on every pull request push and starts the heavy ones on push
-# to main and dispatch. ci-heavy.yaml starts them for a pull request, on a `labeled` event
-# of `ci-full` and after tests/ci-gate.sh accepted the head. What is pinned here is what a
-# YAML-blind reader would miss: the job sets, the trigger lists, the label condition, the
-# commit-pinned actions and the Windows job names release.yaml waits for. As above there is
-# no YAML parser: these are line reads of the files' own layout.
-wf="$root/.github/workflows"
+# --- 3c2b. the heavy CI matrix runs on a pull request only through the gate -
+# tests/ci-workflows-check.sh pins the light/heavy split of the workflow files and
+# tests/ci-gate-check.sh the fixtures of the gate script; both have opt-in mutation runs.
 heavy_ok=1
-jobs_of() { sed -n '/^jobs:/,$p' "$1" | sed -n 's/^  \([a-z][a-z-]*\):[[:space:]]*$/\1/p' | tr '\n' ' '; }
-[ "$(jobs_of "$wf/ci.yaml")" = "lint schema heavy windows " ] || {
-  bad "ci.yaml jobs are '$(jobs_of "$wf/ci.yaml")', want: lint schema heavy windows (a heavy job added here runs on every pull request push)"; heavy_ok=0; }
-[ "$(jobs_of "$wf/ci-heavy-jobs.yaml")" = "test shipped windows-suite suite-timing " ] || {
-  bad "ci-heavy-jobs.yaml jobs are '$(jobs_of "$wf/ci-heavy-jobs.yaml")', want: test shipped windows-suite suite-timing"; heavy_ok=0; }
-[ "$(jobs_of "$wf/ci-heavy.yaml")" = "unlabel gate heavy result " ] || {
-  bad "ci-heavy.yaml jobs are '$(jobs_of "$wf/ci-heavy.yaml")', want: unlabel gate heavy result"; heavy_ok=0; }
-# the heavy call in ci.yaml: skipped on a pull request, nothing else
-ci_heavy_job=$(sed -n '/^  heavy:/,/^  [a-z][a-z-]*:/p' "$wf/ci.yaml" | ci_norm)
-case $ci_heavy_job in
-  *"if:github.event_name!=pull_request"*"uses:./.github/workflows/ci-heavy-jobs.yaml"*) ;;
-  *) bad "ci.yaml's heavy job must be 'if: github.event_name != pull_request' and call ci-heavy-jobs.yaml"; heavy_ok=0 ;;
-esac
-if ! grep -q '^  workflow_call:' "$wf/ci-heavy-jobs.yaml" \
-   || sed -n '/^on:/,/^[a-z]/p' "$wf/ci-heavy-jobs.yaml" | grep -Eq '^  (push|pull_request|pull_request_target|workflow_dispatch|schedule):'; then
-  bad "ci-heavy-jobs.yaml must start on workflow_call only"; heavy_ok=0
-fi
-# the pull request trigger of the heavy workflow
-hv_on=$(sed -n '/^on:/,/^[a-z]/p' "$wf/ci-heavy.yaml" | grep -v '^[[:space:]]*#' | ci_norm | grep -v '^$' | tr '\n' ' ')
-[ "$hv_on" = "on: pull_request: types:[labeled,synchronize] permissions: " ] || {
-  bad "ci-heavy.yaml must start on pull_request [labeled, synchronize] and nothing else (got: $hv_on)"; heavy_ok=0; }
-if grep -Eq '^[[:space:]]*(pull_request_target|issue_comment|workflow_run):' "$wf/ci-heavy.yaml"; then
-  bad "ci-heavy.yaml must not use pull_request_target, issue_comment or workflow_run"; heavy_ok=0
-fi
-gate_if=$(sed -n '/^  gate:/,/^    runs-on:/p' "$wf/ci-heavy.yaml" | ci_norm | tr -d '\n')
-case $gate_if in
-  *"if:github.event.action==labeled&&github.event.label.name==ci-full"*) ;;
-  *) bad "ci-heavy.yaml's gate job must run only for the label event of ci-full"; heavy_ok=0 ;;
-esac
-grep -q 'needs: gate' "$wf/ci-heavy.yaml" || { bad "ci-heavy.yaml's heavy job must need the gate"; heavy_ok=0; }
-grep -q 'tests/ci-gate.sh gate' "$wf/ci-heavy.yaml" || { bad "ci-heavy.yaml's gate job must run tests/ci-gate.sh gate"; heavy_ok=0; }
-unpinned=$(sed -n 's/^[[:space:]-]*uses:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$wf/ci-heavy.yaml" \
-           | grep -Ev '^\./|@[0-9a-f]{40}$' || true)
-[ -z "$unpinned" ] || { bad "ci-heavy.yaml has actions that are not pinned to a commit: $unpinned"; heavy_ok=0; }
-# release.yaml's `promote` reads these job names from the CI run on the tag's commit
-rel_jobs=$(sed -n 's/.*for job in \(.*\); do$/\1/p' "$wf/release.yaml" | tr -d '"' | sed 's/ windows/\nwindows/g')
-for want in "windows suite (Git Bash)" "windows smoke"; do
-  if ! printf '%s\n' "$rel_jobs" | grep -qxF "$want" \
-     || ! cat "$wf/ci.yaml" "$wf/ci-heavy-jobs.yaml" | grep -qxF "    name: $want"; then
-    bad "release.yaml promote and ci.yaml/ci-heavy-jobs.yaml do not agree on the CI job '$want'"; heavy_ok=0
+for t in ci-workflows-check ci-gate-check; do
+  if sh "$root/tests/$t.sh" > "$work/$t.out" 2>&1; then
+    sed 's/^/      /' "$work/$t.out"
+  else
+    sed 's/^/      /' "$work/$t.out"
+    bad "tests/$t.sh fails"; heavy_ok=0
   fi
 done
-grep -q "sed 's|^heavy / ||'" "$wf/release.yaml" || {
-  bad "release.yaml must cut the 'heavy / ' prefix Actions puts on the called suite jobs"; heavy_ok=0; }
-if sh "$root/tests/ci-gate-check.sh" > "$work/ci-gate-check.out" 2>&1; then
-  sed 's/^/      /' "$work/ci-gate-check.out"
-else
-  sed 's/^/      /' "$work/ci-gate-check.out"
-  bad "tests/ci-gate-check.sh fails"; heavy_ok=0
-fi
 [ "$heavy_ok" = 1 ] && say "ok    the heavy CI jobs run on a pull request only through ci-heavy.yaml's gate"
 
 # --- 3c3. the README downloads the release its digest describes --------------
