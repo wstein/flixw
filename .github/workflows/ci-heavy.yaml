@@ -1,0 +1,127 @@
+name: CI heavy
+
+# The heavy matrix for a pull request, run only for a head that has been reviewed.
+#
+#   1. The review sets the label `ci-full` on the exact head after CLEAR. Only a `labeled`
+#      event of that label starts the matrix; no push, draft or ready event does.
+#   2. The gate job refuses unless a CLEAR comment of a repository member names this head,
+#      this PR and the patch-id of the PR diff (tests/ci-gate.sh). The label is the contract;
+#      the gate is the check that a stale or mistaken label does not run a head nobody reviewed.
+#   3. A push (`synchronize`) removes the label and cancels a running matrix of the PR.
+#      A label left over from an earlier head would start nothing anyway: it needs a new
+#      `labeled` event, and the gate would refuse the new head without its own CLEAR.
+#
+# `pull_request`, not `pull_request_target`: the PR code runs with the read-only token a
+# pull request gets and without secrets. There is no `issue_comment` or `workflow_run`
+# trigger. The gate script comes from the base commit, not from the PR, so a PR cannot
+# edit the check that admits it; the workflow file itself is read from the PR merge ref, as
+# for every `pull_request` workflow, so the label setter still decides.
+#
+# What the verdict means: `heavy-result` in the `result` job reads passed, failed, skipped
+# (gate refused), deferred or cancelled; only passed is green. No label means no run of this
+# workflow's jobs, which is deferred.
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+# One group per PR, so a push or a second `ci-full` label supersedes a running matrix. A
+# different label on the PR gets a group of its own by run id and cancels nothing.
+concurrency:
+  group: ci-heavy-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name != 'ci-full' && format('-other-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event.action == 'synchronize' || github.event.label.name == 'ci-full' }}
+
+jobs:
+  # A new head invalidates the authorization. Skipped for a fork: its token cannot write,
+  # and the gate refuses the new head for want of a CLEAR in any case.
+  unlabel:
+    name: remove ci-full after a push
+    if: >-
+      github.event.action == 'synchronize'
+      && contains(github.event.pull_request.labels.*.name, 'ci-full')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: remove the label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR" --remove-label ci-full
+
+  gate:
+    name: gate (CLEAR for this head)
+    if: github.event.action == 'labeled' && github.event.label.name == 'ci-full'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The script and nothing else from the base, so the PR cannot change what admits it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: tests/ci-gate.sh
+          sparse-checkout-cone-mode: false
+          path: base
+          persist-credentials: false
+      # The PR commits are data here: fetched for the diff, never built or run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+      - name: the gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          # The base tip can have moved past the history the head carries; the diff needs it.
+          git -C pr fetch --no-tags origin "$BASE"
+          current=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
+          pid=$(git -C pr diff "$BASE...$HEAD" | git patch-id --stable | cut -d' ' -f1)
+          [ -n "$pid" ] || { echo "the PR diff has no patch-id" >&2; exit 1; }
+          gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
+            --jq '.[] | "\(.author_association) \(.body | split("\n")[0])"' > records
+          echo "tested head $HEAD, current head $current, patch-id $pid"
+          sh base/tests/ci-gate.sh gate --head "$HEAD" --pr "$PR" --patch-id "$pid" \
+            --current-head "$current" records
+
+  heavy:
+    name: heavy
+    needs: gate
+    uses: ./.github/workflows/ci-heavy-jobs.yaml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+
+  result:
+    name: heavy-result
+    if: ${{ !cancelled() && github.event.action == 'labeled' && github.event.label.name == 'ci-full' }}
+    needs: [gate, heavy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: tests/ci-gate.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: verdict
+        env:
+          GATE: ${{ needs.gate.result }}
+          HEAVY: ${{ needs.heavy.result }}
+        run: |
+          verdict=$(sh tests/ci-gate.sh result "$GATE" "$HEAVY") && rc=0 || rc=$?
+          echo "$verdict"
+          echo "$verdict (head ${{ github.event.pull_request.head.sha }})" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
