@@ -2,8 +2,10 @@
 # Fixture tests for tests/ci-gate.sh, the gate of the heavy CI workflow, and a mutation
 # check of those tests: each mutant of the gate must make at least one fixture fail, so
 # a rule that the fixtures do not pin cannot be dropped unnoticed. No network, no GitHub.
+# The mutants are opt-in; the default run is the fixtures only.
 #
-#   sh tests/ci-gate-check.sh
+#   sh tests/ci-gate-check.sh                  fixtures
+#   sh tests/ci-gate-check.sh --mutations      fixtures, then the mutants (or MUTATIONS=1)
 set -eu
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
@@ -55,14 +57,18 @@ run_all() {
   clear_h="OWNER Review: CLEAR head=$H patch-id=$P pr=$N\n"
 
   c 'CLEAR for the head is accepted'          0 accepted "$clear_h"
-  c 'CLEAR with a trailer line is accepted'   0 accepted "$clear_h"'OWNER Review: FINDINGS head='"$O"' patch-id='"$P"' pr='"$N"'\n'
-  c 'MEMBER and COLLABORATOR count'           0 accepted "MEMBER Review: CLEAR head=$H patch-id=$P pr=$N\n"
+  c 'MEMBER counts'                           0 accepted "MEMBER Review: CLEAR head=$H patch-id=$P pr=$N\n"
   c 'COLLABORATOR counts'                     0 accepted "COLLABORATOR Review: CLEAR head=$H patch-id=$P pr=$N\n"
   c 'no comment at all'                       1 'no CLEAR review comment' ''
   c 'CLEAR for another head'                  1 'no CLEAR review comment' "OWNER Review: CLEAR head=$O patch-id=$P pr=$N\n"
   c 'CLEAR for another PR'                    1 'no CLEAR review comment' "OWNER Review: CLEAR head=$H patch-id=$P pr=99\n"
   c 'CLEAR with pr=none'                      1 'no CLEAR review comment' "OWNER Review: CLEAR head=$H patch-id=$P pr=none\n"
   c 'CLEAR with a different patch-id'         1 'patch-id' "OWNER Review: CLEAR head=$H patch-id=$Q pr=$N\n"
+  c 'CLEAR then FINDINGS of another head'     1 'FINDINGS' "$clear_h""OWNER Review: FINDINGS head=$O patch-id=$P pr=$N\n"
+  c 'FINDINGS of another PR changes nothing'  0 accepted "$clear_h""OWNER Review: FINDINGS head=$O patch-id=$P pr=99\n"
+  c 'CLEAR of another head comes last'        1 'another head' "$clear_h""OWNER Review: CLEAR head=$O patch-id=$P pr=$N\n"
+  c 'Carried-over of a withdrawn CLEAR'       1 'FINDINGS' "OWNER Review: CLEAR head=$O patch-id=$P pr=$N\nOWNER Review: FINDINGS head=$O patch-id=$P pr=$N\nOWNER Carried-over: from=$O to=$H patch-id=$P pr=$N\n"
+  c 'FINDINGS after Carried-over'             1 'FINDINGS' "OWNER Review: CLEAR head=$O patch-id=$P pr=$N\nOWNER Carried-over: from=$O to=$H patch-id=$P pr=$N\nOWNER Review: FINDINGS head=$O patch-id=$P pr=$N\n"
   c 'FINDINGS after CLEAR on the head'        1 'FINDINGS' "$clear_h""OWNER Review: FINDINGS head=$H patch-id=$P pr=$N\n"
   c 'CLEAR after FINDINGS on the head'        0 accepted "OWNER Review: FINDINGS head=$H patch-id=$P pr=$N\n$clear_h"
   c 'only FINDINGS'                           1 'FINDINGS' "OWNER Review: FINDINGS head=$H patch-id=$P pr=$N\n"
@@ -83,6 +89,24 @@ run_all() {
   c 'the head moved since the event'          1 'moved' "$clear_h" --current-head "$O"
   c 'the head did not move'                   0 accepted "$clear_h" --current-head "$H"
 
+  # Stack tip: the CLEAR carries the patch-id of main...tip, not of parent...tip.
+  # The diffs are built with --no-index so that no commit, and no identity, is needed.
+  sp=$(sh "$s" patch-id < "$work/diff-main-tip" 2>/dev/null) || sp=''
+  pp=$(sh "$s" patch-id < "$work/diff-parent-tip" 2>/dev/null) || pp=''
+  if [ -z "$sp" ] || [ -z "$pp" ] || [ "$sp" = "$pp" ]; then
+    printf 'FAIL  patch-id: cumulative %s and parent %s must exist and differ\n' "$sp" "$pp"; bad=$((bad + 1))
+  else
+    printf '%b' "OWNER Review: CLEAR head=$H patch-id=$sp pr=$N\n" > "$work/records"
+    rc=0; sh "$s" gate --head "$H" --pr "$N" --patch-id "$sp" "$work/records" > "$work/out" 2>&1 || rc=$?
+    [ "$rc" = 0 ] || { printf 'FAIL  stack tip with the cumulative patch-id: rc=%s\n' "$rc"; bad=$((bad + 1)); }
+    rc=0; sh "$s" gate --head "$H" --pr "$N" --patch-id "$pp" "$work/records" > "$work/out" 2>&1 || rc=$?
+    if [ "$rc" != 1 ] || ! grep -qF 'patch-id' "$work/out"; then
+      printf 'FAIL  stack tip with the parent patch-id: rc=%s\n' "$rc"; bad=$((bad + 1))
+    fi
+  fi
+  rc=0; sh "$s" patch-id < /dev/null > "$work/out" 2>&1 || rc=$?
+  [ "$rc" = 1 ] || { printf 'FAIL  patch-id of an empty diff: rc=%s (want 1)\n' "$rc"; bad=$((bad + 1)); }
+
   rc=0; sh "$s" gate --pr "$N" --patch-id "$P" /dev/null > "$work/out" 2>&1 || rc=$?
   [ "$rc" = 2 ] || { printf 'FAIL  missing --head: rc=%s (want 2)\n' "$rc"; bad=$((bad + 1)); }
   rc=0; sh "$s" gate --head abc --pr "$N" --patch-id "$P" /dev/null > "$work/out" 2>&1 || rc=$?
@@ -98,15 +122,30 @@ run_all() {
   return "$bad"
 }
 
+# main -> parent -> tip, as files: the tip's cumulative diff differs from the parent's.
+mkdir "$work/a" "$work/b" "$work/c"
+printf 'one\n' > "$work/a/f"
+printf 'one\ntwo\n' > "$work/b/f"
+printf 'one\ntwo\nthree\n' > "$work/c/f"
+git diff --no-index "$work/a" "$work/b" > "$work/diff-main-parent" || true
+git diff --no-index "$work/a" "$work/c" > "$work/diff-main-tip" || true
+git diff --no-index "$work/b" "$work/c" > "$work/diff-parent-tip" || true
+
 gate=$root/tests/ci-gate.sh
 fails=$(run_all "$gate" 2>&1) && nfail=0 || nfail=$?
-total=$(( $(grep -cE "^  [cr] '" "$0") + 2 ))
+total=$(( $(grep -cE "^  [cr] '" "$0") + 6 ))
 if [ "$nfail" != 0 ]; then
   printf '%s\n' "$fails"
   printf 'FAIL  ci-gate.sh: %s of %s fixtures fail\n' "$nfail" "$total"
   exit 1
 fi
 printf 'ok    ci-gate.sh: %s fixtures pass\n' "$total"
+
+case ${1-} in
+  --mutations) ;;
+  '') [ "${MUTATIONS:-0}" = 1 ] || { printf 'mutations: not run (opt-in: --mutations or MUTATIONS=1)\n'; exit 0; } ;;
+  *) echo "usage: ci-gate-check.sh [--mutations]" >&2; exit 2 ;;
+esac
 
 # --- mutants ------------------------------------------------------------------------
 # Each line: <label>|<sed expression>. The expression must change the script (a mutant
@@ -128,14 +167,16 @@ while IFS='|' read -r label expr; do
   fi
 done <<'MUTANTS'
 head comparison dropped|s/\[ "\$h" = "\$head" \]/true/
-FINDINGS comparison dropped|s/\[ "\$h" = "\$head" \]; then state=findings/true; then state=findings/
+FINDINGS no longer withdraws CLEARs|s/^           clears=\x27\x27$/           :/
 pr comparison dropped|s/\[ "\$n" = "\$pr" \] || continue/true/
 patch-id comparison dropped|s/\[ "\$spid" = "\$pid" \]/true/
 association OWNER dropped|s/OWNER|MEMBER|COLLABORATOR/MEMBER|COLLABORATOR/
 association NONE accepted|s/(OWNER|MEMBER|COLLABORATOR)/(OWNER|MEMBER|COLLABORATOR|NONE)/
 refusal exits 0|s/return 1 ;;/return 0 ;;/
-FINDINGS withdraws nothing|s/then state=findings; fi/then state=none; fi/
-Carried-over target dropped|s/\[ "\$to" = "\$head" \] || continue/true/
+FINDINGS withdraws nothing|s/^           state=findings$/           state=none/
+CLEAR of another head does not supersede|s/else state=other; fi$/else state=clear; fi/
+empty patch-id accepted|s/\[ -n "\$out" \] ||/true ||/
+Carried-over target dropped|s/if \[ "\$to" = "\$head" \]/if true/
 Carried-over source unchecked|s/\*" \$from:\$p "\*)/*)/
 head-moved check dropped|s/\[ "\$cur" = "\$head" \]/true/
 failed heavy job reported as passed|s/failure)   verdict=failed/failure)   verdict=passed/

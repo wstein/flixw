@@ -2,6 +2,7 @@
 # The gate of the heavy CI workflow (.github/workflows/ci-heavy.yaml).
 #
 #   ci-gate.sh gate --head <sha> --pr <n> --patch-id <hex> [--current-head <sha>] [records]
+#   git diff <default-branch>...<head> | ci-gate.sh patch-id
 #   ci-gate.sh result <gate-result> <heavy-result>
 #
 # gate: reads one record per PR comment, `<author_association> <first line of the body>`,
@@ -10,7 +11,8 @@
 # head after a CLEAR it names) for exactly this head and PR, and its patch-id is the one the
 # caller computed from the PR diff. The line has the fixed shape of the review protocol and
 # is matched whole: markdown, CRLF, other hex, other keys or text after the line do not match
-# and therefore authorize nothing. A later FINDINGS for the head withdraws a CLEAR. With
+# and therefore authorize nothing. The newest review line of the PR decides: a later FINDINGS
+# (of any head) withdraws every CLEAR before it, and a later CLEAR of another head supersedes. With
 # --current-head, a head that differs from --head (a push after the event) is refused.
 #
 # result: folds the two job results of the heavy workflow into one verdict line. Only
@@ -21,6 +23,7 @@ set -eu
 
 usage() {
   echo "usage: ci-gate.sh gate --head <sha> --pr <n> --patch-id <hex> [--current-head <sha>] [records]" >&2
+  echo "       ci-gate.sh patch-id < <diff>" >&2
   echo "       ci-gate.sh result <gate-result> <heavy-result>" >&2
   exit 2
 }
@@ -58,6 +61,8 @@ cmd_gate() {
     -e 's/^(OWNER|MEMBER|COLLABORATOR) Carried-over: from=([0-9a-f]{40}) to=([0-9a-f]{40}) patch-id=([0-9a-f]{40}) pr=([0-9]+)$/C \2 \3 \4 \5/p' \
     > "$parsed"
 
+  # The newest Review/Carried-over line of the PR decides, whatever head it names: a
+  # FINDINGS withdraws every CLEAR before it, and a CLEAR of another head supersedes this one.
   state=none spid='' clears=''
   while read -r kind a b c d; do
     case $kind in
@@ -65,15 +70,17 @@ cmd_gate() {
          [ "$n" = "$pr" ] || continue
          if [ "$verdict" = CLEAR ]; then
            clears="$clears $h:$p"
-           if [ "$h" = "$head" ]; then state=clear; spid=$p; fi
+           if [ "$h" = "$head" ]; then state=clear; spid=$p; else state=other; fi
          else
-           if [ "$h" = "$head" ]; then state=findings; fi
+           clears=''
+           state=findings
          fi ;;
       C) from=$a to=$b p=$c n=$d
          [ "$n" = "$pr" ] || continue
-         [ "$to" = "$head" ] || continue
          case " $clears " in
-           *" $from:$p "*) state=clear; spid=$p ;;
+           *" $from:$p "*)
+             clears="$clears $to:$p"
+             if [ "$to" = "$head" ]; then state=clear; spid=$p; else state=other; fi ;;
          esac ;;
     esac
   done < "$parsed"
@@ -85,12 +92,24 @@ cmd_gate() {
     findings)
       echo "ci-gate: refused: the newest review for head $head on PR $pr is FINDINGS" >&2
       return 1 ;;
+    other)
+      echo "ci-gate: refused: no CLEAR review comment for head $head on PR $pr; the newest review of the PR is for another head" >&2
+      return 1 ;;
   esac
   if ! [ "$spid" = "$pid" ]; then
     echo "ci-gate: refused: the CLEAR names patch-id $spid, the PR diff has $pid" >&2
     return 1
   fi
   echo "ci-gate: accepted head=$head pr=$pr patch-id=$pid"
+}
+
+# The patch-id of a diff on stdin (first field of `git patch-id --stable`). The caller feeds
+# it `git diff <default-branch>...<head>`: at a stack tip that is the cumulative diff, which
+# is what the review's patch-id names, not the diff against the parent branch.
+cmd_patch_id() {
+  out=$(git patch-id --stable | cut -d' ' -f1)
+  [ -n "$out" ] || { echo "ci-gate: the diff is empty, there is no patch-id" >&2; return 1; }
+  printf '%s\n' "$out"
 }
 
 cmd_result() {
@@ -120,6 +139,7 @@ sub=$1
 shift
 case $sub in
   gate)   cmd_gate "$@" ;;
+  patch-id) cmd_patch_id ;;
   result) cmd_result "$@" ;;
   *)      usage ;;
 esac
