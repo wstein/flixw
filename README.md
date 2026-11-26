@@ -1,7 +1,7 @@
 # flixw
 
 [![CI](https://github.com/wstein/flixw/actions/workflows/ci.yaml/badge.svg)](https://github.com/wstein/flixw/actions/workflows/ci.yaml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![bootstraps on Java 16+](https://img.shields.io/badge/bootstrap-java%2016%2B-orange.svg)](https://openjdk.org/projects/jdk/16/)
 [![Flix needs Java 21+](https://img.shields.io/badge/flix-java%2021%2B-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](src/stage0/flixw.java)
@@ -327,7 +327,8 @@ hello/
 `flixw`, `flixw.cmd`, `flixw.java`, `.gitignore` and `.sccignore` are byte-identical in
 every project on the same flixw release, so one published digest validates all five.
 `lock.toml` is yours, `.gitattributes` is yours with a block of ours in it, and
-`local/java` belongs to this machine alone.
+`local/java` belongs to this machine alone. The release archives add `.flixw/LICENSE`, which
+`install` does not write; after extracting one, `git add .flixw` commits it too.
 
 That block also marks the three files that carry code `linguist-vendored`, so GitHub's
 language graph reports your Flix rather than our Shell and Java. Vendored and not
@@ -383,7 +384,7 @@ not serve:
 base=https://github.com/wstein/flixw/releases/download/v0.34.9
 curl -fsSLO $base/flixw-0.34.9.tar.gz
 curl -fsSL  $base/SHA256SUMS | grep flixw-0.34.9.tar.gz | sha256sum -c -
-tar -xzf flixw-0.34.9.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java
+tar -xzf flixw-0.34.9.tar.gz        # flixw, flixw.cmd, .flixw/flixw.java, .flixw/LICENSE
 rm flixw-0.34.9.tar.gz
 ./flixw pin <version>               # writes the lock, fetches and verifies the compiler
                                     # 0.75.3 or v0.75.3 -- the release tag works too
@@ -717,5 +718,9 @@ than a test, and needs `gh`, `curl` and python3. See
 
 ## License
 
-MIT. These files are meant to be committed into other people's repositories; the license
-permits that without conditions beyond attribution.
+Apache-2.0. See [LICENSE](LICENSE). These files are meant to be committed into other
+people's repositories; the license permits that, provided the license text accompanies
+redistributed copies (section 4). Releases up to v0.34.9 were published under MIT.
+Apache-2.0 applies from the first release after v0.34.9.
+Third-party components keep their own licenses; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

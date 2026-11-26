@@ -18,6 +18,8 @@
 # 10. the size ratchet         stage 0 is shrinking to a verified launcher; the code-line
 #                              ceiling and the comment-density floor hold that, pulling
 #                              against each other so neither is met at the other's cost
+# 11. the corpus notices        THIRD_PARTY_NOTICES.md has the tests/corpus section, and its
+#                              license table matches the license values in tests/corpus
 set -eu
 
 # shellcheck disable=SC1007  # CDPATH is cleared for this command only; see src/stage0/flixw
@@ -85,6 +87,65 @@ elif ! grep -Fq "Apache License 2.0" "$notices"; then
   bad "THIRD_PARTY_NOTICES.md does not state picocli's licence"
 else
   say "ok    THIRD_PARTY_NOTICES.md agrees with the pinned picocli version and digest"
+fi
+
+# The third-party corpus: THIRD_PARTY_NOTICES.md has a tests/corpus section that names the
+# provenance file and lists the `license` values of the source manifests with their counts.
+# The counts are recomputed here from the flix.toml files, so a corpus refresh that changes
+# them fails until the section is updated. A table row reads `| <value> | <count> |`, and
+# every row must name a value that occurs in the tree. Only a license value in double quotes
+# is read; a value in single quotes would count as no license field (the tree has none).
+corpus=$root/tests/corpus
+nman=0
+tab=$work/corpus-licenses
+: > "$tab"
+for f in "$corpus"/*flix.toml; do
+  nman=$((nman + 1))
+  sed -n 's/^[[:space:]]*license[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | sed -n 1p >> "$tab"
+done
+nrepo=$(grep -v '^#' "$corpus/PROVENANCE.tsv" | cut -f2 | sort -u | wc -l | tr -d ' ')
+corpus_head='## Third-party flix.toml manifests (test corpus)'
+if ! grep -Fxq "$corpus_head" "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md has no section headed '$corpus_head'"
+elif ! grep -Fq 'tests/corpus/PROVENANCE.tsv' "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md has no tests/corpus section naming tests/corpus/PROVENANCE.tsv"
+elif ! grep -Fq "$nman manifests from $nrepo repositories" "$notices"; then
+  bad "THIRD_PARTY_NOTICES.md does not state '$nman manifests from $nrepo repositories' for tests/corpus"
+else
+  corpus_ok=1
+  nlic=$(wc -l < "$tab" | tr -d ' ')
+  grep -Fq "| (no license field) | $((nman - nlic)) |" "$notices" || {
+    bad "THIRD_PARTY_NOTICES.md does not state '(no license field)' for $((nman - nlic)) corpus manifests"
+    corpus_ok=0
+  }
+  # Rows of the section's table, to catch a value that no manifest carries any more.
+  awk -v h="$corpus_head" '$0 == h { on = 1; next } /^## / { on = 0 } on' "$notices" |
+    sed -n 's/^| \(.*\) | [0-9][0-9]* |$/\1/p' |
+    while IFS= read -r v; do
+      [ "$v" = "License field" ] && continue
+      if [ "$v" = "(no license field)" ]; then
+        [ "$((nman - nlic))" -gt 0 ] && continue
+      elif grep -Fxq -- "$v" "$tab"; then
+        continue
+      fi
+      printf 'FAIL  THIRD_PARTY_NOTICES.md lists corpus license '"'"'%s'"'"', which no tests/corpus manifest carries\n' "$v"
+    done > "$work/corpus-stale"
+  if [ -s "$work/corpus-stale" ]; then
+    cat "$work/corpus-stale"
+    fail=$((fail + $(wc -l < "$work/corpus-stale")))
+    corpus_ok=0
+  fi
+  while read -r n v; do
+    grep -Fq "| $v | $n |" "$notices" || {
+      bad "THIRD_PARTY_NOTICES.md does not list corpus license '$v' with count $n"
+      corpus_ok=0
+    }
+  done <<EOF2
+$(sort "$tab" | uniq -c)
+EOF2
+  if [ "$corpus_ok" = 1 ]; then
+    say "ok    THIRD_PARTY_NOTICES.md lists the corpus license counts ($nman manifests, $nrepo repositories)"
+  fi
 fi
 
 # --- 1. Java ---------------------------------------------------------------
@@ -238,6 +299,52 @@ else
   bad "upstream-cli must close its open drift issue only after rc=0"
 fi
 
+# --- 3c1a. only 0 and 1 are results of the upstream check -------------------
+# The check returns 0 clean, 1 drift, 2 unknown. The workflow's "could not determine" step
+# must run for every other value too (a status of 3, or none at all, is a script that broke),
+# or that run ends green without having looked at anything.
+if grep -Fq "if: steps.check.outputs.rc != '0' && steps.check.outputs.rc != '1'" "$upstream_cli"; then
+  say "ok    upstream-cli fails the run for any status other than 0 or 1"
+else
+  bad "upstream-cli must fail the run when the check's status is neither 0 nor 1"
+fi
+
+# The check itself maps incomplete extraction onto UNKNOWN; offline, a few seconds.
+if sh "$root/tests/upstream-cli-test.sh" >"$work/upstream-cli-test.log" 2>&1; then
+  say "ok    upstream-cli reports incomplete extraction as UNKNOWN ($(tail -1 "$work/upstream-cli-test.log"))"
+else
+  bad "tests/upstream-cli-test.sh"
+  cat "$work/upstream-cli-test.log"
+fi
+
+# The detector over 0.75.0-0.79.0 and a pinned master, from committed sources; offline.
+if sh "$root/tests/upstream-cli-matrix.sh" >"$work/upstream-cli-matrix.log" 2>&1; then
+  say "ok    upstream-cli historical matrix ($(tail -1 "$work/upstream-cli-matrix.log"))"
+else
+  bad "tests/upstream-cli-matrix.sh"
+  cat "$work/upstream-cli-matrix.log"
+fi
+
+# The history fixtures are compared by digest with upstream's bytes: a checkout that converts line
+# endings (core.autocrlf on Windows) would fail every digest, so the directory must be -text.
+if command -v git >/dev/null 2>&1 && git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+  attr_bad=
+  for f in tests/upstream/history/LICENSE.md tests/upstream/history/PROVENANCE.tsv; do
+    git -C "$root" check-attr text -- "$f" > "$work/attr.out" 2>/dev/null || :
+    grep -Fq ': text: unset' "$work/attr.out" || attr_bad="$attr_bad $f"
+  done
+  for d in "$root"/tests/upstream/history/*/; do
+    f=tests/upstream/history/$(basename "$d")/Main.scala
+    git -C "$root" check-attr text -- "$f" > "$work/attr.out" 2>/dev/null || :
+    grep -Fq ': text: unset' "$work/attr.out" || attr_bad="$attr_bad $f"
+  done
+  if [ -z "$attr_bad" ]; then
+    say "ok    tests/upstream/history/ is -text (no line-ending conversion of the fixtures)"
+  else
+    bad "tests/upstream/history/ must be -text in .gitattributes; not for:$attr_bad"
+  fi
+fi
+
 # --- 3c2. the workflows name files that still exist -------------------------
 # 3c catches a *verb* that moved.  The src/ split moved the *files* instead, and the
 # Windows job went on naming `src\flixw-setup.java` -- caught by CI rather than here,
@@ -291,6 +398,59 @@ if [ "$ci_group" = "$want_group" ] && [ "$ci_cancel" = "$want_cancel" ]; then
 else
   bad "ci.yaml needs a top-level concurrency group (workflow, event, PR number or run id) with cancel-in-progress limited to pull_request"
 fi
+
+# --- 3c2b. the heavy CI matrix runs on a pull request only through the gate -
+# tests/ci-workflows-check.sh pins the light/heavy split of the workflow files and
+# tests/ci-gate-check.sh the fixtures of the gate script, tests/ci-unlabel-check.sh the push
+# step of ci.yaml against a stub gh; each has an opt-in mutation run.
+heavy_ok=1
+for t in ci-workflows-check ci-gate-check ci-unlabel-check; do
+  if sh "$root/tests/$t.sh" > "$work/$t.out" 2>&1; then
+    sed 's/^/      /' "$work/$t.out"
+  else
+    sed 's/^/      /' "$work/$t.out"
+    bad "tests/$t.sh fails"; heavy_ok=0
+  fi
+done
+[ "$heavy_ok" = 1 ] && say "ok    the heavy CI jobs run on a pull request only through ci-heavy.yaml's gate"
+
+# --- 3c2c. the release carries the LICENSE -----------------------------------
+# tests/license-check.sh pins that pack.sh puts LICENSE into both archives and publishes it
+# in SHA256SUMS, and that release.yaml uploads it (Apache-2.0 section 4(a)).
+if sh "$root/tests/license-check.sh" > "$work/license-check.out" 2>&1; then
+  sed 's/^/      /' "$work/license-check.out"
+  say "ok    the release archives and assets carry LICENSE"
+else
+  sed 's/^/      /' "$work/license-check.out"
+  bad "tests/license-check.sh fails"
+fi
+# The archive mode of that script, against hand-built output: it must refuse a missing or
+# empty --archives value (rc 2, not a silent skip) and a LICENSE whose mode differs from
+# its neighbours' (a chmod after the cp survives every byte comparison).
+lc=$work/license-fixture
+rm -rf "$lc" && mkdir -p "$lc/s/.flixw" "$lc/o"
+cp "$root/LICENSE" "$lc/s/.flixw/LICENSE" && cp "$root/LICENSE" "$lc/o/LICENSE"
+: > "$lc/s/.flixw/flixw.java" && chmod 644 "$lc/s/.flixw/flixw.java" "$lc/s/.flixw/LICENSE"
+(cd "$lc/s" && tar -czf ../o/flixw-1.0.0.tar.gz .flixw)
+(cd "$lc/o" && $sum LICENSE > SHA256SUMS)
+lc_ok=1
+sh "$root/tests/license-check.sh" --archives "" >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 2 ] || { bad "license-check --archives \"\" must exit 2, got $rc"; lc_ok=0; }
+sh "$root/tests/license-check.sh" --archives >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 2 ] || { bad "license-check --archives without a value must exit 2, got $rc"; lc_ok=0; }
+chmod 600 "$lc/s/.flixw/LICENSE" && (cd "$lc/s" && tar -czf ../o/flixw-1.0.0.tar.gz .flixw)
+if sh "$root/tests/license-check.sh" --archives "$lc/o" 2>&1 | grep -q 'mode differs'; then :
+else bad "license-check --archives must fail a LICENSE whose mode differs from flixw.java's"; lc_ok=0; fi
+# The text mode accepts the other spellings of the same copy.
+for form in 'cp -- ' 'cp -p ' 'command cp ' '/bin/cp ' 'install -m 644 '; do
+  rm -rf "$lc/t" && mkdir -p "$lc/t/tests" "$lc/t/.github/workflows"
+  cp "$root/LICENSE" "$lc/t/" && cp "$root/.github/workflows/release.yaml" "$lc/t/.github/workflows/"
+  sed "s|^cp \"\$root/LICENSE\" \"\$stage/.flixw/LICENSE\"\$|$form\"\$root/LICENSE\" \"\$stage/.flixw/LICENSE\"|" \
+    "$root/tests/pack.sh" > "$lc/t/tests/pack.sh"
+  sh "$root/tests/license-check.sh" --root "$lc/t" >/dev/null 2>&1 \
+    || { bad "license-check text mode rejects the copy spelled '$form'"; lc_ok=0; }
+done
+[ "$lc_ok" = 1 ] && say "ok    license-check refuses an empty --archives and another mode, accepts cp spellings"
 
 # --- 3c3. the README downloads the release its digest describes --------------
 # The digest check below compares README against local source, which says nothing about

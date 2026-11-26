@@ -1,0 +1,111 @@
+name: CI heavy
+
+# The heavy matrix for a pull request, run only for a head that has been reviewed.
+#
+#   1. The review sets the label `ci-full` on the exact head after CLEAR. Only a `labeled`
+#      event starts this workflow. Every label event of the PR creates a run of it, and its
+#      jobs are skipped unless the label is `ci-full`; a push or a draft creates none.
+#   2. The gate job refuses unless the newest review comment of a repository member is a
+#      CLEAR for this head, this PR and the patch-id of the diff against the default branch
+#      (tests/ci-gate.sh). The label is the contract; the gate is the check that a stale or
+#      mistaken label does not run a head nobody reviewed.
+#   3. A push removes the label and cancels an older heavy run: that is the `unlabel` job
+#      of ci.yaml, which runs on every push. A label left over from an earlier head would
+#      start nothing anyway, since only a new `labeled` event starts this workflow.
+#
+# `pull_request`, not `pull_request_target`: the PR code runs with the read-only token a
+# pull request gets and without secrets. There is no `issue_comment` or `workflow_run`
+# trigger. The gate script is taken from the default branch, so a PR does not change it by
+# accident. That is a process guard and not a boundary: the workflow file itself is read from
+# the PR merge ref, as for every `pull_request` workflow, and an author with write access
+# can change this file. The person who sets the label decides.
+#
+# Reading it: this workflow is the heavy lane. Its verdict is the job `heavy-result`, read
+# per head; passed is the only green, and failed, skipped (gate refused), deferred and
+# cancelled are not. A run whose jobs are all skipped belongs to another label.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+# One group per PR, so a second `ci-full` supersedes a running matrix. A different label on
+# the PR gets a group of its own by run id and cancels nothing.
+concurrency:
+  group: ci-heavy-${{ github.event.pull_request.number }}${{ github.event.label.name != 'ci-full' && format('-other-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event.label.name == 'ci-full' }}
+
+jobs:
+  gate:
+    name: gate (CLEAR for this head)
+    if: github.event.label.name == 'ci-full'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The script and nothing else, from the default branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: tests/ci-gate.sh
+          sparse-checkout-cone-mode: false
+          path: trusted
+          persist-credentials: false
+      # The PR commits are data here: fetched for the diff, never built or run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+      - name: the gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          current=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
+          # The review's patch-id is of the diff against the default branch, which at a stack
+          # tip is the cumulative diff and not the diff against the parent branch.
+          git -C pr fetch --no-tags origin "+refs/heads/$DEFAULT:refs/remotes/origin/$DEFAULT"
+          pid=$(git -C pr diff "origin/$DEFAULT...$HEAD" | sh trusted/tests/ci-gate.sh patch-id)
+          gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
+            --jq '.[] | "\(.author_association) \(.body | split("\n")[0])"' > records
+          echo "tested head $HEAD, current head $current, patch-id $pid"
+          sh trusted/tests/ci-gate.sh gate --head "$HEAD" --pr "$PR" --patch-id "$pid" \
+            --current-head "$current" records
+
+  heavy:
+    name: heavy
+    needs: gate
+    uses: ./.github/workflows/ci-heavy-jobs.yaml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+
+  result:
+    name: heavy-result
+    if: ${{ !cancelled() && github.event.label.name == 'ci-full' }}
+    needs: [gate, heavy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: tests/ci-gate.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: verdict
+        env:
+          GATE: ${{ needs.gate.result }}
+          HEAVY: ${{ needs.heavy.result }}
+        run: |
+          verdict=$(sh tests/ci-gate.sh result "$GATE" "$HEAVY") && rc=0 || rc=$?
+          echo "$verdict"
+          echo "$verdict (head ${{ github.event.pull_request.head.sha }})" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"

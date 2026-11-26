@@ -24,6 +24,7 @@ the compiler's own `--help` text, so an uncurated or custom build never breaks.
 | `v0.77.0` | [`flix-0.77.0.picocli`](flix-0.77.0.picocli) | — | `install`/`remove` take one or more packages, `upgrade` any number; optional package on `eff-check`/`eff-lock`; `clean` no longer resolves dependencies; adds global `--pause-on-exit` |
 | `v0.78.0` | [`flix-0.77.0.picocli`](flix-0.77.0.picocli) | — | No change to the command line (`doc` prints a missing-documentation report) |
 | `v0.79.0` | [`flix-0.79.0.picocli`](flix-0.79.0.picocli) | — | `eff-check`/`eff-lock` without a package act on every dependency of the project, not every installed package |
+| `v0.80.0` | [`flix-0.80.0.picocli`](flix-0.80.0.picocli) | — | Adds `--Xsve`; removes `--Xsubeffecting` and benchmark flags |
 
 ## On-Demand Loading Architecture
 

@@ -23,6 +23,11 @@ flixw.cmd                    cmd.exe shim
 flix.jar                     for the VS Code Flix extension; NOT committed, see below
 ```
 
+One more file exists on one route only: the release archives (below) also carry
+`.flixw/LICENSE`, the license of the release, beside `.flixw/flixw.java`. `install` does not
+write it, so a project installed from an archive has a file that an installed one lacks, and
+`git add .flixw` there commits it.
+
 The installer also merges a marked block into `.gitattributes` — the seventh file, and the
 only one flixw shares rather than owns — preserving unrelated rules. The block pins the
 line endings of all six shipped files and marks the three that carry code — `flixw`,
@@ -56,9 +61,11 @@ a compiler, and discards every failure doing so — a note whose absence costs o
 startup optimisation is not worth a diagnostic, still less a failed build.
 
 **Installing from an archive.** A release also ships `flixw-<version>.tar.gz` and
-`flixw-<version>.zip`, whose contents are byte-identical to what `install` writes and are
-extracted at a project root. They carry the five invariant files and nothing else: the lock is yours to
-generate, and `.gitattributes` is omitted because `install` *merges* its block into
+`flixw-<version>.zip`, extracted at a project root. Their contents are byte-identical to what
+`install` writes, plus one file `install` does not write: `.flixw/LICENSE`, the license of
+the release (Apache-2.0 section 4(a)), kept inside `.flixw/` so that extraction does not
+replace the project's own `LICENSE`. They carry the five invariant files, that license and
+nothing else: the lock is yours to generate, and `.gitattributes` is omitted because `install` *merges* its block into
 whatever the project already has, while an archive can only overwrite. `./flixw doctor --fix` performs that merge afterwards, and
 `./flixw validate` reports the block as missing if it was skipped. The executable bit on
 `flixw` is carried by both archive formats.
@@ -784,6 +791,22 @@ Flix's own CLI structure changes — an option moves into a real `.children(...)
 command starts reading one it did not before — this curation will not notice on its own.
 `./flixw -- <verb> --help` always reaches the compiler directly for the unedited, current
 answer regardless.
+
+### The request to the inspector
+
+`info --verbose` and `wrapper --purge` hand the inspector (`flixw-inspect.java`) one
+temporary context file. Its first line is `contract=1`: values (`cacheRoot`,
+`wrapperVersion`, `upstreamRepo`, `lockSha256`) and every table column are escaped like the
+help context's (`\\`, `\t`, `\n`, `\r`), because `cacheRoot` and the `systemJdks` paths
+are filesystem paths and may hold any of them. Without the field the layout is the raw one
+older stage 0 releases wrote, and this inspector still reads it raw. Any other value
+(higher, negative, non-numeric, empty, or with a space) is refused with a diagnostic on
+stderr and exit 87, nothing on stdout.
+
+An inspector from before the field cannot refuse: it ignores `contract` and reads every
+value that needs no escape as written, and shows one with a backslash, tab or line break
+escaped. Stage 0 and the inspector are fetched from the same release and digest-verified,
+so the pairing arises only under `FLIXW_ASSET_SOURCE` or a source launch.
 
 ### The request to the renderer
 

@@ -83,6 +83,13 @@ final class flixwinspect {
             throw new Exit(87);
         }
         Ctx c = read(Paths.get(args[0]));
+        if (c.contract < 0 || c.contract > CONTRACT) {
+            System.err.println("flixw: stage 0 sent inspection context contract " + c.contractText
+                + "; this inspector reads contract " + CONTRACT + " and, for contract 0 (no field), the raw layout");
+            System.err.println("       stage 0 and its companion assets are from different flixw releases;"
+                + " run: ./flixw wrapper --upgrade");
+            throw new Exit(87);
+        }
         if (args.length == 4) {
             if (!args[1].equals("--purge")) {
                 System.err.println("usage: java flixw-inspect.java <context-file> [--purge <days> <--ask|--yes>]");
@@ -112,8 +119,20 @@ final class flixwinspect {
      * a parser: a format that needs 60 lines of reader to carry six fields and two tables
      * would cost more than it documents. Keys are {@code key=value}; tables are
      * {@code name:} followed by tab-separated rows, ended by a blank line.
+     *
+     * <p>{@code contract=1}, the first line, says values are escaped (backslash, tab, line
+     * feed, carriage return); absent is the raw layout older stage 0 releases wrote. Another
+     * number is refused in {@link #body}. A stage 0 older than this field cannot be refused
+     * by the reader it never had, so the reverse pairing -- old inspector, new context --
+     * reads every value that needs no escape correctly and shows the others escaped.
      */
+    static final int CONTRACT = 1;
+
     static final class Ctx {
+        /** The {@code contract} field: 0 when absent, -1 when it is not a number. */
+        int contract;
+        /** The field as written, for the diagnostic. */
+        String contractText = "";
         String cacheRoot = "", wrapperVersion = "", upstreamRepo = "", lockSha256 = "";
         /** plugin name to {@code version-sha256}, as the lock declares it. */
         Map<String, String> lockPlugins = new LinkedHashMap<>();
@@ -126,9 +145,10 @@ final class flixwinspect {
     static Ctx read(Path file) throws IOException {
         Ctx c = new Ctx();
         String table = null;
+        String contract = null;
         for (String line : Files.readString(file, StandardCharsets.UTF_8).split("\n")) {
             if (line.isEmpty()) { table = null; continue; }
-            if (line.endsWith(":") && !line.contains("=")) { table = line.substring(0, line.length() - 1); continue; }
+            if (line.endsWith(":") && !line.contains("=") && !line.contains("\t")) { table = line.substring(0, line.length() - 1); continue; }
             if (table != null) {
                 String[] row = line.split("\t", -1);
                 switch (table) {
@@ -143,6 +163,7 @@ final class flixwinspect {
             if (eq < 0) continue;
             String k = line.substring(0, eq), v = line.substring(eq + 1);
             switch (k) {
+                case "contract" -> contract = v;
                 case "cacheRoot" -> c.cacheRoot = v;
                 case "wrapperVersion" -> c.wrapperVersion = v;
                 case "upstreamRepo" -> c.upstreamRepo = v;
@@ -150,7 +171,32 @@ final class flixwinspect {
                 default -> { }
             }
         }
+        c.contractText = contract == null ? "" : contract;
+        try { c.contract = contract == null ? 0 : Integer.parseInt(contract); }
+        catch (NumberFormatException e) { c.contract = -1; }
+        if (c.contract < 1) return c;
+        c.cacheRoot = unesc(c.cacheRoot);
+        c.wrapperVersion = unesc(c.wrapperVersion);
+        c.upstreamRepo = unesc(c.upstreamRepo);
+        c.lockSha256 = unesc(c.lockSha256);
+        Map<String, String> plugins = new LinkedHashMap<>();
+        c.lockPlugins.forEach((k, v) -> plugins.put(unesc(k), unesc(v)));
+        c.lockPlugins = plugins;
+        for (List<String[]> rows : List.of(c.cachedJdks, c.systemJdks))
+            for (String[] row : rows) for (int i = 0; i < row.length; i++) row[i] = unesc(row[i]);
         return c;
+    }
+
+    /** Reverses stage 0's {@code esc}; the two are a pair and change together. */
+    static String unesc(String s) {
+        StringBuilder out = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch != '\\' || i + 1 >= s.length()) { out.append(ch); continue; }
+            char next = s.charAt(++i);
+            out.append(switch (next) { case 't' -> '\t'; case 'n' -> '\n'; case 'r' -> '\r'; default -> next; });
+        }
+        return out.toString();
     }
 
     static Path cache(Ctx c, String... parts) {

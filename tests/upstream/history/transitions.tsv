@@ -1,0 +1,17 @@
+# from	to	exit	class	changes	marker
+# class identical: both sources are byte-for-byte the same, so no detector could tell the revisions apart.
+# class detected:  the surface changed; changes lists every +added / -removed entry, '|' between entries.
+# marker: for class blind, text quoted from the Main.scala diff of the pair (present in the newer file, absent from the older).
+# class blind:     sources differ, the surface does not (exit 0); the behaviour changed anyway, as recorded
+#                  in the "Version findings" of wstein/flixw#16. The detector's silence there is the expected
+#                  result, and what separates a structural match from a behavioural one.
+v0.75.0	v0.75.1	0	identical	-	-
+v0.75.1	v0.75.2	1	detected	+opt Unit Xnewmono	-
+v0.75.2	v0.75.3	1	detected	+cmd - build-classes	-
+v0.75.3	v0.76.0	1	detected	+cmd - stat|-opt Unit Xsummary|+opt Unit Xverify|+opt Unit version	-
+v0.76.0	v0.76.1	0	blind	-	Cannot load '${file.getName}'. Flix packages and Java archives must be declared in
+v0.76.1	v0.76.2	1	detected	+arg String package|+cmd - install|+cmd - remove|+cmd - upgrade|+opt Unit library	-
+v0.76.2	v0.77.0	1	detected	+arg String <package>...|+opt Unit pause-on-exit	-
+v0.77.0	v0.78.0	0	blind	-	checkMissingDocs
+v0.78.0	v0.79.0	0	blind	-	Defaults to every dependency of the project.
+v0.79.0	master-preview	1	detected	-enum Subeffecting InsDefs|-enum Subeffecting Lambdas|-enum Subeffecting ModDefs|-opt Subeffecting Xsubeffecting|-opt Unit Xbenchmark-code-size|-opt Unit Xbenchmark-frontend|-opt Unit Xbenchmark-incremental|-opt Unit Xbenchmark-phases|-opt Unit Xbenchmark-throughput|+opt SveMode Xsve|+opt Unit all|+opt Unit seq	-

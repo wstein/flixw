@@ -56,8 +56,9 @@ cd /tmp/proj && ./flixw pin 0.75.3         # writes .flixw/lock.toml; downloads 
 ```
 
 A release ships the same three files as two archives plus `flixw.java`; `sh tests/pack.sh
-<dir>` builds them by running `install` into a staging directory and packing the result, so
-the archive route cannot drift from the install route. `.github/workflows/release.yaml`
+<dir>` builds them by running `install` into a staging directory, adding `.flixw/LICENSE`
+(the one file `install` does not write) and packing the result, so the archive route differs
+from the install route by that file only. `.github/workflows/release.yaml`
 runs it on a `v*` tag and refuses to publish if the tag and `WRAPPER_VERSION` disagree.
 
 **Publishing and verifying are two separate jobs, because the regression suite is a ~30
@@ -89,6 +90,37 @@ tag publishes can be inspected before it is; CI builds it on every commit, becau
 is a bad moment to discover the docs do not build. `.github/workflows/pages.yaml` runs it,
 checking the tag against `WRAPPER_VERSION` exactly as the release does: locks in other
 people's repositories already point at the schema URL this serves.
+
+**CI is split into light and heavy jobs.** Durations are from run 43765059941 (PR #61).
+
+| Class | Jobs (workflow) | Starts on | Runner minutes |
+|---|---|---|---|
+| light | `lint`, `schema (taplo)`, `windows smoke` (workflow `CI`, `ci.yaml`) | every pull request push, push to `main`, dispatch | about 2 |
+| heavy | `test` x3 (ubuntu java 21, macos java 21, ubuntu java 26), `the stage 0 that ships`, `windows suite (Git Bash)`, `suite timing report` (`ci-heavy-jobs.yaml`) | push to `main` and dispatch, via `ci.yaml`; a pull request only via workflow `CI heavy` (`ci-heavy.yaml`) | about 93 |
+
+Light means the workflow `CI`; its `heavy` job is skipped by its condition on a pull request, which
+is expected. `CI heavy` is the heavy lane and is read only through its job `heavy-result`, per
+head: passed, failed, skipped (gate refused), deferred (gate did not run) or cancelled, and only
+passed is green. It starts on a `labeled` event, so every label added to a pull request creates a
+run of it, whose jobs are skipped unless the label is `ci-full`; a push or a draft creates none.
+The reviewer (or a helper, per the owner's standing rule for that one operation) sets `ci-full`
+after an independent CLEAR on the exact head of the stack tip. Its `gate` job refuses the run
+unless the newest `Review:` or `Carried-over:` line of the PR, from an owner, member or
+collaborator, is a CLEAR for the current head and the PR number, carries the patch-id of the
+diff against the default branch (cumulative at a stack tip), and no FINDINGS followed it
+(`tests/ci-gate.sh`; markdown, CRLF or any other shape does not match). The matrix is checked
+out at the reviewed head, not at the merge with the base. A push removes the label and cancels a
+heavy run of an older head (job `unlabel` in `ci.yaml`; for a fork PR the label stays and the
+gate refuses the new head). There is one heavy run per PR at a time and no repository-wide cap.
+The gate cannot tell author from reviewer, since all comments come from one account, and it is
+a process guard: a pull request runs its own copy of the workflow files, so an author with write
+access can change the gate, and the person who sets the label decides.
+After a rebase with the same patch-id the gate admits the new head only with an explicit
+`Carried-over:` line, stricter than the review rules, which also accept the same patch-id alone.
+`release.yaml` reads `windows suite (Git Bash)` and `windows smoke` from the `ci.yaml` run on the
+tag's commit; the first appears there as `heavy / windows suite (Git Bash)`.
+`sh tests/ci-workflows-check.sh`, `sh tests/ci-gate-check.sh` and `sh tests/ci-unlabel-check.sh` (run by `tests/lint.sh`) pin
+this; `--mutations` runs their opt-in mutants.
 
 Before a commit, run the fast local gate:
 

@@ -147,13 +147,16 @@ jobs:
   shipped:
     name: the stage 0 that ships
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      actions: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
-      - name: strip stage 0 in place
+      - name: remove the label, cancel older heavy runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           version=$(sed -n 's/.*WRAPPER_VERSION = "\([^"]*\)".*/\1/p' src/stage0/flixw.java | head -1)
           java tests/strip.java src/stage0/flixw.java "$version" > "$RUNNER_TEMP/flixw.java"

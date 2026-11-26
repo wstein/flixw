@@ -92,11 +92,12 @@ jobs:
             printf '## Or the archive, if you would rather not run a downloaded program first\n\n'
             printf '```console\ncurl -fsSLO https://github.com/%s/releases/download/%s/flixw-%s.tar.gz\n' \
                    "$GITHUB_REPOSITORY" "$TAG" "$version"
-            printf 'tar -xzf flixw-%s.tar.gz   # writes flixw, flixw.cmd, .flixw/flixw.java\n' "$version"
+            printf 'tar -xzf flixw-%s.tar.gz   # writes flixw, flixw.cmd, .flixw/flixw.java, .flixw/LICENSE\n' "$version"
             printf './flixw pin <flix-version>\n./flixw doctor --fix\n```\n\n'
             printf 'A `.zip` with the same contents is attached for machines without `tar`. '
-            printf 'Both archives are built by running the installer into a staging directory, '
-            printf 'so the archive route cannot drift from the install route.\n\n'
+            printf 'Both archives are built by running the installer into a staging directory '
+            printf 'and adding `.flixw/LICENSE`, the license of this release, which the '
+            printf 'installer does not write; `LICENSE` is attached as well.\n\n'
             printf '## The companion assets\n\n'
             printf 'The `flixw-*.java` assets are companion programs, fetched on first use '
             printf 'per machine and verified against the digests below. They are not '
@@ -147,7 +148,7 @@ jobs:
 
       # The assets must not be able to disagree with the source they were cut from, so
       # the same checks that gate a commit gate a release. Nothing here is a smoke test:
-      # run.sh is what proves the archives unpack to exactly what `install` writes.
+      # run.sh is what proves the archives unpack to what `install` writes plus .flixw/LICENSE.
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: sh tests/lint.sh
       - run: sh tests/run.sh
@@ -227,7 +228,9 @@ jobs:
           [ "$conclusion" = success ] || {
             echo "CI run $id for $sha concluded $conclusion; not promoting" >&2; exit 1; }
           jobs=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json jobs \
-                   --jq '.jobs[] | "\(.name)=\(.conclusion)"')
+                   --jq '.jobs[] | "\(.name)=\(.conclusion)"' | sed 's|^heavy / ||')
+          # The suite jobs are called from ci.yaml as `heavy`, and Actions names a called
+          # job `heavy / <name>`; the prefix is cut so the names below stay the jobs' own.
           for job in "windows suite (Git Bash)" "windows smoke"; do
             printf '%s\n' "$jobs" | grep -qxF "$job=success" || {
               echo "CI run $id has no successful '$job' job; not promoting" >&2; exit 1; }
